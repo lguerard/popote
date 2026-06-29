@@ -56,8 +56,10 @@ jobs:
 
       - name: Determine next version
         id: version
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          NEXT=$(git cliff --bumped-version 2>/dev/null || echo "v0.1.0")
+          NEXT=$(git cliff --bumped-version --github-token "$GITHUB_TOKEN" 2>/dev/null || echo "v0.1.0")
           echo "tag=$NEXT" >> "$GITHUB_OUTPUT"
           # versionCode: major*10000 + minor*100 + patch
           SEMVER="${NEXT#v}"
@@ -68,8 +70,11 @@ jobs:
 
       - name: Generate changelog for this release
         id: changelog
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           git cliff --tag "${{ steps.version.outputs.tag }}" --unreleased --strip all \
+            --github-token "$GITHUB_TOKEN" \
             -o RELEASE_NOTES.md
           echo "Generated RELEASE_NOTES.md"
 

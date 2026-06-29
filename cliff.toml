@@ -10,11 +10,20 @@ body = """
 ## [Non publié]
 {% endif %}\
 {% for group, commits in commits | group_by(attribute="group") %}
-### {{ group | upper_first }}
-{% for commit in commits %}
-- {% if commit.scope %}**{{ commit.scope }}**: {% endif %}{{ commit.message | upper_first }}\
+### {{ group }}
+
+{% for commit in commits %}\
+- {% if commit.scope %}**{{ commit.scope }}**: {% endif %}\
+{{ commit.message | split(pat="\n") | first }}
 {% endfor %}
-{% endfor %}\n
+{% endfor %}\
+{% if github.contributors | length > 0 %}
+### 👥 Contributeurs
+
+{% for contributor in github.contributors | sort(attribute="username") %}\
+* @{{ contributor.username }}
+{% endfor %}
+{% endif %}\
 """
 footer = ""
 trim = true
@@ -23,6 +32,9 @@ trim = true
 conventional_commits = true
 filter_unconventional = true
 split_commits = false
+commit_preprocessors = [
+  { pattern = "(\\w+(?:\\([^)]*\\))?!?:\\s+)[^\\w\\s]+\\s*", replace = "$1" },
+]
 commit_parsers = [
   { message = "^feat",     group = "✨ Nouveautés" },
   { message = "^fix",      group = "🐛 Corrections" },
@@ -31,6 +43,7 @@ commit_parsers = [
   { message = "^docs",     group = "📝 Documentation" },
   { message = "^ci",       group = "👷 CI/CD" },
   { message = "^build",    group = "🏗️ Build" },
+  { message = "^chore\\(version\\)|^chore: bump version", skip = true },
   { message = "^chore",    skip = true },
   { message = "^style",    skip = true },
   { message = "^wip",      skip = true },
@@ -38,7 +51,8 @@ commit_parsers = [
 protect_breaking_commits = false
 filter_commits = true
 tag_pattern = "v[0-9].*"
-skip_tags = ""
-ignore_tags = ""
-topo_order = false
 sort_commits = "oldest"
+
+[remote.github]
+owner = "lguerard"
+repo = "popote"
