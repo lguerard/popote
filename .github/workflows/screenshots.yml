@@ -1,0 +1,87 @@
+name: Screenshots
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "android/app/src/main/**"
+      - "scripts/mock_server.py"
+      - "scripts/take_screenshots.sh"
+      - ".github/workflows/screenshots.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  screenshots:
+    name: Capture Android screenshots
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Start mock backend
+        run: python3 scripts/mock_server.py &
+
+      - name: Verify mock server is up
+        run: |
+          for i in $(seq 1 10); do
+            curl -sf http://localhost:8000/api/health && break
+            sleep 1
+          done
+
+      - uses: actions/setup-java@v4
+        with:
+          java-version: "17"
+          distribution: temurin
+          cache: gradle
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - run: chmod +x android/gradlew
+
+      - name: Build debug APK (mock server URL)
+        run: |
+          ./gradlew assembleDebug --no-daemon \
+            -PserverUrl=http://10.0.2.2:8000
+        working-directory: android
+
+      - name: Enable KVM for emulator
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Run emulator and capture screenshots
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 31
+          arch: x86_64
+          profile: pixel_5
+          target: google_apis
+          force-avd-creation: false
+          emulator-options: >-
+            -no-snapshot-save
+            -no-audio
+            -no-boot-anim
+            -gpu swiftshader_indirect
+          disable-animations: true
+          script: |
+            adb install android/app/build/outputs/apk/debug/app-debug.apk
+            bash scripts/take_screenshots.sh
+
+      - name: Commit screenshots
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add screenshots/android/
+          if git diff --cached --quiet; then
+            echo "No screenshot changes."
+          else
+            git commit -m "docs(screenshots): 📷 auto-update Android screenshots [skip ci]"
+            git push
+          fi

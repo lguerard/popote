@@ -15,7 +15,7 @@ import java.util.concurrent.TimeUnit
 
 val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "settings")
 val SERVER_URL_KEY = stringPreferencesKey("server_url")
-const val DEFAULT_SERVER_URL = "https://popote.guyluron.fr"
+val DEFAULT_SERVER_URL: String get() = com.kitchenai.BuildConfig.DEFAULT_SERVER_URL
 
 class ApiClient(context: Context) {
     private val dataStore = context.dataStore

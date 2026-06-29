@@ -4,6 +4,9 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 
+val serverUrl = (project.findProperty("serverUrl") as String?)
+    ?: "https://popote.guyluron.fr"
+
 android {
     namespace = "com.kitchenai"
     compileSdk = 35
@@ -17,11 +20,19 @@ android {
     }
 
     buildTypes {
+        debug {
+            buildConfigField("String", "DEFAULT_SERVER_URL", "\"$serverUrl\"")
+        }
         release {
+            buildConfigField("String", "DEFAULT_SERVER_URL", "\"$serverUrl\"")
             isMinifyEnabled = true
-            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+            )
         }
     }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
@@ -31,6 +42,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 
