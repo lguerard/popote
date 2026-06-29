@@ -80,12 +80,12 @@ fun AchievementsScreen(onBack: () -> Unit, vm: AchievementsViewModel = viewModel
 
             // By category
             CATEGORY_LABELS.forEach { (cat, label) ->
-                val items = grouped[cat] ?: return@forEach
+                val catItems = grouped[cat] ?: return@forEach
                 item(key = "header_$cat") {
                     Text(label, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                items(items, key = { it.id }) { ach ->
+                items(catItems, key = { it.id }) { ach ->
                     AchievementCard(ach)
                 }
             }

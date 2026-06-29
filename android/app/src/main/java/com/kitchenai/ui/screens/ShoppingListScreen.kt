@@ -64,7 +64,7 @@ class ShoppingListViewModel(app: Application) : AndroidViewModel(app) {
 @Composable
 fun ShoppingListScreen(onBack: () -> Unit, vm: ShoppingListViewModel = viewModel()) {
     val recipes by vm.recipes.collectAsState()
-    val items by vm.items.collectAsState()
+    val shoppingItems by vm.items.collectAsState()
     val selected by vm.selectedIds.collectAsState()
     val loading by vm.loading.collectAsState()
     val checkedItems = remember { mutableStateMapOf<String, Boolean>() }
@@ -75,16 +75,16 @@ fun ShoppingListScreen(onBack: () -> Unit, vm: ShoppingListViewModel = viewModel
                 title = { Text("🛒 Liste de courses") },
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Retour") } },
                 actions = {
-                    if (items != null) {
+                    if (shoppingItems != null) {
                         TextButton(onClick = vm::reset) { Text("Modifier") }
                     }
                 },
             )
         }
     ) { padding ->
-        if (items != null) {
-            val unchecked = items!!.filter { checkedItems[it.name] != true }
-            val done = items!!.filter { checkedItems[it.name] == true }
+        if (shoppingItems != null) {
+            val unchecked = shoppingItems!!.filter { checkedItems[it.name] != true }
+            val done = shoppingItems!!.filter { checkedItems[it.name] == true }
             LazyColumn(Modifier.padding(padding).fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 items(unchecked, key = { it.name }) { item ->
                     ShoppingItemRow(item, false) { checkedItems[item.name] = true }
