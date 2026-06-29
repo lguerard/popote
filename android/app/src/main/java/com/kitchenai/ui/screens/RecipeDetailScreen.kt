@@ -13,6 +13,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -194,7 +195,7 @@ fun RecipeDetailScreen(
                     if (recipe != null) {
                         IconButton(onClick = vm::toggleFavorite) {
                             Icon(
-                                if (recipe!!.is_favorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                                if (recipe!!.is_favorite) Icons.Default.Favorite else Icons.Outlined.FavoriteBorder,
                                 "Favori",
                                 tint = if (recipe!!.is_favorite) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
                             )
