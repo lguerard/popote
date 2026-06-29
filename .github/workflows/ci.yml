@@ -24,9 +24,10 @@ jobs:
           distribution: temurin
           cache: gradle
 
-      - uses: gradle/actions/setup-gradle@v4
-
       - run: chmod +x android/gradlew
+
+      - name: Set up Android SDK path
+        run: echo "sdk.dir=$ANDROID_HOME" > android/local.properties
 
       - name: Build debug APK
         run: ./gradlew assembleDebug --no-daemon
@@ -82,9 +83,10 @@ jobs:
           distribution: temurin
           cache: gradle
 
-      - uses: gradle/actions/setup-gradle@v4
-
       - run: chmod +x android/gradlew
+
+      - name: Set up Android SDK path
+        run: echo "sdk.dir=$ANDROID_HOME" > android/local.properties
 
       - name: Prepare keystore
         id: keystore
