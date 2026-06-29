@@ -82,13 +82,19 @@ fun HomeScreen(
         Column(Modifier.padding(padding)) {
             // Search
             SearchBar(
-                query = search,
-                onQueryChange = vm::onSearchChange,
-                onSearch = {},
-                active = false,
-                onActiveChange = {},
-                placeholder = { Text("Rechercher une recette…") },
-                leadingIcon = { Icon(Icons.Default.Search, null) },
+                inputField = {
+                    SearchBarDefaults.InputField(
+                        query = search,
+                        onQueryChange = vm::onSearchChange,
+                        onSearch = {},
+                        expanded = false,
+                        onExpandedChange = {},
+                        placeholder = { Text("Rechercher une recette…") },
+                        leadingIcon = { Icon(Icons.Default.Search, null) },
+                    )
+                },
+                expanded = false,
+                onExpandedChange = {},
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
             ) {}
 
