@@ -37,24 +37,16 @@ jobs:
         with:
           java-version: "17"
           distribution: temurin
-          cache: gradle
 
-      - run: chmod +x android/gradlew
-
-      - name: Fix gradle-wrapper.jar
-        run: |
-          curl -fsSL https://downloads.gradle.org/distributions/gradle-8.11.1-wrapper.jar \
-            -o android/gradle/wrapper/gradle-wrapper.jar
-          echo "2db75c40782f5e8ba1fc278a5574bab070adccb2d21ca5a6e5ed840888448046  android/gradle/wrapper/gradle-wrapper.jar" \
-            | sha256sum -c
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.11.1"
 
       - name: Set up Android SDK path
         run: echo "sdk.dir=$ANDROID_HOME" > android/local.properties
 
       - name: Build debug APK (mock server URL)
-        run: |
-          ./gradlew assembleDebug --no-daemon \
-            -PserverUrl=http://10.0.2.2:8000
+        run: gradle assembleDebug --no-daemon -PserverUrl=http://10.0.2.2:8000
         working-directory: android
 
       - name: Enable KVM for emulator
