@@ -27,10 +27,15 @@ jobs:
       - run: chmod +x android/gradlew
 
       - name: Set up Android SDK path
-        run: echo "sdk.dir=$ANDROID_HOME" > android/local.properties
+        run: |
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          echo "sdk.dir=$ANDROID_HOME" > android/local.properties
+          cat android/local.properties
+          java -version
+          ls -la android/gradlew
 
       - name: Build debug APK
-        run: ./gradlew assembleDebug --no-daemon
+        run: ./gradlew assembleDebug --no-daemon --stacktrace
         working-directory: android
 
       - uses: actions/upload-artifact@v4
