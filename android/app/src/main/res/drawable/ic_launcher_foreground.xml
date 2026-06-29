@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Pot body -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M30,52 L30,80 Q30,84 34,84 L74,84 Q78,84 78,80 L78,52 Q78,48 74,48 L34,48 Q30,48 30,52 Z"/>
+    <!-- Pot lid -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M26,48 L82,48 Q84,48 84,46 L84,44 Q84,42 82,42 L26,42 Q24,42 24,44 L24,46 Q24,48 26,48 Z"/>
+    <!-- Lid handle -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M46,42 L62,42 Q62,36 54,36 Q46,36 46,42 Z"/>
+    <!-- Left handle -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M22,56 L30,56 L30,68 L22,68 Q18,68 18,62 Q18,56 22,56 Z"/>
+    <!-- Right handle -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M86,56 L78,56 L78,68 L86,68 Q90,68 90,62 Q90,56 86,56 Z"/>
+    <!-- Steam lines -->
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="3"
+        android:strokeLineCap="round"
+        android:pathData="M40,36 Q42,30 40,24"/>
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="3"
+        android:strokeLineCap="round"
+        android:pathData="M54,36 Q56,30 54,24"/>
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="3"
+        android:strokeLineCap="round"
+        android:pathData="M68,36 Q70,30 68,24"/>
+</vector>
