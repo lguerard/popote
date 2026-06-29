@@ -15,7 +15,7 @@ import java.util.concurrent.TimeUnit
 
 val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "settings")
 val SERVER_URL_KEY = stringPreferencesKey("server_url")
-const val DEFAULT_SERVER_URL = "http://192.168.1.100"
+const val DEFAULT_SERVER_URL = "https://popote.guyluron.fr"
 
 class ApiClient(context: Context) {
     private val dataStore = context.dataStore
