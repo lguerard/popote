@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+*.egg-info/
+dist/
+.pytest_cache/
+
+# Node / Frontend
+node_modules/
+frontend/dist/
+frontend/.vite/
+*.local
+
+# Android
+android/.gradle/
+android/local.properties
+android/app/build/
+android/build/
+android/keystore.jks
+*.apk
+*.aab
+
+# Docker / env
+.env
+*.env.local
+
+# Editors
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Git-cliff / release
+RELEASE_NOTES.md
