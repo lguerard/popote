@@ -26,16 +26,18 @@ jobs:
 
       - run: chmod +x android/gradlew
 
-      - name: Set up Android SDK path
+      - name: Fix gradle-wrapper.jar
         run: |
-          echo "ANDROID_HOME=$ANDROID_HOME"
-          echo "sdk.dir=$ANDROID_HOME" > android/local.properties
-          cat android/local.properties
-          java -version
-          ls -la android/gradlew
+          curl -fsSL https://downloads.gradle.org/distributions/gradle-8.11.1-wrapper.jar \
+            -o android/gradle/wrapper/gradle-wrapper.jar
+          echo "2db75c40782f5e8ba1fc278a5574bab070adccb2d21ca5a6e5ed840888448046  android/gradle/wrapper/gradle-wrapper.jar" \
+            | sha256sum -c
+
+      - name: Set up Android SDK path
+        run: echo "sdk.dir=$ANDROID_HOME" > android/local.properties
 
       - name: Build debug APK
-        run: ./gradlew assembleDebug --no-daemon --stacktrace
+        run: ./gradlew assembleDebug --no-daemon
         working-directory: android
 
       - uses: actions/upload-artifact@v4
@@ -89,6 +91,13 @@ jobs:
           cache: gradle
 
       - run: chmod +x android/gradlew
+
+      - name: Fix gradle-wrapper.jar
+        run: |
+          curl -fsSL https://downloads.gradle.org/distributions/gradle-8.11.1-wrapper.jar \
+            -o android/gradle/wrapper/gradle-wrapper.jar
+          echo "2db75c40782f5e8ba1fc278a5574bab070adccb2d21ca5a6e5ed840888448046  android/gradle/wrapper/gradle-wrapper.jar" \
+            | sha256sum -c
 
       - name: Set up Android SDK path
         run: echo "sdk.dir=$ANDROID_HOME" > android/local.properties
