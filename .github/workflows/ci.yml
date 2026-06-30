@@ -41,8 +41,16 @@ jobs:
           cat android/local.properties
           ls $ANDROID_HOME/platforms/ || true
 
+      - name: Compile resources
+        run: gradle processDebugResources --no-daemon --stacktrace
+        working-directory: android
+
+      - name: Compile Kotlin
+        run: gradle compileDebugKotlin --no-daemon --stacktrace
+        working-directory: android
+
       - name: Build debug APK
-        run: gradle assembleDebug --no-daemon --stacktrace
+        run: gradle assembleDebug --no-daemon
         working-directory: android
 
       - uses: actions/upload-artifact@v4
