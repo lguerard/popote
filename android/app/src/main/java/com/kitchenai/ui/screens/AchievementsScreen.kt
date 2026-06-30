@@ -85,9 +85,8 @@ fun AchievementsScreen(onBack: () -> Unit, vm: AchievementsViewModel = viewModel
 
             CATEGORY_ORDER.forEach { cat ->
                 val catItems = grouped[cat] ?: return@forEach
-                val label = categoryLabel(cat)
                 item(key = "header_$cat") {
-                    Text(label, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold,
+                    Text(categoryLabel(cat), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 items(catItems, key = { it.id }) { ach ->
