@@ -35,8 +35,14 @@ jobs:
       - name: Set up Android SDK path
         run: echo "sdk.dir=$ANDROID_HOME" > android/local.properties
 
+      - name: Verify Gradle and SDK
+        run: |
+          gradle --version
+          cat android/local.properties
+          ls $ANDROID_HOME/platforms/ || true
+
       - name: Build debug APK
-        run: gradle assembleDebug --no-daemon
+        run: gradle assembleDebug --no-daemon --stacktrace
         working-directory: android
 
       - uses: actions/upload-artifact@v4
@@ -116,7 +122,7 @@ jobs:
       - name: Build release APK (signed)
         if: steps.keystore.outputs.available == 'true'
         run: |
-          gradle assembleRelease --no-daemon \
+          gradle assembleRelease --no-daemon --stacktrace \
             -PversionName="${{ steps.version.outputs.name }}" \
             -PversionCode="${{ steps.version.outputs.code }}" \
             -Pandroid.injected.signing.store.file="${{ github.workspace }}/android/keystore.jks" \
@@ -128,7 +134,7 @@ jobs:
       - name: Build release APK (unsigned)
         if: steps.keystore.outputs.available != 'true'
         run: |
-          gradle assembleRelease --no-daemon \
+          gradle assembleRelease --no-daemon --stacktrace \
             -PversionName="${{ steps.version.outputs.name }}" \
             -PversionCode="${{ steps.version.outputs.code }}"
         working-directory: android
