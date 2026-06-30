@@ -9,9 +9,11 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.kitchenai.R
 import com.kitchenai.ui.viewmodels.AddRecipeViewModel
 import com.kitchenai.ui.viewmodels.AddState
 
@@ -36,8 +38,8 @@ fun AddRecipeScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Ajouter une recette") },
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Retour") } },
+                title = { Text(stringResource(R.string.add_recipe_title)) },
+                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.back)) } },
             )
         }
     ) { padding ->
@@ -48,11 +50,11 @@ fun AddRecipeScreen(
             when (val s = state) {
                 is AddState.Idle, is AddState.Error -> {
                     Text(
-                        "Collez une URL ou du texte",
+                        stringResource(R.string.add_recipe_paste_hint),
                         style = MaterialTheme.typography.titleMedium,
                     )
                     Text(
-                        "Fonctionne avec YouTube, TikTok, Instagram, Marmiton, 750g, et n'importe quel site de recettes ou texte libre.",
+                        stringResource(R.string.add_recipe_description),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -61,8 +63,8 @@ fun AddRecipeScreen(
                         value = input,
                         onValueChange = { input = it },
                         modifier = Modifier.fillMaxWidth().height(200.dp),
-                        placeholder = { Text("https://www.youtube.com/watch?v=…\nou texte brut de recette…") },
-                        label = { Text("URL ou texte") },
+                        placeholder = { Text(stringResource(R.string.add_recipe_placeholder)) },
+                        label = { Text(stringResource(R.string.add_recipe_input_label)) },
                         maxLines = 10,
                     )
 
@@ -82,18 +84,17 @@ fun AddRecipeScreen(
                         modifier = Modifier.fillMaxWidth().height(52.dp),
                         enabled = input.isNotBlank(),
                     ) {
-                        Text("Extraire la recette", style = MaterialTheme.typography.titleMedium)
+                        Text(stringResource(R.string.add_recipe_extract), style = MaterialTheme.typography.titleMedium)
                     }
 
-                    // Sources hint
                     ElevatedCard {
                         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text("Sources supportées", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(stringResource(R.string.add_recipe_sources_title), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             listOf(
-                                "🎬 YouTube, TikTok, Instagram, Vimeo",
-                                "🌐 Marmiton, 750g, AllRecipes…",
-                                "📱 Facebook, Twitter/X, Twitch",
-                                "📝 Texte libre (toute langue)",
+                                stringResource(R.string.add_recipe_source_video),
+                                stringResource(R.string.add_recipe_source_web),
+                                stringResource(R.string.add_recipe_source_social),
+                                stringResource(R.string.add_recipe_source_text),
                             ).forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
                         }
                     }
@@ -108,11 +109,11 @@ fun AddRecipeScreen(
                                 strokeWidth = 5.dp,
                             )
                             Text(
-                                if (s is AddState.Polling) s.statusLabel else "Envoi en cours…",
+                                if (s is AddState.Polling) s.statusLabel else stringResource(R.string.add_recipe_submitting),
                                 style = MaterialTheme.typography.titleMedium,
                             )
                             Text(
-                                "L'extraction peut prendre quelques minutes\npour les longues vidéos.",
+                                stringResource(R.string.add_recipe_processing_hint),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 textAlign = TextAlign.Center,

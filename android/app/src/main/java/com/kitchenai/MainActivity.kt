@@ -9,6 +9,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.res.stringResource
 import androidx.navigation.NavType
 import androidx.navigation.compose.*
 import androidx.navigation.navArgument
@@ -40,25 +41,25 @@ class MainActivity : ComponentActivity() {
                                     selected = currentRoute == "home",
                                     onClick = { navController.navigate("home") { launchSingleTop = true; restoreState = true } },
                                     icon = { Icon(Icons.Default.MenuBook, null) },
-                                    label = { Text("Recettes") },
+                                    label = { Text(stringResource(R.string.nav_recipes)) },
                                 )
                                 NavigationBarItem(
                                     selected = currentRoute == "planning",
                                     onClick = { navController.navigate("planning") { launchSingleTop = true; restoreState = true } },
                                     icon = { Icon(Icons.Default.CalendarMonth, null) },
-                                    label = { Text("Planning") },
+                                    label = { Text(stringResource(R.string.nav_planning)) },
                                 )
                                 NavigationBarItem(
                                     selected = currentRoute == "shopping",
                                     onClick = { navController.navigate("shopping") { launchSingleTop = true; restoreState = true } },
                                     icon = { Icon(Icons.Default.ShoppingCart, null) },
-                                    label = { Text("Courses") },
+                                    label = { Text(stringResource(R.string.nav_shopping)) },
                                 )
                                 NavigationBarItem(
                                     selected = currentRoute == "achievements",
                                     onClick = { navController.navigate("achievements") { launchSingleTop = true; restoreState = true } },
                                     icon = { Icon(Icons.Default.EmojiEvents, null) },
-                                    label = { Text("Succès") },
+                                    label = { Text(stringResource(R.string.nav_achievements)) },
                                 )
                             }
                         }

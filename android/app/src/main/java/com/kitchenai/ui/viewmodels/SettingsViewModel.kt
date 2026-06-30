@@ -3,6 +3,7 @@ package com.kitchenai.ui.viewmodels
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.kitchenai.R
 import com.kitchenai.data.RecipeRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -25,7 +26,10 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             repo.saveServerUrl(url)
             val ok = repo.checkHealth()
-            _testResult.value = if (ok) "✓ Connecté !" else "✗ Serveur inaccessible"
+            _testResult.value = if (ok)
+                getApplication<Application>().getString(R.string.settings_connected)
+            else
+                getApplication<Application>().getString(R.string.settings_unreachable)
         }
     }
 

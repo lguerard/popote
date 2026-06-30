@@ -1,14 +1,8 @@
 name: Screenshots
 
 on:
+  workflow_call:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - "android/app/src/main/**"
-      - "scripts/mock_server.py"
-      - "scripts/take_screenshots.sh"
-      - ".github/workflows/screenshots.yml"
 
 permissions:
   contents: write
@@ -26,7 +20,7 @@ jobs:
       - name: Start mock backend
         run: python3 scripts/mock_server.py &
 
-      - name: Verify mock server is up
+      - name: Wait for mock server
         run: |
           for i in $(seq 1 10); do
             curl -sf http://localhost:8000/api/health && break

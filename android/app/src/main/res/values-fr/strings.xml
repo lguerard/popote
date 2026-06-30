@@ -1,0 +1,132 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Popote</string>
+
+    <!-- Navigation -->
+    <string name="nav_recipes">Recettes</string>
+    <string name="nav_planning">Planning</string>
+    <string name="nav_shopping">Courses</string>
+    <string name="nav_achievements">Succès</string>
+
+    <!-- Common -->
+    <string name="back">Retour</string>
+    <string name="cancel">Annuler</string>
+    <string name="close">Fermer</string>
+    <string name="retry">Réessayer</string>
+    <string name="settings">Paramètres</string>
+    <string name="add">Ajouter</string>
+    <string name="today_abbr">Auj.</string>
+    <string name="recipe_fallback">Recette</string>
+    <string name="delete">Supprimer</string>
+
+    <!-- Home -->
+    <string name="search_placeholder">Rechercher une recette…</string>
+    <string name="filter_reset">Réinitialiser</string>
+    <string name="no_recipes">Aucune recette</string>
+    <string name="no_recipes_hint">Appuyez sur Ajouter pour commencer</string>
+
+    <!-- Categories -->
+    <string name="cat_all">Tout</string>
+    <string name="cat_breakfast">Petit-déj</string>
+    <string name="cat_starter">Entrée</string>
+    <string name="cat_main">Plat</string>
+    <string name="cat_dessert">Dessert</string>
+    <string name="cat_snack">Snack</string>
+    <string name="cat_soup">Soupe</string>
+    <string name="cat_aperitif">Apéritif</string>
+    <string name="cat_drink">Boisson</string>
+    <string name="cat_sauce">Sauce</string>
+
+    <!-- Time filters -->
+    <string name="time_all">Tout</string>
+    <string name="time_30min">≤ 30 min</string>
+    <string name="time_1h">≤ 1 h</string>
+
+    <!-- Achievements -->
+    <string name="achievements_title">🏆 Succès</string>
+    <string name="achievements_overall_progress">Progression globale</string>
+    <string name="achievement_cat_collection">📚 Collection</string>
+    <string name="achievement_cat_cooking">🍳 Cuisine</string>
+    <string name="achievement_cat_organisation">📅 Organisation</string>
+    <string name="achievement_cat_discovery">🌍 Découverte</string>
+    <string name="achievement_cat_perfectionist">✨ Perfectionniste</string>
+
+    <!-- Add Recipe -->
+    <string name="add_recipe_title">Ajouter une recette</string>
+    <string name="add_recipe_paste_hint">Collez une URL ou du texte</string>
+    <string name="add_recipe_description">Fonctionne avec YouTube, TikTok, Instagram, Marmiton, 750g, et n\'importe quel site de recettes ou texte libre.</string>
+    <string name="add_recipe_placeholder">https://www.youtube.com/watch?v=…\nou texte brut de recette…</string>
+    <string name="add_recipe_input_label">URL ou texte</string>
+    <string name="add_recipe_extract">Extraire la recette</string>
+    <string name="add_recipe_sources_title">Sources supportées</string>
+    <string name="add_recipe_source_video">🎬 YouTube, TikTok, Instagram, Vimeo</string>
+    <string name="add_recipe_source_web">🌐 Marmiton, 750g, AllRecipes…</string>
+    <string name="add_recipe_source_social">📱 Facebook, Twitter/X, Twitch</string>
+    <string name="add_recipe_source_text">📝 Texte libre (toute langue)</string>
+    <string name="add_recipe_submitting">Envoi en cours…</string>
+    <string name="add_recipe_processing_hint">L\'extraction peut prendre quelques minutes\npour les longues vidéos.</string>
+    <string name="status_pending">En attente…</string>
+    <string name="status_extracting">Extraction en cours…</string>
+    <string name="error_unknown">Erreur inconnue</string>
+
+    <!-- Recipe Detail -->
+    <string name="delete_recipe_title">Supprimer la recette ?</string>
+    <string name="delete_recipe_body">Cette action est irréversible.</string>
+    <string name="favorite">Favori</string>
+    <string name="delete_action">Supprimer</string>
+    <string name="cooking_mode">Mode Cuisine</string>
+    <string name="quit">Quitter</string>
+    <string name="step_label">Étape %d</string>
+    <string name="previous_step">← Précédent</string>
+    <string name="next_step">Suivant →</string>
+    <string name="done">Terminé !</string>
+    <string name="duplicate_warning">Une recette similaire existe déjà dans votre collection.</string>
+    <string name="meta_prep">🥄 Prép.</string>
+    <string name="meta_cook">🔥 Cuisson</string>
+    <string name="meta_servings">👥 Portions</string>
+    <string name="source_video">Vidéo source</string>
+    <string name="source_web">Site source</string>
+    <string name="source_other">Source</string>
+    <string name="section_ingredients">Ingrédients</string>
+    <string name="servings_label">Portions :</string>
+    <string name="section_steps">Préparation</string>
+    <string name="section_notes">Notes personnelles</string>
+    <string name="notes_placeholder">Vos notes, astuces, modifications…</string>
+    <string name="save_notes">Sauvegarder les notes</string>
+    <string name="section_nutrition">Nutrition</string>
+    <string name="nutrition_not_analyzed">Non analysé</string>
+    <string name="analyze_nutrition">Analyser (IA)</string>
+    <string name="error_load_recipe">Impossible de charger la recette</string>
+    <string name="error_delete_recipe">Erreur lors de la suppression</string>
+    <string name="error_nutrition">Analyse nutritionnelle échouée</string>
+    <string name="error_save_notes">Erreur sauvegarde notes</string>
+
+    <!-- Meal Planner -->
+    <string name="planning_title">📅 Planning</string>
+    <string name="meal_morning">☕ Matin</string>
+    <string name="meal_noon">🍽️ Midi</string>
+    <string name="meal_evening">🌙 Soir</string>
+    <string name="meal_snack">🥨 Snack</string>
+    <string name="add_meal_title">Ajouter une recette</string>
+    <string name="search_short">Rechercher…</string>
+
+    <!-- Shopping List -->
+    <string name="shopping_title">🛒 Liste de courses</string>
+    <string name="shopping_edit">Modifier</string>
+    <string name="shopping_in_cart">Déjà dans le panier</string>
+    <string name="shopping_select">Sélectionnez les recettes à cuisiner</string>
+    <plurals name="shopping_generate">
+        <item quantity="one">Générer la liste (%d recette)</item>
+        <item quantity="other">Générer la liste (%d recettes)</item>
+    </plurals>
+
+    <!-- Settings -->
+    <string name="settings_title">Paramètres</string>
+    <string name="settings_server_title">Serveur KitchenAI</string>
+    <string name="settings_server_description">Entrez l\'adresse IP ou le nom de domaine de votre serveur.\nPar exemple : http://192.168.1.100</string>
+    <string name="settings_server_label">URL du serveur</string>
+    <string name="settings_test">Tester</string>
+    <string name="settings_save">Enregistrer</string>
+    <string name="settings_connected">✓ Connecté !</string>
+    <string name="settings_unreachable">✗ Serveur inaccessible</string>
+</resources>

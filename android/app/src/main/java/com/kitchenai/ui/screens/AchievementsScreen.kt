@@ -11,11 +11,13 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.kitchenai.R
 import com.kitchenai.data.Achievement
 import com.kitchenai.data.RecipeRepository
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -37,13 +39,17 @@ class AchievementsViewModel(app: Application) : AndroidViewModel(app) {
     }
 }
 
-private val CATEGORY_LABELS = mapOf(
-    "collection" to "📚 Collection",
-    "cuisine" to "🍳 Cuisine",
-    "organisation" to "📅 Organisation",
-    "decouverte" to "🌍 Découverte",
-    "perfectionniste" to "✨ Perfectionniste",
-)
+private val CATEGORY_ORDER = listOf("collection", "cuisine", "organisation", "decouverte", "perfectionniste")
+
+@Composable
+private fun categoryLabel(key: String): String = when (key) {
+    "collection" -> stringResource(R.string.achievement_cat_collection)
+    "cuisine" -> stringResource(R.string.achievement_cat_cooking)
+    "organisation" -> stringResource(R.string.achievement_cat_organisation)
+    "decouverte" -> stringResource(R.string.achievement_cat_discovery)
+    "perfectionniste" -> stringResource(R.string.achievement_cat_perfectionist)
+    else -> key
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -56,18 +62,17 @@ fun AchievementsScreen(onBack: () -> Unit, vm: AchievementsViewModel = viewModel
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("🏆 Succès") },
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Retour") } },
+                title = { Text(stringResource(R.string.achievements_title)) },
+                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.back)) } },
             )
         }
     ) { padding ->
         LazyColumn(Modifier.padding(padding).fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            // Global progress
             item {
                 Card(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text("Progression globale", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                            Text(stringResource(R.string.achievements_overall_progress), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                             Text("$unlocked/$total", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
                         }
                         LinearProgressIndicator(
@@ -78,9 +83,9 @@ fun AchievementsScreen(onBack: () -> Unit, vm: AchievementsViewModel = viewModel
                 }
             }
 
-            // By category
-            CATEGORY_LABELS.forEach { (cat, label) ->
+            CATEGORY_ORDER.forEach { cat ->
                 val catItems = grouped[cat] ?: return@forEach
+                val label = categoryLabel(cat)
                 item(key = "header_$cat") {
                     Text(label, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)

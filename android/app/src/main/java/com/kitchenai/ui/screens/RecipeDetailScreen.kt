@@ -20,6 +20,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -27,6 +28,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
+import com.kitchenai.R
 import com.kitchenai.data.Nutrition
 import com.kitchenai.data.Recipe
 import com.kitchenai.data.RecipeRepository
@@ -89,14 +91,14 @@ class RecipeDetailViewModel(app: Application) : AndroidViewModel(app) {
                 val r = repo.getRecipe(id)
                 _recipe.value = r
                 _notesDraft.value = r.notes ?: ""
-            } catch (_: Exception) { _error.value = "Impossible de charger la recette" }
+            } catch (_: Exception) { _error.value = getString(R.string.error_load_recipe) }
         }
     }
 
     fun delete(id: String, onDone: () -> Unit) {
         viewModelScope.launch {
             try { repo.deleteRecipe(id); onDone() }
-            catch (_: Exception) { _error.value = "Erreur lors de la suppression" }
+            catch (_: Exception) { _error.value = getString(R.string.error_delete_recipe) }
         }
     }
 
@@ -115,7 +117,7 @@ class RecipeDetailViewModel(app: Application) : AndroidViewModel(app) {
             try {
                 val n = repo.analyzeNutrition(id)
                 _recipe.value = _recipe.value?.copy(nutrition = n)
-            } catch (_: Exception) { _error.value = "Analyse nutritionnelle échouée" }
+            } catch (_: Exception) { _error.value = getString(R.string.error_nutrition) }
             finally { _nutritionLoading.value = false }
         }
     }
@@ -130,10 +132,12 @@ class RecipeDetailViewModel(app: Application) : AndroidViewModel(app) {
             try {
                 repo.updateNotes(id, notes)
                 _recipe.value = _recipe.value?.copy(notes = notes)
-            } catch (_: Exception) { _error.value = "Erreur sauvegarde notes" }
+            } catch (_: Exception) { _error.value = getString(R.string.error_save_notes) }
             finally { _notesSaving.value = false }
         }
     }
+
+    private fun getString(resId: Int) = getApplication<Application>().getString(resId)
 }
 
 // ── Screen ────────────────────────────────────────────────────────────────────
@@ -155,7 +159,6 @@ fun RecipeDetailScreen(
 
     val context = LocalContext.current
 
-    // Wake lock during cooking mode
     DisposableEffect(cookingMode) {
         val window = (context as? ComponentActivity)?.window
         if (cookingMode) window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -172,36 +175,36 @@ fun RecipeDetailScreen(
     if (showDeleteDialog) {
         AlertDialog(
             onDismissRequest = { showDeleteDialog = false },
-            title = { Text("Supprimer la recette ?") },
-            text = { Text("Cette action est irréversible.") },
+            title = { Text(stringResource(R.string.delete_recipe_title)) },
+            text = { Text(stringResource(R.string.delete_recipe_body)) },
             confirmButton = {
                 TextButton(
                     onClick = { vm.delete(recipeId) { onBack() } },
                     colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
-                ) { Text("Supprimer") }
+                ) { Text(stringResource(R.string.delete_action)) }
             },
-            dismissButton = { TextButton(onClick = { showDeleteDialog = false }) { Text("Annuler") } },
+            dismissButton = { TextButton(onClick = { showDeleteDialog = false }) { Text(stringResource(R.string.cancel)) } },
         )
     }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(recipe?.title ?: "Recette", maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                title = { Text(recipe?.title ?: stringResource(R.string.recipe_fallback), maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 navigationIcon = {
-                    IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Retour") }
+                    IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.back)) }
                 },
                 actions = {
                     if (recipe != null) {
                         IconButton(onClick = vm::toggleFavorite) {
                             Icon(
                                 if (recipe!!.is_favorite) Icons.Default.Favorite else Icons.Outlined.FavoriteBorder,
-                                "Favori",
+                                stringResource(R.string.favorite),
                                 tint = if (recipe!!.is_favorite) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
                         IconButton(onClick = { showDeleteDialog = true }) {
-                            Icon(Icons.Default.Delete, "Supprimer", tint = MaterialTheme.colorScheme.error)
+                            Icon(Icons.Default.Delete, stringResource(R.string.delete), tint = MaterialTheme.colorScheme.error)
                         }
                     }
                 },
@@ -230,7 +233,7 @@ fun RecipeDetailScreen(
     }
 }
 
-// ── Full-screen cooking mode ───────────────────────────────────────────────────
+// ── Cooking mode overlay ───────────────────────────────────────────────────────
 
 @Composable
 private fun CookingModeOverlay(recipe: Recipe, onExit: () -> Unit) {
@@ -240,21 +243,20 @@ private fun CookingModeOverlay(recipe: Recipe, onExit: () -> Unit) {
 
     Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Column(Modifier.fillMaxSize().padding(24.dp)) {
-            // Header
             Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onExit) { Icon(Icons.Default.Close, "Quitter") }
+                IconButton(onClick = onExit) { Icon(Icons.Default.Close, stringResource(R.string.quit)) }
                 Text(recipe.title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text("${stepIdx + 1}/${steps.size}", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp))
 
-            // Step content
             if (steps.isNotEmpty()) {
                 val step = steps[stepIdx]
                 Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
                     Column(verticalArrangement = Arrangement.spacedBy(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                         Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.primary) {
-                            Text("Étape ${step.order}", Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                            Text(stringResource(R.string.step_label, step.order),
+                                Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                                 style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onPrimary)
                         }
                         Text(step.text, style = MaterialTheme.typography.headlineSmall, modifier = Modifier.fillMaxWidth())
@@ -262,16 +264,17 @@ private fun CookingModeOverlay(recipe: Recipe, onExit: () -> Unit) {
                 }
             }
 
-            // Navigation
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                FilledTonalButton(onClick = { if (stepIdx > 0) stepIdx-- }, enabled = stepIdx > 0) { Text("← Précédent") }
+                FilledTonalButton(onClick = { if (stepIdx > 0) stepIdx-- }, enabled = stepIdx > 0) {
+                    Text(stringResource(R.string.previous_step))
+                }
                 if (stepIdx < steps.size - 1) {
-                    Button(onClick = { stepIdx++ }) { Text("Suivant →") }
+                    Button(onClick = { stepIdx++ }) { Text(stringResource(R.string.next_step)) }
                 } else {
                     Button(onClick = onExit, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.tertiary)) {
                         Icon(Icons.Default.Check, null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(6.dp))
-                        Text("Terminé !")
+                        Text(stringResource(R.string.done))
                     }
                 }
             }
@@ -299,7 +302,6 @@ private fun RecipeContent(
 
     LazyColumn(modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 32.dp)) {
 
-        // Duplicate warning
         if (recipe.similar_recipe_id != null) {
             item {
                 Card(
@@ -308,13 +310,12 @@ private fun RecipeContent(
                 ) {
                     Row(Modifier.padding(12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Default.Warning, null, tint = MaterialTheme.colorScheme.onErrorContainer)
-                        Text("Une recette similaire existe déjà dans votre collection.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onErrorContainer)
+                        Text(stringResource(R.string.duplicate_warning), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onErrorContainer)
                     }
                 }
             }
         }
 
-        // Thumbnail
         if (recipe.thumbnail_url != null) {
             item {
                 AsyncImage(
@@ -326,7 +327,6 @@ private fun RecipeContent(
             }
         }
 
-        // Mode Cuisine button
         if (recipe.steps.isNotEmpty()) {
             item {
                 Button(
@@ -336,16 +336,19 @@ private fun RecipeContent(
                 ) {
                     Icon(Icons.Default.Restaurant, null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
-                    Text("Mode Cuisine")
+                    Text(stringResource(R.string.cooking_mode))
                 }
             }
         }
 
-        // Source link
         if (recipe.source_url != null) {
             item {
                 val sourceIcon = when (recipe.source_type) { "video" -> "🎬"; "web" -> "🌐"; else -> "🔗" }
-                val sourceLabel = when (recipe.source_type) { "video" -> "Vidéo source"; "web" -> "Site source"; else -> "Source" }
+                val sourceLabel = when (recipe.source_type) {
+                    "video" -> stringResource(R.string.source_video)
+                    "web" -> stringResource(R.string.source_web)
+                    else -> stringResource(R.string.source_other)
+                }
                 OutlinedCard(
                     onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(recipe.source_url))) },
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
@@ -362,7 +365,6 @@ private fun RecipeContent(
             }
         }
 
-        // Description
         if (recipe.description != null) {
             item {
                 Text(recipe.description, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -370,16 +372,14 @@ private fun RecipeContent(
             }
         }
 
-        // Meta
         item {
             Row(Modifier.padding(horizontal = 16.dp, vertical = 4.dp).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (recipe.prep_time != null) MetaChip("🥄 Prép.", "${recipe.prep_time} min")
-                if (recipe.cook_time != null) MetaChip("🔥 Cuisson", "${recipe.cook_time} min")
-                if (scaledServings != null) MetaChip("👥 Portions", "$scaledServings")
+                if (recipe.prep_time != null) MetaChip(stringResource(R.string.meta_prep), "${recipe.prep_time} min")
+                if (recipe.cook_time != null) MetaChip(stringResource(R.string.meta_cook), "${recipe.cook_time} min")
+                if (scaledServings != null) MetaChip(stringResource(R.string.meta_servings), "$scaledServings")
             }
         }
 
-        // Category + tags
         item {
             Row(Modifier.padding(horizontal = 16.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 if (recipe.category != null) {
@@ -390,22 +390,20 @@ private fun RecipeContent(
             }
         }
 
-        // Nutrition
         item {
-            SectionTitle("Nutrition")
+            SectionTitle(stringResource(R.string.section_nutrition))
             NutritionSection(recipe.nutrition, nutritionLoading, onAnalyzeNutrition)
         }
 
-        // Ingrédients
         if (recipe.ingredients.isNotEmpty()) {
             item {
                 Row(Modifier.padding(start = 16.dp, end = 16.dp, top = 24.dp, bottom = 4.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Text("Ingrédients", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                    Text(stringResource(R.string.section_ingredients), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
                 }
             }
             item {
                 Row(Modifier.padding(horizontal = 16.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("Portions :", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(stringResource(R.string.servings_label), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     listOf(0.5 to "½×", 1.0 to "1×", 2.0 to "2×", 3.0 to "3×").forEach { (v, label) ->
                         FilterChip(selected = scale == v, onClick = { scale = v }, label = { Text(label, style = MaterialTheme.typography.labelMedium) })
                     }
@@ -424,9 +422,8 @@ private fun RecipeContent(
             }
         }
 
-        // Étapes
         if (recipe.steps.isNotEmpty()) {
-            item { SectionTitle("Préparation") }
+            item { SectionTitle(stringResource(R.string.section_steps)) }
             itemsIndexed(recipe.steps) { idx, step ->
                 Row(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Surface(shape = MaterialTheme.shapes.small, color = MaterialTheme.colorScheme.primary) {
@@ -437,14 +434,13 @@ private fun RecipeContent(
             }
         }
 
-        // Notes
         item {
-            SectionTitle("Notes personnelles")
+            SectionTitle(stringResource(R.string.section_notes))
             OutlinedTextField(
                 value = notesDraft,
                 onValueChange = onNotesDraftChange,
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                placeholder = { Text("Vos notes, astuces, modifications…") },
+                placeholder = { Text(stringResource(R.string.notes_placeholder)) },
                 minLines = 3,
             )
             Spacer(Modifier.height(8.dp))
@@ -454,7 +450,7 @@ private fun RecipeContent(
                 modifier = Modifier.padding(horizontal = 16.dp),
             ) {
                 if (notesSaving) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
-                else Text("Sauvegarder les notes")
+                else Text(stringResource(R.string.save_notes))
             }
         }
     }
@@ -466,15 +462,15 @@ private fun NutritionSection(nutrition: Nutrition?, loading: Boolean, onAnalyze:
         Row(Modifier.padding(horizontal = 16.dp, vertical = 8.dp).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             if (nutrition.calories != null) NutriChip("🔥", "${nutrition.calories.roundToInt()} kcal")
             if (nutrition.proteins != null) NutriChip("💪", "${nutrition.proteins.roundToInt()}g prot.")
-            if (nutrition.carbs != null) NutriChip("🌾", "${nutrition.carbs.roundToInt()}g glucides")
-            if (nutrition.fat != null) NutriChip("🧈", "${nutrition.fat.roundToInt()}g lip.")
+            if (nutrition.carbs != null) NutriChip("🌾", "${nutrition.carbs.roundToInt()}g carbs")
+            if (nutrition.fat != null) NutriChip("🧈", "${nutrition.fat.roundToInt()}g fat")
         }
     } else {
         Row(Modifier.padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("Non analysé", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(stringResource(R.string.nutrition_not_analyzed), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             FilledTonalButton(onClick = onAnalyze, enabled = !loading) {
                 if (loading) CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
-                else Text("Analyser (IA)")
+                else Text(stringResource(R.string.analyze_nutrition))
             }
         }
     }

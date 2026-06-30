@@ -167,3 +167,12 @@ jobs:
           files: popote-*.apk
           draft: false
           prerelease: false
+
+  # ── Screenshots — after release on main ──────────────────────────────────────
+  screenshots:
+    name: Screenshots
+    needs: release
+    uses: ./.github/workflows/screenshots.yml
+    permissions:
+      contents: write
+    secrets: inherit

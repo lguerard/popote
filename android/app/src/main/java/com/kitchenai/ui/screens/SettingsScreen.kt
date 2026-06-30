@@ -7,10 +7,12 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.kitchenai.R
 import com.kitchenai.ui.viewmodels.SettingsViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -26,15 +28,15 @@ fun SettingsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Paramètres") },
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Retour") } },
+                title = { Text(stringResource(R.string.settings_title)) },
+                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.back)) } },
             )
         }
     ) { padding ->
         Column(Modifier.padding(padding).padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            Text("Serveur KitchenAI", style = MaterialTheme.typography.titleLarge)
+            Text(stringResource(R.string.settings_server_title), style = MaterialTheme.typography.titleLarge)
             Text(
-                "Entrez l'adresse IP ou le nom de domaine de votre serveur.\nPar exemple : http://192.168.1.100",
+                stringResource(R.string.settings_server_description),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -43,7 +45,7 @@ fun SettingsScreen(
                 value = urlInput,
                 onValueChange = { urlInput = it; vm.clearTestResult() },
                 modifier = Modifier.fillMaxWidth(),
-                label = { Text("URL du serveur") },
+                label = { Text(stringResource(R.string.settings_server_label)) },
                 placeholder = { Text("http://192.168.1.100") },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(
@@ -57,13 +59,13 @@ fun SettingsScreen(
                     onClick = { vm.testConnection(urlInput) },
                     modifier = Modifier.weight(1f),
                 ) {
-                    Text("Tester")
+                    Text(stringResource(R.string.settings_test))
                 }
                 Button(
                     onClick = { vm.saveUrl(urlInput); onBack() },
                     modifier = Modifier.weight(1f),
                 ) {
-                    Text("Enregistrer")
+                    Text(stringResource(R.string.settings_save))
                 }
             }
 

@@ -19,10 +19,10 @@ wait() { sleep "$1"; }
 
 # Bottom nav Y ≈ 2263 (1080x2340, nav height ~77px)
 NAV_Y=2263
-TAB_RECETTES=135
+TAB_RECIPES=135
 TAB_PLANNING=405
-TAB_COURSES=675
-TAB_SUCCES=945
+TAB_SHOPPING=675
+TAB_ACHIEVEMENTS=945
 
 echo "Launching app..."
 adb shell am start -n com.kitchenai/.MainActivity
@@ -37,11 +37,10 @@ tap 300 620
 wait 5
 cap "detail"
 
-# ── Mode Cuisine ─────────────────────────────────────────────────────────────
-# Scroll down to find Mode Cuisine button, then tap it
+# ── Cooking mode ─────────────────────────────────────────────────────────────
+# Scroll down to find Cooking Mode button, then tap it
 adb shell input swipe 540 1200 540 400 800
 wait 1
-# Mode Cuisine button is near top of content after thumbnail
 tap 540 650
 wait 3
 cap "cooking"
@@ -55,8 +54,8 @@ tap $TAB_PLANNING $NAV_Y
 wait 5
 cap "planning"
 
-# ── Shopping list ─────────────────────────────────────────────────────────────
-tap $TAB_COURSES $NAV_Y
+# ── Shopping list ────────────────────────────────────────────────────────────
+tap $TAB_SHOPPING $NAV_Y
 wait 5
 # Select first recipe
 tap 300 400
@@ -67,14 +66,14 @@ wait 4
 cap "shopping"
 
 # ── Achievements ─────────────────────────────────────────────────────────────
-tap $TAB_SUCCES $NAV_Y
+tap $TAB_ACHIEVEMENTS $NAV_Y
 wait 5
 cap "achievements"
 
 # ── Add recipe ───────────────────────────────────────────────────────────────
-tap $TAB_RECETTES $NAV_Y
+tap $TAB_RECIPES $NAV_Y
 wait 2
-# Ajouter button is in HomeScreen top bar action, approximate position
+# Add button is in HomeScreen top bar action
 tap 1000 100
 wait 3
 cap "add"

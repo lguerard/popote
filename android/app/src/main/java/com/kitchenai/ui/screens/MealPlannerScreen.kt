@@ -13,11 +13,13 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.kitchenai.R
 import com.kitchenai.data.MealPlan
 import com.kitchenai.data.MealPlanCreate
 import com.kitchenai.data.Recipe
@@ -97,7 +99,6 @@ class MealPlannerViewModel(app: Application) : AndroidViewModel(app) {
 fun MealPlannerScreen(onBack: () -> Unit, vm: MealPlannerViewModel = viewModel()) {
     val plans by vm.plans.collectAsState()
     val recipes by vm.recipes.collectAsState()
-    val weekOffset by vm.weekOffset.collectAsState()
     val days = vm.getWeekDates()
     var picker by remember { mutableStateOf<Pair<LocalDate, String>?>(null) }
     var pickerSearch by remember { mutableStateOf("") }
@@ -105,40 +106,42 @@ fun MealPlannerScreen(onBack: () -> Unit, vm: MealPlannerViewModel = viewModel()
     LaunchedEffect(picker) { if (picker != null) vm.loadRecipes(pickerSearch) }
     LaunchedEffect(pickerSearch) { if (picker != null) vm.loadRecipes(pickerSearch) }
 
-    val MEALS = listOf("petit-déjeuner" to "☕ Matin", "déjeuner" to "🍽️ Midi", "dîner" to "🌙 Soir", "snack" to "🥨 Snack")
+    // API meal type keys stay as-is; only labels are localized
+    val meals = listOf(
+        "petit-déjeuner" to stringResource(R.string.meal_morning),
+        "déjeuner" to stringResource(R.string.meal_noon),
+        "dîner" to stringResource(R.string.meal_evening),
+        "snack" to stringResource(R.string.meal_snack),
+    )
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("📅 Planning") },
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Retour") } },
+                title = { Text(stringResource(R.string.planning_title)) },
+                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.back)) } },
                 actions = {
                     TextButton(onClick = vm::prevWeek) { Text("←") }
-                    TextButton(onClick = vm::thisWeek) { Text("Auj.") }
+                    TextButton(onClick = vm::thisWeek) { Text(stringResource(R.string.today_abbr)) }
                     TextButton(onClick = vm::nextWeek) { Text("→") }
                 },
             )
         }
     ) { padding ->
-        // Horizontal scrollable weekly view
         Row(Modifier.padding(padding).fillMaxSize().horizontalScroll(rememberScrollState())) {
-            // Meal type labels
             Column(Modifier.width(80.dp)) {
                 Spacer(Modifier.height(56.dp))
-                MEALS.forEach { (_, label) ->
+                meals.forEach { (_, label) ->
                     Box(Modifier.height(100.dp).fillMaxWidth(), contentAlignment = Alignment.Center) {
                         Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }
-            // Day columns
             days.forEach { day ->
                 Column(Modifier.width(140.dp)) {
-                    // Day header
                     val isToday = day == LocalDate.now()
                     Box(Modifier.height(56.dp).fillMaxWidth(), contentAlignment = Alignment.Center) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(day.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.FRENCH).replaceFirstChar { it.uppercase() },
+                            Text(day.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.getDefault()).replaceFirstChar { it.uppercase() },
                                 style = MaterialTheme.typography.labelMedium,
                                 color = if (isToday) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
                             Text("${day.dayOfMonth}/${day.monthValue}",
@@ -146,7 +149,7 @@ fun MealPlannerScreen(onBack: () -> Unit, vm: MealPlannerViewModel = viewModel()
                                 color = if (isToday) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
-                    MEALS.forEach { (mealType, _) ->
+                    meals.forEach { (mealType, _) ->
                         val cell = plans.filter { it.date == day.format(DateTimeFormatter.ISO_LOCAL_DATE) && it.meal_type == mealType }
                         Box(Modifier.height(100.dp).fillMaxWidth().padding(2.dp)) {
                             Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -156,7 +159,8 @@ fun MealPlannerScreen(onBack: () -> Unit, vm: MealPlannerViewModel = viewModel()
                                         modifier = Modifier.fillMaxWidth(),
                                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
                                     ) {
-                                        Text(plan.recipe_title ?: "Recette", style = MaterialTheme.typography.labelSmall,
+                                        Text(plan.recipe_title ?: stringResource(R.string.recipe_fallback),
+                                            style = MaterialTheme.typography.labelSmall,
                                             maxLines = 2, overflow = TextOverflow.Ellipsis,
                                             modifier = Modifier.padding(4.dp))
                                     }
@@ -172,15 +176,14 @@ fun MealPlannerScreen(onBack: () -> Unit, vm: MealPlannerViewModel = viewModel()
         }
     }
 
-    // Recipe picker dialog
     if (picker != null) {
         AlertDialog(
             onDismissRequest = { picker = null },
-            title = { Text("Ajouter une recette") },
+            title = { Text(stringResource(R.string.add_meal_title)) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedTextField(value = pickerSearch, onValueChange = { pickerSearch = it },
-                        placeholder = { Text("Rechercher…") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                        placeholder = { Text(stringResource(R.string.search_short)) }, singleLine = true, modifier = Modifier.fillMaxWidth())
                     LazyColumn(Modifier.heightIn(max = 300.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         items(recipes, key = { it.id }) { r ->
                             TextButton(onClick = { picker?.let { (d, m) -> vm.addMeal(d, m, r) }; picker = null },
@@ -192,7 +195,7 @@ fun MealPlannerScreen(onBack: () -> Unit, vm: MealPlannerViewModel = viewModel()
                 }
             },
             confirmButton = {},
-            dismissButton = { TextButton(onClick = { picker = null }) { Text("Fermer") } },
+            dismissButton = { TextButton(onClick = { picker = null }) { Text(stringResource(R.string.close)) } },
         )
     }
 }

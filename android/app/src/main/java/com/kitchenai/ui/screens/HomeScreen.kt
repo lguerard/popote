@@ -13,32 +13,15 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.kitchenai.R
 import com.kitchenai.ui.components.RecipeCard
 import com.kitchenai.ui.viewmodels.HomeViewModel
 
 data class CategoryItem(val value: String?, val label: String, val emoji: String)
 data class TimeItem(val value: Int?, val label: String)
-
-val CATEGORIES = listOf(
-    CategoryItem(null, "Tout", "🍽️"),
-    CategoryItem("petit-déjeuner", "Petit-déj", "☕"),
-    CategoryItem("entrée", "Entrée", "🥗"),
-    CategoryItem("plat", "Plat", "🍲"),
-    CategoryItem("dessert", "Dessert", "🍰"),
-    CategoryItem("snack", "Snack", "🥨"),
-    CategoryItem("soupe", "Soupe", "🍜"),
-    CategoryItem("apéritif", "Apéritif", "🥂"),
-    CategoryItem("boisson", "Boisson", "🥤"),
-    CategoryItem("sauce", "Sauce", "🫙"),
-)
-
-val TIME_FILTERS = listOf(
-    TimeItem(null, "Tout"),
-    TimeItem(30, "≤ 30 min"),
-    TimeItem(60, "≤ 1h"),
-)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -56,6 +39,25 @@ fun HomeScreen(
     val selectedMaxTime by vm.maxTime.collectAsState()
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 
+    val categories = listOf(
+        CategoryItem(null, stringResource(R.string.cat_all), "🍽️"),
+        CategoryItem("petit-déjeuner", stringResource(R.string.cat_breakfast), "☕"),
+        CategoryItem("entrée", stringResource(R.string.cat_starter), "🥗"),
+        CategoryItem("plat", stringResource(R.string.cat_main), "🍲"),
+        CategoryItem("dessert", stringResource(R.string.cat_dessert), "🍰"),
+        CategoryItem("snack", stringResource(R.string.cat_snack), "🥨"),
+        CategoryItem("soupe", stringResource(R.string.cat_soup), "🍜"),
+        CategoryItem("apéritif", stringResource(R.string.cat_aperitif), "🥂"),
+        CategoryItem("boisson", stringResource(R.string.cat_drink), "🥤"),
+        CategoryItem("sauce", stringResource(R.string.cat_sauce), "🫙"),
+    )
+
+    val timeFilters = listOf(
+        TimeItem(null, stringResource(R.string.time_all)),
+        TimeItem(30, stringResource(R.string.time_30min)),
+        TimeItem(60, stringResource(R.string.time_1h)),
+    )
+
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
@@ -63,7 +65,7 @@ fun HomeScreen(
                 title = { Text("🍳 Popote") },
                 actions = {
                     IconButton(onClick = onSettingsClick) {
-                        Icon(Icons.Default.Settings, contentDescription = "Paramètres")
+                        Icon(Icons.Default.Settings, contentDescription = stringResource(R.string.settings))
                     }
                 },
                 scrollBehavior = scrollBehavior,
@@ -73,14 +75,13 @@ fun HomeScreen(
             ExtendedFloatingActionButton(
                 onClick = onAddClick,
                 icon = { Icon(Icons.Default.Add, null) },
-                text = { Text("Ajouter") },
+                text = { Text(stringResource(R.string.add)) },
                 containerColor = MaterialTheme.colorScheme.primary,
                 contentColor = MaterialTheme.colorScheme.onPrimary,
             )
         },
     ) { padding ->
         Column(Modifier.padding(padding)) {
-            // Search
             SearchBar(
                 inputField = {
                     SearchBarDefaults.InputField(
@@ -89,7 +90,7 @@ fun HomeScreen(
                         onSearch = {},
                         expanded = false,
                         onExpandedChange = {},
-                        placeholder = { Text("Rechercher une recette…") },
+                        placeholder = { Text(stringResource(R.string.search_placeholder)) },
                         leadingIcon = { Icon(Icons.Default.Search, null) },
                     )
                 },
@@ -98,12 +99,11 @@ fun HomeScreen(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
             ) {}
 
-            // Category chips
             Row(
                 modifier = Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                CATEGORIES.forEach { cat ->
+                categories.forEach { cat ->
                     FilterChip(
                         selected = selectedCategory == cat.value,
                         onClick = { vm.setCategory(cat.value) },
@@ -112,13 +112,12 @@ fun HomeScreen(
                 }
             }
 
-            // Time filter chips
             Row(
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Text("⏱", style = MaterialTheme.typography.labelMedium, modifier = Modifier.align(Alignment.CenterVertically))
-                TIME_FILTERS.forEach { t ->
+                timeFilters.forEach { t ->
                     FilterChip(
                         selected = selectedMaxTime == t.value,
                         onClick = { vm.setMaxTime(t.value) },
@@ -127,7 +126,7 @@ fun HomeScreen(
                 }
                 if (selectedCategory != null || selectedMaxTime != null) {
                     TextButton(onClick = vm::resetFilters, contentPadding = PaddingValues(horizontal = 8.dp)) {
-                        Text("Réinitialiser", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
+                        Text(stringResource(R.string.filter_reset), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
                     }
                 }
             }
@@ -139,15 +138,15 @@ fun HomeScreen(
                 error != null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Text(error!!, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.error)
-                        Button(onClick = { vm.load() }) { Text("Réessayer") }
+                        Button(onClick = { vm.load() }) { Text(stringResource(R.string.retry)) }
                     }
                 }
                 recipes.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text("🍽️", style = MaterialTheme.typography.displayLarge)
                         Spacer(Modifier.height(16.dp))
-                        Text("Aucune recette", style = MaterialTheme.typography.titleLarge)
-                        Text("Appuyez sur Ajouter pour commencer", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(stringResource(R.string.no_recipes), style = MaterialTheme.typography.titleLarge)
+                        Text(stringResource(R.string.no_recipes_hint), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
                 else -> LazyVerticalGrid(

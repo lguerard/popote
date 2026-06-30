@@ -10,12 +10,15 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.kitchenai.R
 import com.kitchenai.data.Recipe
 import com.kitchenai.data.RecipeRepository
 import com.kitchenai.data.ShoppingItem
@@ -72,11 +75,11 @@ fun ShoppingListScreen(onBack: () -> Unit, vm: ShoppingListViewModel = viewModel
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("🛒 Liste de courses") },
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Retour") } },
+                title = { Text(stringResource(R.string.shopping_title)) },
+                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.back)) } },
                 actions = {
                     if (shoppingItems != null) {
-                        TextButton(onClick = vm::reset) { Text("Modifier") }
+                        TextButton(onClick = vm::reset) { Text(stringResource(R.string.shopping_edit)) }
                     }
                 },
             )
@@ -91,7 +94,7 @@ fun ShoppingListScreen(onBack: () -> Unit, vm: ShoppingListViewModel = viewModel
                 }
                 if (done.isNotEmpty()) {
                     item {
-                        Text("Déjà dans le panier", style = MaterialTheme.typography.labelSmall,
+                        Text(stringResource(R.string.shopping_in_cart), style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 8.dp))
                     }
                     items(done, key = { "done_${it.name}" }) { item ->
@@ -101,7 +104,7 @@ fun ShoppingListScreen(onBack: () -> Unit, vm: ShoppingListViewModel = viewModel
             }
         } else {
             Column(Modifier.padding(padding).fillMaxSize()) {
-                Text("Sélectionnez les recettes à cuisiner", style = MaterialTheme.typography.titleMedium,
+                Text(stringResource(R.string.shopping_select), style = MaterialTheme.typography.titleMedium,
                     modifier = Modifier.padding(16.dp))
                 LazyColumn(
                     Modifier.weight(1f),
@@ -132,7 +135,7 @@ fun ShoppingListScreen(onBack: () -> Unit, vm: ShoppingListViewModel = viewModel
                     enabled = selected.isNotEmpty() && !loading,
                 ) {
                     if (loading) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
-                    else Text("Générer la liste (${selected.size} recette${if (selected.size > 1) "s" else ""})")
+                    else Text(pluralStringResource(R.plurals.shopping_generate, selected.size, selected.size))
                 }
             }
         }
