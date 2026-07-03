@@ -1,7 +1,10 @@
 import json
+import logging
 import re
 import httpx
 from ..config import settings
+
+logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = """Tu es un assistant culinaire expert.
 À partir d'un texte (transcription vidéo, page web ou texte brut), extrais les informations d'une recette de cuisine.
@@ -87,16 +90,23 @@ async def ensure_model_available():
     """Pull Ollama model if not present."""
     if settings.use_claude:
         return
-    async with httpx.AsyncClient(timeout=10) as client:
-        try:
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
             resp = await client.get(f"{settings.ollama_base_url}/api/tags")
             models = [m["name"] for m in resp.json().get("models", [])]
-            if not any(settings.ollama_model in m for m in models):
-                # Fire-and-forget pull (can take minutes)
-                async with httpx.AsyncClient(timeout=600) as pull_client:
-                    await pull_client.post(
-                        f"{settings.ollama_base_url}/api/pull",
-                        json={"name": settings.ollama_model, "stream": False},
-                    )
-        except Exception:
-            pass
+        if not any(settings.ollama_model in m for m in models):
+            logger.info("Téléchargement du modèle Ollama %s…", settings.ollama_model)
+            # ~5 Go : laisser largement le temps du téléchargement
+            async with httpx.AsyncClient(timeout=3600) as pull_client:
+                resp = await pull_client.post(
+                    f"{settings.ollama_base_url}/api/pull",
+                    json={"name": settings.ollama_model, "stream": False},
+                )
+                resp.raise_for_status()
+            logger.info("Modèle %s prêt", settings.ollama_model)
+    except Exception:
+        logger.exception(
+            "Impossible de vérifier/télécharger le modèle Ollama %s — "
+            "les extractions échoueront tant qu'il n'est pas disponible",
+            settings.ollama_model,
+        )
