@@ -8,14 +8,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     tesseract-ocr-eng \
     && rm -rf /var/lib/apt/lists/*
 
-# Playwright deps
-RUN pip install --no-cache-dir playwright && \
-    playwright install chromium --with-deps
-
 WORKDIR /app
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
+
+# Install browsers with the SAME playwright version pinned in requirements.txt
+# (installing them before would fetch a mismatched chromium revision)
+RUN playwright install chromium --with-deps
 
 COPY app/ ./app/
 
