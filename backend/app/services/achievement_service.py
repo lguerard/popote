@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.achievement import Achievement
-from app.models.recipe import Recipe
+from app.models.recipe import Recipe, ExtractionStatus
 
 ACHIEVEMENTS = [
     # Collection
@@ -56,7 +56,10 @@ async def _unlock(db: AsyncSession, ach_id: str, progress: int):
 
 
 async def check_collection(db: AsyncSession):
-    count = (await db.execute(select(func.count()).select_from(Recipe))).scalar_one()
+    # Ne compter que les recettes abouties, pas les extractions échouées
+    count = (await db.execute(
+        select(func.count()).select_from(Recipe).where(Recipe.status == ExtractionStatus.done)
+    )).scalar_one()
     for ach_id, goal in [("first_recipe", 1), ("collection_10", 10), ("collection_50", 50), ("collection_100", 100)]:
         await _unlock(db, ach_id, count)
 
@@ -126,5 +129,6 @@ async def on_shopping_generated(db: AsyncSession):
 async def on_meal_plan_created(db: AsyncSession, week_meal_count: int = 0):
     await increment(db, "first_meal_plan")
     row = await db.get(Achievement, "full_week")
-    if row:
+    # Progression = meilleure semaine atteinte; ne régresse jamais
+    if row and week_meal_count > (row.progress or 0):
         await _unlock(db, "full_week", week_meal_count)

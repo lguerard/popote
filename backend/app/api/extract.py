@@ -79,12 +79,14 @@ async def _run_extraction(recipe_id: UUID, input_text: str):
                     setattr(recipe, field, value)
             recipe.status = ExtractionStatus.done
             recipe.error_msg = None
+            await db.commit()
+            from ..services import achievement_service
+            await achievement_service.on_recipe_added(db, recipe.source_type or "manual")
         except Exception as e:
             recipe.status = ExtractionStatus.failed
             recipe.error_msg = str(e)
             recipe.title = "Extraction échouée"
-
-        await db.commit()
+            await db.commit()
 
 
 async def _run_image_extraction(recipe_id: UUID, image_bytes: bytes, mime_type: str):
@@ -112,9 +114,13 @@ async def _run_image_extraction(recipe_id: UUID, image_bytes: bytes, mime_type: 
                     setattr(recipe, field, value)
             recipe.status = ExtractionStatus.done
             recipe.error_msg = None
+            await db.commit()
+            from ..services import achievement_service
+            # "image" is not a stored SourceType: it only routes the
+            # achievement so "Photographe" is reachable
+            await achievement_service.on_recipe_added(db, "image")
         except Exception as e:
             recipe.status = ExtractionStatus.failed
             recipe.error_msg = str(e)
             recipe.title = "OCR échoué"
-
-        await db.commit()
+            await db.commit()

@@ -1,5 +1,5 @@
 import uuid
-from datetime import date
+from datetime import date, timedelta
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select, func
@@ -60,7 +60,13 @@ async def create_meal_plan(data: MealPlanCreate, db: AsyncSession = Depends(get_
     db.add(plan)
     await db.commit()
     await db.refresh(plan)
-    week_count = (await db.execute(select(func.count()).select_from(MealPlan))).scalar_one()
+    # "Semaine Complète" = 28 repas dans LA semaine du repas ajouté (lun-dim)
+    week_start = data.date - timedelta(days=data.date.weekday())
+    week_end = week_start + timedelta(days=6)
+    week_count = (await db.execute(
+        select(func.count()).select_from(MealPlan)
+        .where(MealPlan.date >= week_start, MealPlan.date <= week_end)
+    )).scalar_one()
     await achievement_service.on_meal_plan_created(db, week_count)
     return plan
 
