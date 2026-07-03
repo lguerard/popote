@@ -11,7 +11,7 @@ interface PopoteApi {
         @Query("source_type") sourceType: String? = null,
         @Query("max_time") maxTime: Int? = null,
         @Query("page") page: Int = 1,
-        @Query("limit") limit: Int = 100,
+        @Query("limit") limit: Int = 1000,
     ): List<Recipe>
 
     @GET("api/recipes/{id}")

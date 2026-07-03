@@ -44,7 +44,7 @@ export default function Accueil() {
     ...(category === 'favoris' ? { favorites_only: true } : category ? { category } : {}),
     ...(maxTime && { max_time: maxTime }),
     ...(sourceType && { source_type: sourceType }),
-    limit: 100,
+    limit: 1000,
   }
 
   const { data: recipes = [], isLoading } = useQuery({
