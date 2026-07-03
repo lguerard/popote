@@ -3,13 +3,13 @@ services:
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_DB: kitchenai
-      POSTGRES_USER: kitchenai
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-kitchenai}
+      POSTGRES_DB: popote
+      POSTGRES_USER: popote
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-popote}
     volumes:
       - db_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U kitchenai"]
+      test: ["CMD-SHELL", "pg_isready -U popote"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -38,7 +38,7 @@ services:
       ollama:
         condition: service_started
     environment:
-      DATABASE_URL: postgresql+asyncpg://kitchenai:${POSTGRES_PASSWORD:-kitchenai}@db:5432/kitchenai
+      DATABASE_URL: postgresql+asyncpg://popote:${POSTGRES_PASSWORD:-popote}@db:5432/popote
       OLLAMA_BASE_URL: http://ollama:11434
       OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:14b}
       CLAUDE_API_KEY: ${CLAUDE_API_KEY:-}

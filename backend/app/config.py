@@ -2,7 +2,7 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    database_url: str = "postgresql+asyncpg://kitchenai:kitchenai@db:5432/kitchenai"
+    database_url: str = "postgresql+asyncpg://popote:popote@db:5432/popote"
     ollama_base_url: str = "http://ollama:11434"
     ollama_model: str = "qwen2.5:14b"
     claude_api_key: str = ""

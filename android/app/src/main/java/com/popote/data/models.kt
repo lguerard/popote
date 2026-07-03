@@ -1,4 +1,4 @@
-package com.kitchenai.data
+package com.popote.data
 
 data class Recipe(
     val id: String,

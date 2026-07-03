@@ -1,4 +1,4 @@
-package com.kitchenai
+package com.popote
 
 import android.content.Intent
 import android.os.Bundle
@@ -12,8 +12,8 @@ import androidx.compose.runtime.*
 import androidx.navigation.NavType
 import androidx.navigation.compose.*
 import androidx.navigation.navArgument
-import com.kitchenai.ui.screens.*
-import com.kitchenai.ui.theme.PopoteTheme
+import com.popote.ui.screens.*
+import com.popote.ui.theme.PopoteTheme
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {

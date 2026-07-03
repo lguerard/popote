@@ -1,9 +1,9 @@
-package com.kitchenai.data
+package com.popote.data
 
 import retrofit2.http.*
 import retrofit2.http.PATCH
 
-interface KitchenAiApi {
+interface PopoteApi {
     @GET("api/recipes")
     suspend fun getRecipes(
         @Query("search") search: String? = null,
