@@ -8,11 +8,11 @@ val serverUrl = (project.findProperty("serverUrl") as String?)
     ?: "https://popote.guyluron.fr"
 
 android {
-    namespace = "com.kitchenai"
+    namespace = "com.popote"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.kitchenai"
+        applicationId = "com.popote"
         minSdk = 26
         targetSdk = 35
         versionCode = (project.findProperty("versionCode") as String?)?.toInt() ?: 1

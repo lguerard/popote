@@ -1,4 +1,4 @@
-package com.kitchenai.ui.screens
+package com.popote.ui.screens
 
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
@@ -15,8 +15,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.kitchenai.ui.components.RecipeCard
-import com.kitchenai.ui.viewmodels.HomeViewModel
+import com.popote.ui.components.RecipeCard
+import com.popote.ui.viewmodels.HomeViewModel
 
 data class CategoryItem(val value: String?, val label: String, val emoji: String)
 data class TimeItem(val value: Int?, val label: String)

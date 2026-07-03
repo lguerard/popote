@@ -1,4 +1,4 @@
-package com.kitchenai.ui.components
+package com.popote.ui.components
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -11,7 +11,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
-import com.kitchenai.data.Recipe
+import com.popote.data.Recipe
 
 @Composable
 fun RecipeCard(recipe: Recipe, onClick: () -> Unit) {
@@ -72,11 +72,17 @@ fun RecipeCard(recipe: Recipe, onClick: () -> Unit) {
                 if (recipe.tags.isNotEmpty()) {
                     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                         recipe.tags.take(2).forEach { tag ->
-                            SuggestionChip(
-                                onClick = {},
-                                label = { Text(tag, style = MaterialTheme.typography.labelSmall) },
-                                modifier = Modifier.height(24.dp),
-                            )
+                            Surface(
+                                shape = MaterialTheme.shapes.small,
+                                color = MaterialTheme.colorScheme.surfaceVariant,
+                            ) {
+                                Text(
+                                    tag,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                )
+                            }
                         }
                     }
                 }

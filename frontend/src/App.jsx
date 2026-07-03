@@ -1,4 +1,4 @@
-import { Routes, Route } from 'react-router-dom'
+import { Routes, Route, Link } from 'react-router-dom'
 import Accueil from './pages/Accueil'
 import DetailRecette from './pages/DetailRecette'
 import AjouterRecette from './pages/AjouterRecette'
@@ -22,11 +22,22 @@ export default function App() {
           <Route path="/planning" element={<Planning />} />
           <Route path="/ajouter" element={<AjouterRecette />} />
           <Route path="/succes" element={<Succes />} />
+          <Route path="*" element={<IntrouvablePage />} />
         </Routes>
       </main>
       <Routes>
         <Route path="/recettes/:id/cuisine" element={<ModeCuisine />} />
       </Routes>
+    </div>
+  )
+}
+
+function IntrouvablePage() {
+  return (
+    <div className="text-center py-24 text-gray-400">
+      <div className="text-6xl mb-4">🍽️</div>
+      <p className="text-xl font-medium text-gray-500">Page introuvable</p>
+      <Link to="/" className="mt-4 inline-block text-orange-600 hover:underline">← Retour aux recettes</Link>
     </div>
   )
 }

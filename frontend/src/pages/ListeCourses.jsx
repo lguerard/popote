@@ -82,20 +82,28 @@ export default function ListeCourses() {
       <h1 className="text-2xl font-bold text-gray-900 mb-2">🛒 Liste de courses</h1>
       <p className="text-gray-500 text-sm mb-6">Sélectionnez les recettes à cuisiner — la liste d'ingrédients sera générée automatiquement.</p>
 
-      <div className="space-y-2 mb-6">
-        {recipes.map(r => (
-          <label key={r.id} className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-colors ${
-            selectedIds.includes(r.id) ? 'border-orange-400 bg-orange-50' : 'border-gray-200 bg-white hover:border-orange-200'
-          }`}>
-            <input type="checkbox" checked={selectedIds.includes(r.id)} onChange={() => toggle(r.id)} className="accent-orange-600 w-4 h-4" />
-            {r.thumbnail_url && <img src={r.thumbnail_url} alt="" className="w-10 h-10 rounded-lg object-cover flex-shrink-0" />}
-            <div className="flex-1 min-w-0">
-              <p className="font-medium truncate">{r.title}</p>
-              <p className="text-xs text-gray-400">{r.servings ? `${r.servings} pers.` : ''} {r.category || ''}</p>
-            </div>
-          </label>
-        ))}
-      </div>
+      {recipes.length === 0 ? (
+        <div className="text-center py-16 text-gray-400">
+          <div className="text-5xl mb-3">🍽️</div>
+          <p className="font-medium text-gray-500">Aucune recette pour l'instant</p>
+          <p className="mt-1 text-sm">Ajoutez des recettes pour pouvoir générer une liste de courses.</p>
+        </div>
+      ) : (
+        <div className="space-y-2 mb-6">
+          {recipes.map(r => (
+            <label key={r.id} className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-colors ${
+              selectedIds.includes(r.id) ? 'border-orange-400 bg-orange-50' : 'border-gray-200 bg-white hover:border-orange-200'
+            }`}>
+              <input type="checkbox" checked={selectedIds.includes(r.id)} onChange={() => toggle(r.id)} className="accent-orange-600 w-4 h-4" />
+              {r.thumbnail_url && <img src={r.thumbnail_url} alt="" className="w-10 h-10 rounded-lg object-cover flex-shrink-0" />}
+              <div className="flex-1 min-w-0">
+                <p className="font-medium truncate">{r.title}</p>
+                <p className="text-xs text-gray-400">{r.servings ? `${r.servings} pers.` : ''} {r.category || ''}</p>
+              </div>
+            </label>
+          ))}
+        </div>
+      )}
 
       <button
         onClick={generate}

@@ -1,4 +1,4 @@
-package com.kitchenai.ui.screens
+package com.popote.ui.screens
 
 import android.app.Application
 import android.content.Intent
@@ -27,9 +27,9 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
-import com.kitchenai.data.Nutrition
-import com.kitchenai.data.Recipe
-import com.kitchenai.data.RecipeRepository
+import com.popote.data.Nutrition
+import com.popote.data.Recipe
+import com.popote.data.RecipeRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -120,6 +120,8 @@ class RecipeDetailViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    fun clearError() { _error.value = null }
+
     fun setNotesDraft(s: String) { _notesDraft.value = s }
 
     fun saveNotes() {
@@ -209,8 +211,11 @@ fun RecipeDetailScreen(
         }
     ) { padding ->
         when {
-            error != null -> Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
-                Text(error!!, color = MaterialTheme.colorScheme.error)
+            recipe == null && error != null -> Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(error!!, color = MaterialTheme.colorScheme.error)
+                    Button(onClick = { vm.load(recipeId) }) { Text("Réessayer") }
+                }
             }
             recipe == null -> Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator()
@@ -218,6 +223,8 @@ fun RecipeDetailScreen(
             else -> RecipeContent(
                 recipe = recipe!!,
                 modifier = Modifier.padding(padding),
+                actionError = error,
+                onDismissError = vm::clearError,
                 nutritionLoading = nutritionLoading,
                 onAnalyzeNutrition = vm::analyzeNutrition,
                 notesDraft = notesDraft ?: "",
@@ -285,6 +292,8 @@ private fun CookingModeOverlay(recipe: Recipe, onExit: () -> Unit) {
 private fun RecipeContent(
     recipe: Recipe,
     modifier: Modifier = Modifier,
+    actionError: String? = null,
+    onDismissError: () -> Unit = {},
     nutritionLoading: Boolean,
     onAnalyzeNutrition: () -> Unit,
     notesDraft: String,
@@ -298,6 +307,21 @@ private fun RecipeContent(
     val scaledServings = recipe.servings?.let { (it * scale).roundToInt() }
 
     LazyColumn(modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 32.dp)) {
+
+        // Action error banner (e.g. failed save/analyze/delete) — doesn't hide the recipe
+        if (actionError != null) {
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+                ) {
+                    Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text(actionError, Modifier.weight(1f), color = MaterialTheme.colorScheme.onErrorContainer, style = MaterialTheme.typography.bodySmall)
+                        TextButton(onClick = onDismissError) { Text("OK") }
+                    }
+                }
+            }
+        }
 
         // Duplicate warning
         if (recipe.similar_recipe_id != null) {
@@ -383,10 +407,17 @@ private fun RecipeContent(
         item {
             Row(Modifier.padding(horizontal = 16.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 if (recipe.category != null) {
-                    AssistChip(onClick = {}, label = { Text(recipe.category, fontWeight = FontWeight.SemiBold) },
-                        colors = AssistChipDefaults.assistChipColors(containerColor = MaterialTheme.colorScheme.primaryContainer, labelColor = MaterialTheme.colorScheme.onPrimaryContainer))
+                    Surface(shape = MaterialTheme.shapes.small, color = MaterialTheme.colorScheme.primaryContainer) {
+                        Text(recipe.category, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp))
+                    }
                 }
-                recipe.tags.forEach { AssistChip(onClick = {}, label = { Text(it) }) }
+                recipe.tags.forEach { tag ->
+                    Surface(shape = MaterialTheme.shapes.small, color = MaterialTheme.colorScheme.surfaceVariant) {
+                        Text(tag, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp))
+                    }
+                }
             }
         }
 

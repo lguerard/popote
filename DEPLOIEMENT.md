@@ -1,11 +1,11 @@
-# Guide de déploiement — KitchenAI
+# Guide de déploiement — Popote
 
 ## Sommaire
 
 1. [Prérequis serveur](#1-prérequis-serveur)
 2. [Drivers NVIDIA + Docker GPU](#2-drivers-nvidia--docker-gpu)
 3. [Installer Docker](#3-installer-docker)
-4. [Lancer KitchenAI](#4-lancer-kitchenai)
+4. [Lancer Popote](#4-lancer-popote)
 5. [Exposer sur Internet avec Cloudflare Tunnel](#5-exposer-sur-internet-avec-cloudflare-tunnel)
 6. [App Android — connexion](#6-app-android--connexion)
 7. [Mises à jour](#7-mises-à-jour)
@@ -66,7 +66,7 @@ docker run --rm --gpus all nvidia/cuda:12.0-base nvidia-smi
 
 ---
 
-## 4. Lancer KitchenAI
+## 4. Lancer Popote
 
 ### 4.1 Cloner le projet
 
@@ -140,7 +140,7 @@ cloudflared tunnel login
 
 ```bash
 # Créer le tunnel (une seule fois)
-cloudflared tunnel create kitchenai
+cloudflared tunnel create popote
 # → retourne un UUID ex: a1b2c3d4-...
 
 # Créer le fichier de config
@@ -160,7 +160,7 @@ EOF
 
 ```bash
 # Crée automatiquement l'entrée DNS chez Cloudflare
-cloudflared tunnel route dns kitchenai recettes.mondomaine.com
+cloudflared tunnel route dns popote recettes.mondomaine.com
 ```
 
 ### 5.5 Lancer le tunnel comme service système
@@ -207,7 +207,7 @@ Si Cloudflare Tunnel est configuré :
 ### Astuce — partage depuis le navigateur Android
 
 1. Dans Chrome, ouvrir une vidéo YouTube / page de recette
-2. Menu partage → **KitchenAI**
+2. Menu partage → **Popote**
 3. L'app ouvre directement l'écran d'extraction avec l'URL pré-remplie
 
 ---
@@ -278,8 +278,8 @@ docker compose restart backend
 watch -n1 nvidia-smi
 
 # Sauvegarder la base de données
-docker compose exec db pg_dump -U kitchenai kitchenai > backup_$(date +%Y%m%d).sql
+docker compose exec db pg_dump -U popote popote > backup_$(date +%Y%m%d).sql
 
 # Restaurer
-cat backup_20241201.sql | docker compose exec -T db psql -U kitchenai kitchenai
+cat backup_20241201.sql | docker compose exec -T db psql -U popote popote
 ```

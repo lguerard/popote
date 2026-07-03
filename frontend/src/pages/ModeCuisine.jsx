@@ -8,7 +8,7 @@ export default function ModeCuisine() {
   const { id } = useParams()
   const [stepIdx, setStepIdx] = useState(0)
 
-  const { data: recipe } = useQuery({ queryKey: ['recipe', id], queryFn: () => getRecipe(id) })
+  const { data: recipe, isError } = useQuery({ queryKey: ['recipe', id], queryFn: () => getRecipe(id) })
 
   // Wake Lock + achievement
   useEffect(() => {
@@ -20,6 +20,12 @@ export default function ModeCuisine() {
     return () => { lock?.release() }
   }, [])
 
+  if (isError) return (
+    <div className="fixed inset-0 bg-gray-950 text-white flex flex-col items-center justify-center gap-4">
+      <p>Impossible de charger la recette.</p>
+      <Link to={`/recettes/${id}`} className="text-orange-400 hover:underline">← Retour</Link>
+    </div>
+  )
   if (!recipe) return <div className="flex items-center justify-center h-screen">Chargement…</div>
 
   const steps = recipe.steps || []

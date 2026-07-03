@@ -1,4 +1,4 @@
--keep class com.kitchenai.data.** { *; }
+-keep class com.popote.data.** { *; }
 -keepattributes Signature
 -keepattributes *Annotation*
 -dontwarn okhttp3.**

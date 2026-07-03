@@ -1,4 +1,4 @@
-package com.kitchenai.ui.screens
+package com.popote.ui.screens
 
 import android.app.Application
 import androidx.compose.foundation.layout.*
@@ -16,8 +16,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.kitchenai.data.Achievement
-import com.kitchenai.data.RecipeRepository
+import com.popote.data.Achievement
+import com.popote.data.RecipeRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -27,12 +27,15 @@ class AchievementsViewModel(app: Application) : AndroidViewModel(app) {
     private val repo = RecipeRepository(app)
     private val _achievements = MutableStateFlow<List<Achievement>>(emptyList())
     val achievements: StateFlow<List<Achievement>> = _achievements.asStateFlow()
+    private val _error = MutableStateFlow<String?>(null)
+    val error: StateFlow<String?> = _error.asStateFlow()
 
     init { load() }
 
-    private fun load() {
+    fun load() {
         viewModelScope.launch {
-            try { _achievements.value = repo.getAchievements() } catch (_: Exception) {}
+            try { _achievements.value = repo.getAchievements(); _error.value = null }
+            catch (e: Exception) { _error.value = e.message ?: "Erreur de connexion" }
         }
     }
 }
@@ -49,6 +52,7 @@ private val CATEGORY_LABELS = mapOf(
 @Composable
 fun AchievementsScreen(onBack: () -> Unit, vm: AchievementsViewModel = viewModel()) {
     val achievements by vm.achievements.collectAsState()
+    val error by vm.error.collectAsState()
     val grouped = achievements.groupBy { it.category }
     val total = achievements.size
     val unlocked = achievements.count { it.isUnlocked }
@@ -61,6 +65,15 @@ fun AchievementsScreen(onBack: () -> Unit, vm: AchievementsViewModel = viewModel
             )
         }
     ) { padding ->
+        if (error != null && achievements.isEmpty()) {
+            Box(Modifier.padding(padding).fillMaxSize(), contentAlignment = Alignment.Center) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(error!!, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.error)
+                    Button(onClick = vm::load) { Text("Réessayer") }
+                }
+            }
+            return@Scaffold
+        }
         LazyColumn(Modifier.padding(padding).fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             // Global progress
             item {

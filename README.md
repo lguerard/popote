@@ -175,7 +175,7 @@ voir [`DEPLOIEMENT.md`](DEPLOIEMENT.md).
 
 | Variable | Défaut | Description |
 |---|---|---|
-| `POSTGRES_PASSWORD` | `kitchenai` | Mot de passe PostgreSQL |
+| `POSTGRES_PASSWORD` | `popote` | Mot de passe PostgreSQL |
 | `OLLAMA_MODEL` | `qwen2.5:14b` | Modèle LLM local |
 | `CLAUDE_API_KEY` | *(vide)* | Active Claude en priorité sur Ollama |
 | `WHISPER_MODEL` | `large-v3` | Modèle Whisper |

@@ -1,4 +1,4 @@
-package com.kitchenai.data
+package com.popote.data
 
 import android.content.Context
 import androidx.datastore.preferences.core.edit
@@ -10,7 +10,7 @@ class RecipeRepository(private val context: Context) {
 
     val serverUrl = apiClient.serverUrl
 
-    private suspend fun api(): KitchenAiApi {
+    private suspend fun api(): PopoteApi {
         val url = apiClient.serverUrl.first()
         return apiClient.getApi(url)
     }

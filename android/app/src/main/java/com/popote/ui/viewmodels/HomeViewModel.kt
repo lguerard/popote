@@ -1,10 +1,10 @@
-package com.kitchenai.ui.viewmodels
+package com.popote.ui.viewmodels
 
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.kitchenai.data.Recipe
-import com.kitchenai.data.RecipeRepository
+import com.popote.data.Recipe
+import com.popote.data.RecipeRepository
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 

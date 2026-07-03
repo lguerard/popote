@@ -1,4 +1,4 @@
-package com.kitchenai.data
+package com.popote.data
 
 import android.content.Context
 import androidx.datastore.core.DataStore
@@ -15,7 +15,7 @@ import java.util.concurrent.TimeUnit
 
 val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "settings")
 val SERVER_URL_KEY = stringPreferencesKey("server_url")
-val DEFAULT_SERVER_URL: String get() = com.kitchenai.BuildConfig.DEFAULT_SERVER_URL
+val DEFAULT_SERVER_URL: String get() = com.popote.BuildConfig.DEFAULT_SERVER_URL
 
 class ApiClient(context: Context) {
     private val dataStore = context.dataStore
@@ -25,13 +25,13 @@ class ApiClient(context: Context) {
     }
 
     private var currentBaseUrl: String = ""
-    private var _api: KitchenAiApi? = null
+    private var _api: PopoteApi? = null
 
-    fun getApi(baseUrl: String): KitchenAiApi {
+    fun getApi(baseUrl: String): PopoteApi {
         val normalizedUrl = if (baseUrl.endsWith("/")) baseUrl else "$baseUrl/"
         if (normalizedUrl != currentBaseUrl || _api == null) {
             currentBaseUrl = normalizedUrl
-            _api = buildRetrofit(normalizedUrl).create(KitchenAiApi::class.java)
+            _api = buildRetrofit(normalizedUrl).create(PopoteApi::class.java)
         }
         return _api!!
     }

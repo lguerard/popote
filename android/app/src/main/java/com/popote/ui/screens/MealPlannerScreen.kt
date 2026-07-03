@@ -1,4 +1,4 @@
-package com.kitchenai.ui.screens
+package com.popote.ui.screens
 
 import android.app.Application
 import androidx.compose.foundation.horizontalScroll
@@ -18,10 +18,10 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.kitchenai.data.MealPlan
-import com.kitchenai.data.MealPlanCreate
-import com.kitchenai.data.Recipe
-import com.kitchenai.data.RecipeRepository
+import com.popote.data.MealPlan
+import com.popote.data.MealPlanCreate
+import com.popote.data.Recipe
+import com.popote.data.RecipeRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -39,6 +39,8 @@ class MealPlannerViewModel(app: Application) : AndroidViewModel(app) {
     val recipes: StateFlow<List<Recipe>> = _recipes.asStateFlow()
     private val _weekOffset = MutableStateFlow(0)
     val weekOffset: StateFlow<Int> = _weekOffset.asStateFlow()
+    private val _error = MutableStateFlow<String?>(null)
+    val error: StateFlow<String?> = _error.asStateFlow()
 
     init { loadAll() }
 
@@ -59,9 +61,12 @@ class MealPlannerViewModel(app: Application) : AndroidViewModel(app) {
                 val dates = weekDates()
                 val fmt = DateTimeFormatter.ISO_LOCAL_DATE
                 _plans.value = repo.getMealPlans(dates.first().format(fmt), dates.last().format(fmt))
-            } catch (_: Exception) {}
+                _error.value = null
+            } catch (e: Exception) { _error.value = e.message ?: "Erreur de connexion" }
         }
     }
+
+    fun retry() { loadAll() }
 
     fun loadRecipes(search: String = "") {
         viewModelScope.launch {
@@ -98,6 +103,7 @@ fun MealPlannerScreen(onBack: () -> Unit, vm: MealPlannerViewModel = viewModel()
     val plans by vm.plans.collectAsState()
     val recipes by vm.recipes.collectAsState()
     val weekOffset by vm.weekOffset.collectAsState()
+    val error by vm.error.collectAsState()
     val days = vm.getWeekDates()
     var picker by remember { mutableStateOf<Pair<LocalDate, String>?>(null) }
     var pickerSearch by remember { mutableStateOf("") }
@@ -120,8 +126,20 @@ fun MealPlannerScreen(onBack: () -> Unit, vm: MealPlannerViewModel = viewModel()
             )
         }
     ) { padding ->
+        Column(Modifier.padding(padding).fillMaxSize()) {
+        if (error != null) {
+            Card(
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+            ) {
+                Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(error!!, Modifier.weight(1f), color = MaterialTheme.colorScheme.onErrorContainer, style = MaterialTheme.typography.bodySmall)
+                    TextButton(onClick = vm::retry) { Text("Réessayer") }
+                }
+            }
+        }
         // Horizontal scrollable weekly view
-        Row(Modifier.padding(padding).fillMaxSize().horizontalScroll(rememberScrollState())) {
+        Row(Modifier.fillMaxWidth().weight(1f).horizontalScroll(rememberScrollState())) {
             // Meal type labels
             Column(Modifier.width(80.dp)) {
                 Spacer(Modifier.height(56.dp))
@@ -162,13 +180,14 @@ fun MealPlannerScreen(onBack: () -> Unit, vm: MealPlannerViewModel = viewModel()
                                     }
                                 }
                                 IconButton(onClick = { picker = Pair(day, mealType); pickerSearch = "" }, modifier = Modifier.size(24.dp)) {
-                                    Icon(Icons.Default.Add, null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Icon(Icons.Default.Add, "Ajouter un repas", modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
                             }
                         }
                     }
                 }
             }
+        }
         }
     }
 

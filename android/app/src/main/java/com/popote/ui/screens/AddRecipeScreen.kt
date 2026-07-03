@@ -1,4 +1,4 @@
-package com.kitchenai.ui.screens
+package com.popote.ui.screens
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -12,8 +12,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.kitchenai.ui.viewmodels.AddRecipeViewModel
-import com.kitchenai.ui.viewmodels.AddState
+import com.popote.ui.viewmodels.AddRecipeViewModel
+import com.popote.ui.viewmodels.AddState
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

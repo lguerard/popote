@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { getRecipe, deleteRecipe, toggleFavorite, updateRecipe, analyzeNutrition } from '../api'
@@ -48,8 +48,11 @@ export default function DetailRecette() {
   const { data: recipe, isLoading, error } = useQuery({
     queryKey: ['recipe', id],
     queryFn: () => getRecipe(id),
-    onSuccess: (r) => { if (notes === null && r.notes) setNotes(r.notes) },
   })
+
+  useEffect(() => {
+    if (notes === null && recipe?.notes) setNotes(recipe.notes)
+  }, [recipe, notes])
 
   const deleteMut = useMutation({ mutationFn: () => deleteRecipe(id), onSuccess: () => { qc.invalidateQueries({ queryKey: ['recipes'] }); navigate('/') } })
   const favMut = useMutation({ mutationFn: () => toggleFavorite(id), onSuccess: (r) => qc.setQueryData(['recipe', id], r) })
@@ -152,7 +155,7 @@ export default function DetailRecette() {
           )}
         </div>
         {recipe.nutrition ? (
-          <div className="grid grid-cols-5 gap-3 text-center">
+          <div className="grid grid-cols-3 sm:grid-cols-5 gap-3 text-center">
             {[['🔥 Cal.', recipe.nutrition.calories, 'kcal'], ['🥩 Prot.', recipe.nutrition.proteins, 'g'],
               ['🌾 Glucides', recipe.nutrition.carbs, 'g'], ['🫒 Lipides', recipe.nutrition.fat, 'g'],
               ['🌿 Fibres', recipe.nutrition.fiber, 'g']].map(([label, val, unit]) => (

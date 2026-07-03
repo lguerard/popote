@@ -1,4 +1,4 @@
-package com.kitchenai.ui.screens
+package com.popote.ui.screens
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.KeyboardOptions
@@ -11,7 +11,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.kitchenai.ui.viewmodels.SettingsViewModel
+import com.popote.ui.viewmodels.SettingsViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -32,7 +32,7 @@ fun SettingsScreen(
         }
     ) { padding ->
         Column(Modifier.padding(padding).padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            Text("Serveur KitchenAI", style = MaterialTheme.typography.titleLarge)
+            Text("Serveur Popote", style = MaterialTheme.typography.titleLarge)
             Text(
                 "Entrez l'adresse IP ou le nom de domaine de votre serveur.\nPar exemple : http://192.168.1.100",
                 style = MaterialTheme.typography.bodyMedium,

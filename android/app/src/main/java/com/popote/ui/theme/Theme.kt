@@ -1,4 +1,4 @@
-package com.kitchenai.ui.theme
+package com.popote.ui.theme
 
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
