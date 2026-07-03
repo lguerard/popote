@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from ..database import get_db
-from ..models.recipe import Recipe
+from ..models.recipe import Recipe, ExtractionStatus
 from ..schemas.recipe import RecipeCreate, RecipeUpdate, RecipeOut, NutritionOut
 from ..services import achievement_service
 
@@ -19,10 +19,15 @@ async def list_recipes(
     max_time: int | None = Query(None, description="Temps total max en minutes"),
     favorites_only: bool = Query(False),
     page: int = Query(1, ge=1),
-    limit: int = Query(20, ge=1, le=100),
+    limit: int = Query(20, ge=1, le=1000),
     db: AsyncSession = Depends(get_db),
 ):
-    q = select(Recipe).order_by(Recipe.created_at.desc())
+    # Extractions en cours/échouées suivies via /tasks/{id}, pas la collection
+    q = (
+        select(Recipe)
+        .where(Recipe.status == ExtractionStatus.done)
+        .order_by(Recipe.created_at.desc())
+    )
     if search:
         pattern = f"%{search}%"
         q = q.where(or_(Recipe.title.ilike(pattern), Recipe.description.ilike(pattern)))
@@ -65,7 +70,8 @@ async def update_recipe(recipe_id: UUID, data: RecipeUpdate, db: AsyncSession = 
     if not recipe:
         raise HTTPException(404, "Recette introuvable")
     old_notes = recipe.notes
-    for field, value in data.model_dump(exclude_none=True).items():
+    # exclude_unset (pas exclude_none) : un null explicite efface le champ
+    for field, value in data.model_dump(exclude_unset=True).items():
         setattr(recipe, field, value)
     await db.commit()
     await db.refresh(recipe)
@@ -80,7 +86,7 @@ async def patch_recipe(recipe_id: UUID, data: RecipeUpdate, db: AsyncSession = D
     if not recipe:
         raise HTTPException(404, "Recette introuvable")
     old_notes = recipe.notes
-    for field, value in data.model_dump(exclude_none=True).items():
+    for field, value in data.model_dump(exclude_unset=True).items():
         setattr(recipe, field, value)
     await db.commit()
     await db.refresh(recipe)
