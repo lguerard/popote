@@ -1,4 +1,4 @@
-package com.kitchenai.ui.screens
+package com.popote.ui.screens
 
 import android.app.Application
 import androidx.compose.foundation.layout.*
@@ -16,9 +16,9 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.kitchenai.data.Recipe
-import com.kitchenai.data.RecipeRepository
-import com.kitchenai.data.ShoppingItem
+import com.popote.data.Recipe
+import com.popote.data.RecipeRepository
+import com.popote.data.ShoppingItem
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -34,12 +34,15 @@ class ShoppingListViewModel(app: Application) : AndroidViewModel(app) {
     val selectedIds: StateFlow<Set<String>> = _selectedIds.asStateFlow()
     private val _loading = MutableStateFlow(false)
     val loading: StateFlow<Boolean> = _loading.asStateFlow()
+    private val _error = MutableStateFlow<String?>(null)
+    val error: StateFlow<String?> = _error.asStateFlow()
 
     init { loadRecipes() }
 
     private fun loadRecipes() {
         viewModelScope.launch {
-            try { _recipes.value = repo.getRecipes() } catch (_: Exception) {}
+            try { _recipes.value = repo.getRecipes(); _error.value = null }
+            catch (e: Exception) { _error.value = e.message ?: "Erreur de connexion" }
         }
     }
 
@@ -51,11 +54,13 @@ class ShoppingListViewModel(app: Application) : AndroidViewModel(app) {
     fun generate() {
         viewModelScope.launch {
             _loading.value = true
-            try { _items.value = repo.getShoppingList(_selectedIds.value.toList()) }
-            catch (_: Exception) {}
+            try { _items.value = repo.getShoppingList(_selectedIds.value.toList()); _error.value = null }
+            catch (e: Exception) { _error.value = e.message ?: "Erreur de connexion" }
             finally { _loading.value = false }
         }
     }
+
+    fun retry() { loadRecipes() }
 
     fun reset() { _items.value = null }
 }
@@ -67,6 +72,7 @@ fun ShoppingListScreen(onBack: () -> Unit, vm: ShoppingListViewModel = viewModel
     val shoppingItems by vm.items.collectAsState()
     val selected by vm.selectedIds.collectAsState()
     val loading by vm.loading.collectAsState()
+    val error by vm.error.collectAsState()
     val checkedItems = remember { mutableStateMapOf<String, Boolean>() }
 
     Scaffold(
@@ -103,6 +109,17 @@ fun ShoppingListScreen(onBack: () -> Unit, vm: ShoppingListViewModel = viewModel
             Column(Modifier.padding(padding).fillMaxSize()) {
                 Text("Sélectionnez les recettes à cuisiner", style = MaterialTheme.typography.titleMedium,
                     modifier = Modifier.padding(16.dp))
+                if (error != null) {
+                    Card(
+                        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+                    ) {
+                        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Text(error!!, Modifier.weight(1f), color = MaterialTheme.colorScheme.onErrorContainer, style = MaterialTheme.typography.bodySmall)
+                            TextButton(onClick = vm::retry) { Text("Réessayer") }
+                        }
+                    }
+                }
                 LazyColumn(
                     Modifier.weight(1f),
                     contentPadding = PaddingValues(horizontal = 16.dp),
