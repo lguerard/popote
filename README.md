@@ -15,7 +15,8 @@ brut, ou photo — accompagnée d'une application Android native.
 - **Sites web** via Playwright headless (Marmiton, 750g, etc.)
 - **Texte libre** en n'importe quelle langue — converti automatiquement en
   français
-- **Photo / OCR** — pointez votre caméra vers un livre de cuisine
+- **Photo / OCR** — envoyez la photo d'une page de livre de cuisine
+  (interface web uniquement pour l'instant)
 
 ### Gestion des recettes
 
@@ -81,11 +82,12 @@ perfectionniste — avec barre de progression individuelle.
 
 > Badges style Steam avec progression individuelle, regroupés par catégorie.
 
-### Ajout par URL / Texte / Photo
+### Ajout par URL / Texte
 
 ![Ajouter](screenshots/android/add.png)
 
 > Extraction en tâche de fond avec polling du statut en temps réel.
+> (L'ajout par photo/OCR se fait via l'interface web.)
 
 ---
 
@@ -116,7 +118,7 @@ Internet / LAN
 | Transcription | faster-whisper `large-v3`, CUDA (RTX 3080) |
 | Scraping | yt-dlp (vidéos), Playwright (web) |
 | LLM | Ollama `qwen2.5:14b` + Claude `claude-sonnet-4-6` (fallback) |
-| OCR | Claude Vision → Ollama llava → pytesseract |
+| OCR | Claude Vision (si clé API), sinon Ollama llava → pytesseract |
 | Frontend web | React 18, Vite, Tailwind CSS, React Query |
 | App Android | Kotlin, Jetpack Compose, Material 3, Retrofit, Coil |
 | Infrastructure | Docker Compose, NVIDIA Container Toolkit |
