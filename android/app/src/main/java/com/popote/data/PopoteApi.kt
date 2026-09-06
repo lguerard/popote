@@ -4,6 +4,28 @@ import retrofit2.http.*
 import retrofit2.http.PATCH
 
 interface PopoteApi {
+    /* ------------------------------ comptes ------------------------------ */
+
+    @GET("api/auth/status")
+    suspend fun authStatus(): AuthStatus
+
+    @POST("api/auth/login")
+    suspend fun login(@Body body: LoginRequest): LoginResponse
+
+    @POST("api/auth/logout")
+    suspend fun logout()
+
+    @GET("api/auth/me")
+    suspend fun me(): AccountUser
+
+    @POST("api/auth/setup")
+    suspend fun setup(@Body body: SetupRequest): LoginResponse
+
+    @POST("api/auth/change-password")
+    suspend fun changePassword(@Body body: ChangePasswordRequest)
+
+    /* ----------------------------- recettes ------------------------------ */
+
     @GET("api/recipes")
     suspend fun getRecipes(
         @Query("search") search: String? = null,

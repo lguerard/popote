@@ -168,8 +168,63 @@ Le premier démarrage télécharge `qwen2.5:14b` (~5 GB) — prévoir 10-15 min.
 - Android : installer l'APK depuis les
   [Releases GitHub](https://github.com/lguerard/popote/releases)
 
+Au tout premier lancement, l'application propose la **création du premier
+compte**, qui devient administrateur. Ensuite, l'API refuse toute requête sans
+session — voir [Comptes et mots de passe](#comptes-et-mots-de-passe).
+
 Pour le déploiement complet avec Cloudflare Tunnel et accès externe,
 voir [`DEPLOIEMENT.md`](DEPLOIEMENT.md).
+
+---
+
+## Comptes et mots de passe
+
+Popote demande une connexion : toutes les routes `/api` (hors `/api/health` et
+`/api/auth/…`) exigent une session. Le recettier reste **commun au foyer** —
+l'authentification ferme la porte, elle ne cloisonne pas les recettes.
+
+- **Premier compte** : proposé automatiquement tant qu'aucun compte n'existe,
+  sur le web comme sur Android. Il est administrateur.
+- **Autres comptes** : *Mon compte → Comptes → Ajouter un compte*
+  (administrateurs uniquement).
+- **Changer son mot de passe** : *Mon compte* sur le web, *Paramètres* sur
+  Android. Les autres appareils sont déconnectés ; celui qui fait le
+  changement reste connecté.
+
+### Mot de passe oublié
+
+Popote **n'envoie pas d'e-mail** (pas de SMTP sur un serveur auto-hébergé). La
+réinitialisation passe par un **lien à usage unique**, valable 24 h :
+
+1. Un administrateur ouvre *Mon compte → Comptes* → **Lien de
+   réinitialisation** en face du compte concerné, et transmet le lien affiché
+   par le canal de son choix. Il n'est plus réaffiché ensuite.
+2. La personne ouvre le lien dans un navigateur, choisit un nouveau mot de
+   passe, et toutes ses sessions en cours sont invalidées.
+
+Le lien est construit à partir de `PUBLIC_URL` : sans cette variable, il
+pointera sur l'adresse interne du conteneur et ne sera pas ouvrable.
+
+**Si plus aucun administrateur ne peut se connecter**, le déblocage se fait
+depuis le serveur :
+
+```bash
+# lister les comptes
+docker compose exec backend python -m app.reset_password
+
+# générer un lien de réinitialisation à usage unique
+docker compose exec backend python -m app.reset_password toi@exemple.fr
+
+# ou fixer directement le mot de passe
+docker compose exec backend python -m app.reset_password toi@exemple.fr 'nouveau-mdp'
+
+# créer un compte sans passer par le navigateur
+docker compose exec backend python -m app.reset_password --create toi@exemple.fr 'mdp' 'Ton nom'
+```
+
+Les mots de passe sont hachés en **scrypt**, et seuls les **hash SHA-256** des
+jetons de session et des liens de réinitialisation sont stockés : une
+sauvegarde de la base ne contient ni mot de passe ni lien exploitable.
 
 ---
 
@@ -183,6 +238,8 @@ voir [`DEPLOIEMENT.md`](DEPLOIEMENT.md).
 | `WHISPER_MODEL` | `large-v3` | Modèle Whisper |
 | `WHISPER_DEVICE` | `cuda` | `cuda` ou `cpu` |
 | `SECRET_KEY` | `changeme` | Clé secrète FastAPI |
+| `PUBLIC_URL` | *(vide)* | URL publique réelle, utilisée pour les liens de réinitialisation de mot de passe |
+| `COOKIE_SECURE` | `true` | Cookie de session en `Secure`. Passer à `false` pour un accès en `http://` sur le LAN |
 | `PORT` | `80` | Port HTTP exposé |
 
 ---

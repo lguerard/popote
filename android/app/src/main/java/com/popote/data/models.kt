@@ -1,5 +1,38 @@
 package com.popote.data
 
+/* --------------------------------- comptes -------------------------------- */
+
+data class AccountUser(
+    val id: String,
+    val email: String,
+    val display_name: String,
+    val is_admin: Boolean,
+)
+
+/** Réponse de /api/auth/status : dit si un compte existe déjà sur le serveur
+ *  et, le cas échéant, qui est connecté. */
+data class AuthStatus(
+    val needs_setup: Boolean,
+    val user: AccountUser?,
+)
+
+data class LoginRequest(val email: String, val password: String)
+
+data class LoginResponse(val token: String, val user: AccountUser)
+
+data class SetupRequest(
+    val email: String,
+    val display_name: String,
+    val password: String,
+)
+
+data class ChangePasswordRequest(
+    val current_password: String,
+    val new_password: String,
+)
+
+/* -------------------------------- recettes -------------------------------- */
+
 data class Recipe(
     val id: String,
     val title: String,
