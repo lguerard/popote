@@ -43,6 +43,8 @@ services:
       OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:14b}
       CLAUDE_API_KEY: ${CLAUDE_API_KEY:-}
       SECRET_KEY: ${SECRET_KEY:-changeme-in-production}
+      PUBLIC_URL: ${PUBLIC_URL:-}
+      COOKIE_SECURE: ${COOKIE_SECURE:-true}
       WHISPER_MODEL: ${WHISPER_MODEL:-large-v3}
       WHISPER_DEVICE: ${WHISPER_DEVICE:-cuda}
     volumes:

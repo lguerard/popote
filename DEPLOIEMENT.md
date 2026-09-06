@@ -87,6 +87,12 @@ Modifier au minimum :
 ```env
 POSTGRES_PASSWORD=un-mot-de-passe-fort
 SECRET_KEY=une-cle-secrete-aleatoire
+# URL publique réelle : sert à construire les liens de réinitialisation de
+# mot de passe. Sans elle, les liens générés pointent sur l'adresse interne.
+PUBLIC_URL=https://recettes.mondomaine.com
+# Cookie de session en Secure. Passer à false si tu accèdes en http:// sur le LAN,
+# sinon la connexion ne « prend » pas dans le navigateur.
+COOKIE_SECURE=true
 # Optionnel : si tu veux utiliser Claude à la place d'Ollama
 # CLAUDE_API_KEY=sk-ant-...
 ```
@@ -176,9 +182,12 @@ sudo systemctl status cloudflared
 
 L'app est maintenant accessible sur **https://recettes.mondomaine.com** avec HTTPS automatique.
 
-### 5.6 Protéger avec Cloudflare Access (optionnel mais recommandé)
+### 5.6 Protéger avec Cloudflare Access (optionnel)
 
-Pour ne pas exposer tes recettes à tout le monde :
+Popote a désormais **ses propres comptes** : l'API refuse toute requête sans
+session, et le premier lancement demande la création d'un compte
+administrateur. Cloudflare Access n'est donc plus la seule barrière — mais
+reste une couche supplémentaire utile si tu la veux :
 
 1. Dashboard Cloudflare → **Zero Trust** → **Access** → **Applications**
 2. **Add an application** → Self-hosted
@@ -186,7 +195,32 @@ Pour ne pas exposer tes recettes à tout le monde :
 4. Policy : autoriser uniquement ton email
 5. Enregistrer
 
-→ Une page de login Google/GitHub apparaîtra avant d'accéder à l'app.
+→ Une page de login Google/GitHub apparaîtra **avant** le login Popote.
+
+> ⚠️ L'app Android ne sait pas franchir Cloudflare Access. Si tu gardes Access
+> sur le hostname, l'app ne pourra se connecter qu'en LAN ou via un VPN
+> (Tailscale).
+
+---
+
+### 5.7 Comptes et mots de passe
+
+Au premier accès, l'app propose la **création du premier compte** (il devient
+administrateur). Ensuite :
+
+- **Changer son mot de passe** : *Mon compte* sur le web, *Paramètres* sur
+  Android.
+- **Mot de passe oublié** : Popote n'envoie pas d'e-mail. Un administrateur
+  génère un **lien à usage unique** (valable 24 h) depuis *Mon compte →
+  Comptes → Lien de réinitialisation* et le transmet lui-même. C'est là que
+  `PUBLIC_URL` compte : le lien est construit à partir de cette variable.
+- **Plus aucun administrateur ne peut se connecter** :
+
+```bash
+docker compose exec backend python -m app.reset_password                        # lister
+docker compose exec backend python -m app.reset_password toi@exemple.fr         # lien de reset
+docker compose exec backend python -m app.reset_password toi@exemple.fr 'mdp'   # forcer le mdp
+```
 
 ---
 

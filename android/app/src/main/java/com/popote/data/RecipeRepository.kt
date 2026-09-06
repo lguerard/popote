@@ -12,11 +12,54 @@ class RecipeRepository(private val context: Context) {
 
     private suspend fun api(): PopoteApi {
         val url = apiClient.serverUrl.first()
+        // Le jeton est relu à chaque appel : il peut avoir changé (connexion,
+        // déconnexion, changement de mot de passe) depuis la dernière requête.
+        apiClient.setToken(context.dataStore.data.first()[SESSION_TOKEN_KEY])
         return apiClient.getApi(url)
     }
 
     suspend fun saveServerUrl(url: String) {
         context.dataStore.edit { it[SERVER_URL_KEY] = url.trimEnd('/') }
+    }
+
+    /* ------------------------------- comptes ------------------------------ */
+
+    private suspend fun saveToken(token: String?) {
+        context.dataStore.edit { prefs ->
+            if (token == null) prefs.remove(SESSION_TOKEN_KEY) else prefs[SESSION_TOKEN_KEY] = token
+        }
+        apiClient.setToken(token)
+    }
+
+    suspend fun authStatus(): AuthStatus = api().authStatus()
+
+    suspend fun login(email: String, password: String): AccountUser {
+        val response = api().login(LoginRequest(email.trim(), password))
+        saveToken(response.token)
+        return response.user
+    }
+
+    suspend fun setupFirstAccount(email: String, displayName: String, password: String): AccountUser {
+        val response = api().setup(SetupRequest(email.trim(), displayName.trim(), password))
+        saveToken(response.token)
+        return response.user
+    }
+
+    suspend fun logout() {
+        // Le jeton est effacé même si le serveur est injoignable : sinon
+        // l'application resterait bloquée sur un compte qu'on veut quitter.
+        try {
+            api().logout()
+        } catch (_: Exception) {
+        } finally {
+            saveToken(null)
+        }
+    }
+
+    suspend fun changePassword(current: String, new: String) {
+        api().changePassword(ChangePasswordRequest(current, new))
+        // Le serveur garde vivante la session qui fait le changement : le jeton
+        // en cours reste valable, rien à re-enregistrer.
     }
 
     suspend fun getRecipes(
