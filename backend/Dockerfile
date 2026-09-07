@@ -1,4 +1,7 @@
-FROM python:3.11-slim
+# Tag Debian epingle : python:3.11-slim suit la derniere stable et bascule
+# de version majeure sans preavis, ce qui change les paquets apt installes
+# juste en dessous et casse le build sans qu'aucun fichier n'ait bouge.
+FROM python:3.11-slim-bookworm
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
