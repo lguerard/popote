@@ -42,7 +42,13 @@ services:
       OLLAMA_BASE_URL: http://ollama:11434
       OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:14b}
       CLAUDE_API_KEY: ${CLAUDE_API_KEY:-}
-      SECRET_KEY: ${SECRET_KEY:-changeme-in-production}
+      # Signe les jetons de session : le backend refuse de demarrer si
+      # elle est absente, trop courte ou laissee par defaut.
+      #   python3 -c "import secrets; print(secrets.token_urlsafe(48))"
+      SECRET_KEY: ${SECRET_KEY:?SECRET_KEY est obligatoire}
+      # Le premier compte s'inscrit toujours. Les suivants seulement si
+      # ceci vaut true : Popote est publie sur un domaine public.
+      ALLOW_SIGNUP: ${ALLOW_SIGNUP:-false}
       WHISPER_MODEL: ${WHISPER_MODEL:-large-v3}
       WHISPER_DEVICE: ${WHISPER_DEVICE:-cuda}
     volumes:
