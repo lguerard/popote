@@ -7,6 +7,7 @@ import ModeCuisine from './pages/ModeCuisine'
 import ListeCourses from './pages/ListeCourses'
 import Planning from './pages/Planning'
 import Succes from './pages/Succes'
+import Comptes from './pages/Comptes'
 import Navigation from './components/Navigation'
 import Connexion from './pages/Connexion'
 import { useAuth } from './auth'
@@ -39,6 +40,9 @@ export default function App() {
           <Route path="/planning" element={<Planning />} />
           <Route path="/ajouter" element={<AjouterRecette />} />
           <Route path="/succes" element={<Succes />} />
+          {/* Route montee seulement pour un administrateur : sans ça,
+              un non-admin verrait la page avant son erreur 403. */}
+          {user.is_admin && <Route path="/comptes" element={<Comptes />} />}
           <Route path="*" element={<IntrouvablePage />} />
         </Routes>
       </main>

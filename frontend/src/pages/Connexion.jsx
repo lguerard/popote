@@ -9,17 +9,26 @@ export default function Connexion() {
   const [email, setEmail] = useState('')
   const [motDePasse, setMotDePasse] = useState('')
   const [erreur, setErreur] = useState(null)
+  const [message, setMessage] = useState(null)
   const [envoi, setEnvoi] = useState(false)
 
   async function soumettre(e) {
     e.preventDefault()
     setErreur(null)
+    setMessage(null)
     setEnvoi(true)
     try {
-      const reponse = inscription
-        ? await register({ email, password: motDePasse, display_name: nom })
-        : await login({ email, password: motDePasse })
-      memoriser(reponse)
+      if (inscription) {
+        // Une inscription ne renvoie pas de jeton : la demande attend la
+        // validation d'un administrateur. On repasse donc en mode
+        // connexion avec le message du serveur.
+        const { message } = await register({ email, password: motDePasse, display_name: nom })
+        setMessage(message)
+        setInscription(false)
+        setMotDePasse('')
+        return
+      }
+      memoriser(await login({ email, password: motDePasse }))
     } catch (err) {
       // Le backend renvoie un message utilisable ; on ne garde le
       // générique que s'il n'a rien dit (réseau coupé, 500 nu).
@@ -35,7 +44,7 @@ export default function Connexion() {
         <div className="text-5xl mb-2">🍲</div>
         <h1 className="text-2xl font-bold text-gray-800">Popote</h1>
         <p className="text-sm text-gray-500 mt-1">
-          {inscription ? 'Créer un compte' : 'Connexion à ta cuisine'}
+          {inscription ? 'Demander un compte' : 'Connexion à ta cuisine'}
         </p>
       </div>
 
@@ -62,6 +71,9 @@ export default function Connexion() {
           <p className="text-xs text-gray-400">8 caractères minimum.</p>
         )}
 
+        {message && (
+          <p className="text-sm text-emerald-700 bg-emerald-50 rounded-lg px-3 py-2">{message}</p>
+        )}
         {erreur && (
           <p className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{erreur}</p>
         )}
@@ -70,15 +82,15 @@ export default function Connexion() {
           type="submit" disabled={envoi}
           className="w-full py-2 rounded-lg bg-orange-600 text-white font-medium hover:bg-orange-700 disabled:opacity-50"
         >
-          {envoi ? 'Un instant…' : inscription ? 'Créer le compte' : 'Se connecter'}
+          {envoi ? 'Un instant…' : inscription ? 'Demander un compte' : 'Se connecter'}
         </button>
       </form>
 
       <button
-        onClick={() => { setInscription(!inscription); setErreur(null) }}
+        onClick={() => { setInscription(!inscription); setErreur(null); setMessage(null) }}
         className="mt-4 w-full text-sm text-orange-600 hover:underline"
       >
-        {inscription ? "J'ai déjà un compte" : 'Créer un compte'}
+        {inscription ? "J'ai déjà un compte" : 'Demander un compte'}
       </button>
     </div>
   )

@@ -45,8 +45,9 @@ async def lifespan(app: FastAPI):
         # Visible dans `docker compose logs backend` : une instance
         # publique laissee ouverte se remarque a chaque redemarrage.
         logging.getLogger("popote").warning(
-            "ALLOW_SIGNUP=true : n'importe qui peut creer un compte. "
-            "A remettre a false des que les comptes voulus existent."
+            "ALLOW_SIGNUP=true : n'importe qui peut DEMANDER un compte. "
+            "Aucune demande n'est accordee sans validation d'un "
+            "administrateur, mais mets false si tu n'en attends plus."
         )
     await init_db()
     async with AsyncSessionLocal() as db:

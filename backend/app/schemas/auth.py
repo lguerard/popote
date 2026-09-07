@@ -44,6 +44,8 @@ class UserOut(BaseModel):
     id: uuid.UUID
     email: str
     display_name: str
+    status: str
+    is_admin: bool
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -53,3 +55,14 @@ class TokenOut(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user: UserOut
+
+
+class RegisterOut(BaseModel):
+    """Reponse a une demande d'inscription en attente.
+
+    Deliberement sans jeton : tant qu'un administrateur n'a pas valide, il
+    n'y a pas de session a ouvrir.
+    """
+
+    status: str
+    message: str

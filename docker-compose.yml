@@ -46,8 +46,9 @@ services:
       # elle est absente, trop courte ou laissee par defaut.
       #   python3 -c "import secrets; print(secrets.token_urlsafe(48))"
       SECRET_KEY: ${SECRET_KEY:?SECRET_KEY est obligatoire}
-      # Le premier compte s'inscrit toujours. Les suivants seulement si
-      # ceci vaut true : Popote est publie sur un domaine public.
+      # Autorise les DEMANDES de compte, pas l'acces : chaque demande
+      # attend la validation d'un administrateur (page Comptes). Seul le
+      # tout premier compte est approuve d'office et devient admin.
       ALLOW_SIGNUP: ${ALLOW_SIGNUP:-false}
       WHISPER_MODEL: ${WHISPER_MODEL:-large-v3}
       WHISPER_DEVICE: ${WHISPER_DEVICE:-cuda}
