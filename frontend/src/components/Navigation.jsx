@@ -34,6 +34,20 @@ export default function Navigation() {
             </Link>
           ))}
         </div>
+        {user?.is_admin && (
+          <Link
+            to="/comptes"
+            title="Valider les demandes de compte"
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-medium text-sm flex-shrink-0 ${
+              pathname === '/comptes'
+                ? 'bg-orange-100 text-orange-700'
+                : 'text-gray-600 hover:text-orange-600 hover:bg-orange-50'
+            }`}
+          >
+            <span>🔑</span>
+            <span className="hidden sm:block">Comptes</span>
+          </Link>
+        )}
         <button
           onClick={deconnexion}
           title={`Connecté en tant que ${user?.display_name || ''}`}

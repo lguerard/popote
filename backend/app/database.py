@@ -29,6 +29,19 @@ _MIGRATIONS = (
     " REFERENCES users(id) ON DELETE CASCADE",
     "CREATE INDEX IF NOT EXISTS ix_recipes_owner_id ON recipes (owner_id)",
     "CREATE INDEX IF NOT EXISTS ix_meal_plans_owner_id ON meal_plans (owner_id)",
+    # Validation des inscriptions. Les comptes anterieurs sont approuves
+    # d'office : ils existaient avant qu'il y ait quoi que ce soit a
+    # valider, les refuser reviendrait a fermer la porte a l'occupant.
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS status VARCHAR(20)"
+    " NOT NULL DEFAULT 'approved'",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN"
+    " NOT NULL DEFAULT false",
+    "CREATE INDEX IF NOT EXISTS ix_users_status ON users (status)",
+    # Un serveur sans aucun administrateur ne peut plus valider personne :
+    # le compte le plus ancien le devient. Sans effet des qu'il en existe un.
+    "UPDATE users SET is_admin = true WHERE id = ("
+    "  SELECT id FROM users ORDER BY created_at LIMIT 1"
+    ") AND NOT EXISTS (SELECT 1 FROM users WHERE is_admin)",
 )
 
 

@@ -1,9 +1,18 @@
+import enum
 import uuid
 from datetime import datetime, timezone
-from sqlalchemy import String, DateTime
+from sqlalchemy import Boolean, String, DateTime
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 from ..database import Base
+
+
+class UserStatus(str, enum.Enum):
+    """Etat d'une demande de compte."""
+
+    pending = "pending"
+    approved = "approved"
+    rejected = "rejected"
 
 
 class User(Base):
@@ -20,6 +29,14 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(320), unique=True, index=True, nullable=False)
     display_name: Mapped[str] = mapped_column(String(100), nullable=False)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    # Stocke en texte plutot qu'en type ENUM Postgres : ajouter une valeur
+    # a un ENUM existant demande une migration, une chaine non.
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default=UserStatus.pending.value, index=True
+    )
+    # Peut valider ou rejeter les demandes d'inscription. Le tout premier
+    # compte l'est d'office : sans lui, personne ne pourrait approuver.
+    is_admin: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
