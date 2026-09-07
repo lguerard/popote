@@ -9,6 +9,38 @@ from ..services import achievement_service
 
 router = APIRouter(prefix="/recipes", tags=["recipes"])
 
+# Champs dont dependent les valeurs nutritionnelles : analyze_nutrition()
+# n'estime qu'a partir des ingredients et du nombre de portions.
+NUTRITION_INPUTS = ("ingredients", "servings")
+
+
+def _apply_update(recipe: Recipe, data: RecipeUpdate) -> None:
+    """Applique une mise a jour partielle et invalide ce qui devient faux.
+
+    Parameters
+    ----------
+    recipe : Recipe
+        Recette en base, modifiee sur place.
+    data : RecipeUpdate
+        Champs envoyes par le client.
+    """
+    # exclude_unset (pas exclude_none) : un null explicite efface le champ
+    changes = data.model_dump(exclude_unset=True)
+    stale = any(
+        field in changes and changes[field] != getattr(recipe, field)
+        for field in NUTRITION_INPUTS
+    )
+    for field, value in changes.items():
+        setattr(recipe, field, value)
+    # Les valeurs nutritionnelles sont estimees a partir des ingredients et
+    # des portions : les conserver apres modification afficherait des
+    # chiffres faux sans que rien ne le signale. On les efface, et le
+    # bouton "Analyser" reapparait cote client (il s'affiche sur
+    # nutrition == null). Un nutrition explicite dans la requete gagne :
+    # le client qui vient de poser une valeur ne se la fait pas effacer.
+    if stale and "nutrition" not in changes:
+        recipe.nutrition = None
+
 
 @router.get("", response_model=list[RecipeOut])
 async def list_recipes(
@@ -70,9 +102,7 @@ async def update_recipe(recipe_id: UUID, data: RecipeUpdate, db: AsyncSession = 
     if not recipe:
         raise HTTPException(404, "Recette introuvable")
     old_notes = recipe.notes
-    # exclude_unset (pas exclude_none) : un null explicite efface le champ
-    for field, value in data.model_dump(exclude_unset=True).items():
-        setattr(recipe, field, value)
+    _apply_update(recipe, data)
     await db.commit()
     await db.refresh(recipe)
     if recipe.notes and recipe.notes != old_notes:
@@ -86,8 +116,7 @@ async def patch_recipe(recipe_id: UUID, data: RecipeUpdate, db: AsyncSession = D
     if not recipe:
         raise HTTPException(404, "Recette introuvable")
     old_notes = recipe.notes
-    for field, value in data.model_dump(exclude_unset=True).items():
-        setattr(recipe, field, value)
+    _apply_update(recipe, data)
     await db.commit()
     await db.refresh(recipe)
     if recipe.notes and recipe.notes != old_notes:
