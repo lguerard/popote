@@ -11,7 +11,8 @@ export function setAuthToken(token) {
 
 export const register = (data) => api.post('/auth/register', data).then(r => r.data)
 export const login = (data) => api.post('/auth/login', data).then(r => r.data)
-export const listUsers = () => api.get('/auth/users').then(r => r.data)
+export const listUsers = (includeArchived = false) =>
+  api.get('/auth/users', { params: { include_archived: includeArchived } }).then(r => r.data)
 export const approveUser = (id) => api.post(`/auth/users/${id}/approve`).then(r => r.data)
 export const rejectUser = (id) => api.post(`/auth/users/${id}/reject`).then(r => r.data)
 

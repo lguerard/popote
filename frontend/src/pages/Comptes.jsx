@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { approveUser, listUsers, rejectUser } from '../api'
 import { useAuth } from '../auth'
@@ -11,8 +12,11 @@ const ETIQUETTES = {
 export default function Comptes() {
   const { user } = useAuth()
   const qc = useQueryClient()
+  // Les refus de plus d'une semaine sont masqués par défaut : la page
+  // sert à traiter les demandes du moment, pas à tenir un historique.
+  const [archives, setArchives] = useState(false)
   const { data: comptes, isLoading, error } = useQuery({
-    queryKey: ['comptes'], queryFn: listUsers,
+    queryKey: ['comptes', archives], queryFn: () => listUsers(archives),
   })
   const decider = useMutation({
     mutationFn: ({ id, action }) => (action === 'approve' ? approveUser(id) : rejectUser(id)),
@@ -79,9 +83,17 @@ export default function Comptes() {
         })}
       </div>
 
-      <p className="text-xs text-gray-400 mt-6">
-        Un compte refusé garde ses données : la décision se corrige d'un clic.
-        Révoquer coupe l'accès immédiatement, sans attendre l'expiration de la session.
+      <button
+        onClick={() => setArchives(!archives)}
+        className="mt-6 text-sm text-orange-600 hover:underline"
+      >
+        {archives ? 'Masquer les anciens refus' : 'Afficher les anciens refus'}
+      </button>
+
+      <p className="text-xs text-gray-400 mt-4">
+        Un refus disparaît de cette liste au bout d'une semaine, mais le compte
+        et ses données sont conservés : la décision se corrige d'un clic. Révoquer
+        coupe l'accès immédiatement, sans attendre l'expiration de la session.
       </p>
     </div>
   )
