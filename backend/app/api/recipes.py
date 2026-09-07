@@ -3,11 +3,39 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from ..database import get_db
+from ..deps import current_user
+from ..models.user import User
 from ..models.recipe import Recipe, ExtractionStatus
 from ..schemas.recipe import RecipeCreate, RecipeUpdate, RecipeOut, NutritionOut
 from ..services import achievement_service
 
 router = APIRouter(prefix="/recipes", tags=["recipes"])
+
+async def _owned_recipe(db: AsyncSession, recipe_id: UUID, user: User) -> Recipe:
+    """Recupere une recette appartenant a l'utilisateur courant.
+
+    Leve 404 -- et non 403 -- sur la recette de quelqu'un d'autre : un 403
+    confirmerait son existence a qui essaie des identifiants au hasard.
+
+    Parameters
+    ----------
+    db : AsyncSession
+        Session courante.
+    recipe_id : UUID
+        Identifiant demande.
+    user : User
+        Utilisateur authentifie.
+
+    Returns
+    -------
+    Recipe
+        La recette, garantie appartenir a `user`.
+    """
+    recipe = await db.get(Recipe, recipe_id)
+    if not recipe or recipe.owner_id != user.id:
+        raise HTTPException(404, "Recette introuvable")
+    return recipe
+
 
 def _apply_update(recipe: Recipe, data: RecipeUpdate) -> None:
     """Applique une mise a jour partielle a une recette.
@@ -40,10 +68,12 @@ async def list_recipes(
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=1000),
     db: AsyncSession = Depends(get_db),
+    user: User = Depends(current_user),
 ):
     # Extractions en cours/échouées suivies via /tasks/{id}, pas la collection
     q = (
         select(Recipe)
+        .where(Recipe.owner_id == user.id)
         .where(Recipe.status == ExtractionStatus.done)
         .order_by(Recipe.created_at.desc())
     )
@@ -66,8 +96,12 @@ async def list_recipes(
 
 
 @router.post("", response_model=RecipeOut, status_code=201)
-async def create_recipe(data: RecipeCreate, db: AsyncSession = Depends(get_db)):
-    recipe = Recipe(**data.model_dump())
+async def create_recipe(
+    data: RecipeCreate,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(current_user),
+):
+    recipe = Recipe(**data.model_dump(), owner_id=user.id)
     db.add(recipe)
     await db.commit()
     await db.refresh(recipe)
@@ -76,18 +110,23 @@ async def create_recipe(data: RecipeCreate, db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/{recipe_id}", response_model=RecipeOut)
-async def get_recipe(recipe_id: UUID, db: AsyncSession = Depends(get_db)):
-    recipe = await db.get(Recipe, recipe_id)
-    if not recipe:
-        raise HTTPException(404, "Recette introuvable")
+async def get_recipe(
+    recipe_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(current_user),
+):
+    recipe = await _owned_recipe(db, recipe_id, user)
     return recipe
 
 
 @router.put("/{recipe_id}", response_model=RecipeOut)
-async def update_recipe(recipe_id: UUID, data: RecipeUpdate, db: AsyncSession = Depends(get_db)):
-    recipe = await db.get(Recipe, recipe_id)
-    if not recipe:
-        raise HTTPException(404, "Recette introuvable")
+async def update_recipe(
+    recipe_id: UUID,
+    data: RecipeUpdate,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(current_user),
+):
+    recipe = await _owned_recipe(db, recipe_id, user)
     old_notes = recipe.notes
     _apply_update(recipe, data)
     await db.commit()
@@ -98,10 +137,13 @@ async def update_recipe(recipe_id: UUID, data: RecipeUpdate, db: AsyncSession = 
 
 
 @router.patch("/{recipe_id}", response_model=RecipeOut)
-async def patch_recipe(recipe_id: UUID, data: RecipeUpdate, db: AsyncSession = Depends(get_db)):
-    recipe = await db.get(Recipe, recipe_id)
-    if not recipe:
-        raise HTTPException(404, "Recette introuvable")
+async def patch_recipe(
+    recipe_id: UUID,
+    data: RecipeUpdate,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(current_user),
+):
+    recipe = await _owned_recipe(db, recipe_id, user)
     old_notes = recipe.notes
     _apply_update(recipe, data)
     await db.commit()
@@ -112,19 +154,23 @@ async def patch_recipe(recipe_id: UUID, data: RecipeUpdate, db: AsyncSession = D
 
 
 @router.delete("/{recipe_id}", status_code=204)
-async def delete_recipe(recipe_id: UUID, db: AsyncSession = Depends(get_db)):
-    recipe = await db.get(Recipe, recipe_id)
-    if not recipe:
-        raise HTTPException(404, "Recette introuvable")
+async def delete_recipe(
+    recipe_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(current_user),
+):
+    recipe = await _owned_recipe(db, recipe_id, user)
     await db.delete(recipe)
     await db.commit()
 
 
 @router.post("/{recipe_id}/favorite", response_model=RecipeOut)
-async def toggle_favorite(recipe_id: UUID, db: AsyncSession = Depends(get_db)):
-    recipe = await db.get(Recipe, recipe_id)
-    if not recipe:
-        raise HTTPException(404, "Recette introuvable")
+async def toggle_favorite(
+    recipe_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(current_user),
+):
+    recipe = await _owned_recipe(db, recipe_id, user)
     recipe.is_favorite = not recipe.is_favorite
     await db.commit()
     await db.refresh(recipe)
@@ -134,10 +180,12 @@ async def toggle_favorite(recipe_id: UUID, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/{recipe_id}/nutrition", response_model=NutritionOut)
-async def analyze_nutrition(recipe_id: UUID, db: AsyncSession = Depends(get_db)):
-    recipe = await db.get(Recipe, recipe_id)
-    if not recipe:
-        raise HTTPException(404, "Recette introuvable")
+async def analyze_nutrition(
+    recipe_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(current_user),
+):
+    recipe = await _owned_recipe(db, recipe_id, user)
     from ..services.nutrition_service import analyze_nutrition as _analyze
     nutrition = await _analyze(recipe.title, recipe.ingredients or [], recipe.servings)
     recipe.nutrition = nutrition

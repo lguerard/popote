@@ -2,6 +2,8 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from ..database import get_db
+from ..deps import current_user
+from ..models.user import User
 from ..models.recipe import Recipe
 from ..schemas.recipe import ShoppingListRequest, ShoppingItem
 from ..services import achievement_service
@@ -10,9 +12,15 @@ router = APIRouter(tags=["shopping"])
 
 
 @router.post("/shopping-list", response_model=list[ShoppingItem])
-async def get_shopping_list(req: ShoppingListRequest, db: AsyncSession = Depends(get_db)):
+async def get_shopping_list(
+    req: ShoppingListRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(current_user),
+):
+    # Filtre sur le proprietaire : sans lui, envoyer l'identifiant d'une
+    # recette d'autrui suffirait a en lire les ingredients.
     result = await db.execute(
-        select(Recipe).where(Recipe.id.in_(req.recipe_ids))
+        select(Recipe).where(Recipe.id.in_(req.recipe_ids), Recipe.owner_id == user.id)
     )
     recipes = result.scalars().all()
 

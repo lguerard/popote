@@ -1,6 +1,16 @@
 import axios from 'axios'
 
-const api = axios.create({ baseURL: '/api' })
+export const api = axios.create({ baseURL: '/api' })
+
+// Le jeton est posé une fois pour toutes sur l'instance : chaque appel
+// existant le porte sans avoir à être modifié.
+export function setAuthToken(token) {
+  if (token) api.defaults.headers.common.Authorization = `Bearer ${token}`
+  else delete api.defaults.headers.common.Authorization
+}
+
+export const register = (data) => api.post('/auth/register', data).then(r => r.data)
+export const login = (data) => api.post('/auth/login', data).then(r => r.data)
 
 export const getRecipes = (params) => api.get('/recipes', { params }).then(r => r.data)
 export const getRecipe = (id) => api.get(`/recipes/${id}`).then(r => r.data)

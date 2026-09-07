@@ -2,6 +2,8 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, BackgroundTasks, UploadFile, File, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from ..database import get_db
+from ..deps import current_user
+from ..models.user import User
 from ..models.recipe import Recipe, ExtractionStatus
 from ..schemas.recipe import ExtractionRequest, ExtractionResponse, RecipeOut
 from ..services.extractor import extract
@@ -14,8 +16,10 @@ async def submit_extraction(
     req: ExtractionRequest,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
+    user: User = Depends(current_user),
 ):
-    recipe = Recipe(title="Extraction en cours…", status=ExtractionStatus.pending)
+    recipe = Recipe(title="Extraction en cours…", status=ExtractionStatus.pending,
+                    owner_id=user.id)
     db.add(recipe)
     await db.commit()
     await db.refresh(recipe)
@@ -34,13 +38,15 @@ async def submit_image_extraction(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
+    user: User = Depends(current_user),
 ):
     if not file.content_type or not file.content_type.startswith("image/"):
         raise HTTPException(400, "Fichier image requis (JPEG, PNG, WEBP…)")
     image_bytes = await file.read()
     mime_type = file.content_type
 
-    recipe = Recipe(title="OCR en cours…", status=ExtractionStatus.pending)
+    recipe = Recipe(title="OCR en cours…", status=ExtractionStatus.pending,
+                    owner_id=user.id)
     db.add(recipe)
     await db.commit()
     await db.refresh(recipe)
@@ -55,9 +61,13 @@ async def submit_image_extraction(
 
 
 @router.get("/tasks/{recipe_id}", response_model=RecipeOut)
-async def get_task_status(recipe_id: UUID, db: AsyncSession = Depends(get_db)):
+async def get_task_status(
+    recipe_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(current_user),
+):
     recipe = await db.get(Recipe, recipe_id)
-    if not recipe:
+    if not recipe or recipe.owner_id != user.id:
         raise HTTPException(404, "Tâche introuvable")
     return recipe
 

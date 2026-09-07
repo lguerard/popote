@@ -1,4 +1,5 @@
 import { Link, useLocation } from 'react-router-dom'
+import { useAuth } from '../auth'
 
 const NAV = [
   { to: '/', label: 'Recettes', emoji: '🍽️' },
@@ -9,6 +10,7 @@ const NAV = [
 
 export default function Navigation() {
   const { pathname } = useLocation()
+  const { user, deconnexion } = useAuth()
   return (
     <nav className="bg-white shadow-sm border-b border-orange-100 sticky top-0 z-40">
       <div className="max-w-7xl mx-auto px-4 h-14 flex items-center justify-between gap-4">
@@ -32,6 +34,14 @@ export default function Navigation() {
             </Link>
           ))}
         </div>
+        <button
+          onClick={deconnexion}
+          title={`Connecté en tant que ${user?.display_name || ''}`}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-medium text-sm text-gray-500 hover:text-orange-600 hover:bg-orange-50 flex-shrink-0"
+        >
+          <span>👤</span>
+          <span className="hidden sm:block">{user?.display_name}</span>
+        </button>
         <Link
           to="/ajouter"
           className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-medium text-sm transition-colors flex-shrink-0 ${

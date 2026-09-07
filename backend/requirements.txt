@@ -29,3 +29,7 @@ ctranslate2==4.5.0
 # "library libcublas.so.12 is not found or cannot be loaded".
 nvidia-cublas-cu12==12.4.5.8
 nvidia-cudnn-cu12==9.1.0.70
+# Comptes utilisateurs : bcrypt pour les mots de passe, PyJWT pour les
+# jetons de session (voir app/core/security.py).
+bcrypt==4.2.1
+PyJWT==2.10.1

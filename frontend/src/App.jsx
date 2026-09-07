@@ -8,8 +8,25 @@ import ListeCourses from './pages/ListeCourses'
 import Planning from './pages/Planning'
 import Succes from './pages/Succes'
 import Navigation from './components/Navigation'
+import Connexion from './pages/Connexion'
+import { useAuth } from './auth'
 
 export default function App() {
+  const { user, chargement } = useAuth()
+
+  // Tant que /auth/me n'a pas repondu, on n'affiche ni l'application ni
+  // l'ecran de connexion : sinon ce dernier clignote a chaque
+  // rechargement de page alors que la session est valide.
+  if (chargement) {
+    return (
+      <div className="min-h-screen flex items-center justify-center text-gray-300 text-4xl">
+        🍲
+      </div>
+    )
+  }
+
+  if (!user) return <Connexion />
+
   return (
     <div className="min-h-screen flex flex-col">
       <Navigation />
