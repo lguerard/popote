@@ -1,7 +1,8 @@
 import uuid
+from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import func, select, text
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import settings
@@ -17,6 +18,13 @@ from ..models.user import User, UserStatus
 from ..schemas.auth import LoginIn, RegisterIn, RegisterOut, TokenOut, UserOut
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+# Au-dela de ce delai, un refus disparait de la liste : la page sert a
+# traiter les demandes du moment, pas a accumuler un historique. Les
+# comptes ne sont PAS supprimes -- owner_id porte un ON DELETE CASCADE,
+# supprimer un compte revoque emporterait ses recettes. Ils restent
+# consultables via ?include_archived=true.
+RETENTION_REFUS = timedelta(days=7)
 
 
 async def _adopt_orphan_data(db: AsyncSession, user: User) -> None:
@@ -112,15 +120,26 @@ async def me(user: User = Depends(current_user)):
 
 @router.get("/users", response_model=list[UserOut])
 async def list_users(
+    include_archived: bool = Query(
+        False, description="Inclure les refus de plus d'une semaine"
+    ),
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(current_admin),
 ):
-    """Tous les comptes, demandes en attente d'abord."""
-    rows = (await db.execute(
-        select(User).order_by(User.status != UserStatus.pending.value,
-                              User.created_at.desc())
-    )).scalars().all()
-    return rows
+    """Comptes visibles, demandes en attente d'abord.
+
+    Les refus de plus d'une semaine sont masques par defaut : passe
+    ``include_archived=true`` pour les revoir, par exemple pour revenir
+    sur une decision.
+    """
+    q = select(User).order_by(
+        User.status != UserStatus.pending.value, User.created_at.desc()
+    )
+    if not include_archived:
+        limite = datetime.now(timezone.utc) - RETENTION_REFUS
+        q = q.where(or_(User.status != UserStatus.rejected.value,
+                        User.status_changed_at >= limite))
+    return (await db.execute(q)).scalars().all()
 
 
 async def _decider(
@@ -134,6 +153,9 @@ async def _decider(
         # administrateur, donc sans personne pour valider quoi que ce soit.
         raise HTTPException(400, "Un administrateur ne peut pas se juger lui-meme")
     user.status = statut.value
+    # Redemarre le compte a rebours d'archivage : un refus revenu puis
+    # re-refuse reste visible une semaine de plus.
+    user.status_changed_at = datetime.now(timezone.utc)
     await db.commit()
     await db.refresh(user)
     return user

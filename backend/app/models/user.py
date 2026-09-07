@@ -37,6 +37,12 @@ class User(Base):
     # Peut valider ou rejeter les demandes d'inscription. Le tout premier
     # compte l'est d'office : sans lui, personne ne pourrait approuver.
     is_admin: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # Date de la derniere decision sur ce compte. Sert a faire disparaitre
+    # les vieux refus de la liste : created_at ne conviendrait pas, un
+    # compte ancien revoque aujourd'hui doit rester visible une semaine.
+    status_changed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )

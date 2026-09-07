@@ -37,6 +37,8 @@ _MIGRATIONS = (
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN"
     " NOT NULL DEFAULT false",
     "CREATE INDEX IF NOT EXISTS ix_users_status ON users (status)",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS status_changed_at"
+    " TIMESTAMPTZ NOT NULL DEFAULT now()",
     # Un serveur sans aucun administrateur ne peut plus valider personne :
     # le compte le plus ancien le devient. Sans effet des qu'il en existe un.
     "UPDATE users SET is_admin = true WHERE id = ("
