@@ -1,5 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <!-- Allow HTTP for local emulator mock server (debug only) -->
-    <application android:usesCleartextTraffic="true" />
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <!-- Allow HTTP for local emulator mock server (debug only).
+         tools:replace is required: the main manifest sets this attribute to
+         false, and the merger refuses to arbitrate between two explicit
+         values on its own. Without it: "Manifest merger failed : Attribute
+         application@usesCleartextTraffic value=(true) ... is also present
+         ... value=(false)". -->
+    <application
+        android:usesCleartextTraffic="true"
+        tools:replace="android:usesCleartextTraffic" />
 </manifest>
