@@ -16,3 +16,6 @@ python-multipart==0.0.12
 aiofiles==24.1.0
 pillow==10.4.0
 pytesseract==0.3.13
+# faster-whisper 1.0.3 declare huggingface_hub sans borne haute : un build
+# neuf attrape la 1.x, qui a retire les API deprecies dont il depend encore.
+huggingface_hub<1.0
