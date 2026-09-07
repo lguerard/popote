@@ -36,14 +36,17 @@ async def register(data: RegisterIn, db: AsyncSession = Depends(get_db)):
     if password_too_long(data.password):
         raise HTTPException(400, "Mot de passe trop long (72 octets maximum)")
 
-    count = (await db.execute(select(func.count()).select_from(User))).scalar_one()
-    # Le tout premier compte s'inscrit toujours : c'est l'amorcage. Les
-    # suivants seulement si l'inscription est ouverte -- Popote est
-    # publie derriere un nom de domaine public, une inscription libre
-    # laisserait n'importe qui se creer un compte.
+    # AUCUNE exception pour le premier compte. Le laisser passer ouvrait
+    # une faille beante : sur une instance publique encore vierge, le
+    # premier inconnu a trouver l'adresse creait le compte -- et la
+    # reprise des donnees ci-dessous lui donnait TOUTE la bibliotheque
+    # existante. L'amorcage doit etre une decision de l'administrateur,
+    # pas une course de vitesse.
     from ..config import settings
-    if count > 0 and not settings.allow_signup:
+    if not settings.allow_signup:
         raise HTTPException(403, "Les inscriptions sont fermees sur cette instance")
+
+    count = (await db.execute(select(func.count()).select_from(User))).scalar_one()
 
     exists = (await db.execute(
         select(User).where(User.email == data.email)

@@ -1,3 +1,4 @@
+import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -40,6 +41,13 @@ def _verifier_secret_key() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     _verifier_secret_key()
+    if settings.allow_signup:
+        # Visible dans `docker compose logs backend` : une instance
+        # publique laissee ouverte se remarque a chaque redemarrage.
+        logging.getLogger("popote").warning(
+            "ALLOW_SIGNUP=true : n'importe qui peut creer un compte. "
+            "A remettre a false des que les comptes voulus existent."
+        )
     await init_db()
     async with AsyncSessionLocal() as db:
         await init_achievements(db)
