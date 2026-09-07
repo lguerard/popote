@@ -19,3 +19,13 @@ pytesseract==0.3.13
 # faster-whisper 1.0.3 declare huggingface_hub sans borne haute : un build
 # neuf attrape la 1.x, qui a retire les API deprecies dont il depend encore.
 huggingface_hub<1.0
+# CTranslate2 est le moteur de faster-whisper. Non epingle, un build neuf
+# peut changer la version majeure de cuDNN attendue : on fige le couple.
+ctranslate2==4.5.0
+# Sur GPU, CTranslate2 charge libcublas.so.12 et libcudnn. Le NVIDIA
+# Container Toolkit n'injecte que le PILOTE (libcuda), jamais ces
+# bibliotheques CUDA : elles doivent venir de l'image. D'ou ces roues pip
+# et le LD_LIBRARY_PATH correspondant dans le Dockerfile. Sans elles :
+# "library libcublas.so.12 is not found or cannot be loaded".
+nvidia-cublas-cu12==12.4.5.8
+nvidia-cudnn-cu12==9.1.0.70
