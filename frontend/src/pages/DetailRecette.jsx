@@ -147,12 +147,16 @@ export default function DetailRecette() {
       <section className="mb-6 p-4 bg-white rounded-xl border border-gray-100">
         <div className="flex items-center justify-between mb-3">
           <h3 className="font-semibold text-gray-800">Valeurs nutritionnelles</h3>
-          {!recipe.nutrition && (
-            <button onClick={() => nutritionMut.mutate()} disabled={nutritionMut.isPending}
-              className="text-sm text-orange-600 hover:underline disabled:opacity-50">
-              {nutritionMut.isPending ? 'Analyse…' : '🔬 Analyser'}
-            </button>
-          )}
+          {/* Toujours proposé : les valeurs sont estimées à partir des
+              ingrédients et des portions, elles deviennent donc fausses dès
+              qu'on modifie la recette. Le recalcul écrase l'analyse
+              précédente côté serveur. */}
+          <button onClick={() => nutritionMut.mutate()} disabled={nutritionMut.isPending}
+            className="text-sm text-orange-600 hover:underline disabled:opacity-50">
+            {nutritionMut.isPending
+              ? 'Analyse…'
+              : recipe.nutrition ? '🔄 Recalculer' : '🔬 Analyser'}
+          </button>
         </div>
         {recipe.nutrition ? (
           <div className="grid grid-cols-3 sm:grid-cols-5 gap-3 text-center">
