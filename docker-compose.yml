@@ -29,6 +29,24 @@ services:
               count: all
               capabilities: [gpu]
 
+  imagegen:
+    build: ./imagegen
+    restart: unless-stopped
+    volumes:
+      # Cache Hugging Face : evite de re-telecharger le modele a chaque
+      # recreation du conteneur.
+      - imagegen_models:/root/.cache/huggingface
+    environment:
+      IMAGE_GEN_MODEL: ${IMAGE_GEN_MODEL:-stabilityai/sd-turbo}
+      IMAGE_GEN_DEVICE: ${IMAGE_GEN_DEVICE:-cuda}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
   backend:
     build: ./backend
     restart: unless-stopped
@@ -37,10 +55,13 @@ services:
         condition: service_healthy
       ollama:
         condition: service_started
+      imagegen:
+        condition: service_started
     environment:
       DATABASE_URL: postgresql+asyncpg://popote:${POSTGRES_PASSWORD:-popote}@db:5432/popote
       OLLAMA_BASE_URL: http://ollama:11434
       OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:14b}
+      IMAGEGEN_BASE_URL: http://imagegen:8001
       CLAUDE_API_KEY: ${CLAUDE_API_KEY:-}
       # Signe les jetons de session : le backend refuse de demarrer si
       # elle est absente, trop courte ou laissee par defaut.
@@ -74,3 +95,4 @@ volumes:
   db_data:
   ollama_data:
   media_data:
+  imagegen_models:

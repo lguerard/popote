@@ -1,5 +1,6 @@
+import asyncio
 from uuid import UUID
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
 from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from ..database import get_db
@@ -7,9 +8,15 @@ from ..deps import current_user
 from ..models.user import User
 from ..models.recipe import Recipe, ExtractionStatus
 from ..schemas.recipe import RecipeCreate, RecipeUpdate, RecipeOut, NutritionOut
-from ..services import achievement_service
+from ..services import achievement_service, image_service
 
 router = APIRouter(prefix="/recipes", tags=["recipes"])
+
+# jpeg/png/webp uniquement : ce que <input type="file" accept="image/*">
+# produit en pratique, et ce que les navigateurs affichent tous nativement.
+_ALLOWED_IMAGE_TYPES = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp"}
+_MAX_UPLOAD_BYTES = 8 * 1024 * 1024
+_THUMBNAIL_GENERATION_TIMEOUT_SECONDS = 90
 
 async def _owned_recipe(db: AsyncSession, recipe_id: UUID, user: User) -> Recipe:
     """Recupere une recette appartenant a l'utilisateur courant.
@@ -176,6 +183,52 @@ async def toggle_favorite(
     await db.refresh(recipe)
     if recipe.is_favorite:
         await achievement_service.on_favorite_toggled(db)
+    return recipe
+
+
+@router.post("/{recipe_id}/thumbnail", response_model=RecipeOut)
+async def upload_thumbnail(
+    recipe_id: UUID,
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(current_user),
+):
+    recipe = await _owned_recipe(db, recipe_id, user)
+    ext = _ALLOWED_IMAGE_TYPES.get(file.content_type)
+    if not ext:
+        raise HTTPException(400, "Image requise (JPEG, PNG ou WEBP)")
+    data = await file.read()
+    if len(data) > _MAX_UPLOAD_BYTES:
+        raise HTTPException(400, "Image trop volumineuse (8 Mo maximum)")
+
+    image_service.delete_local_thumbnail(recipe.thumbnail_url)
+    recipe.thumbnail_url = image_service.save_thumbnail_bytes(recipe.id, data, ext)
+    await db.commit()
+    await db.refresh(recipe)
+    return recipe
+
+
+@router.post("/{recipe_id}/thumbnail/generate", response_model=RecipeOut)
+async def generate_thumbnail(
+    recipe_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(current_user),
+):
+    recipe = await _owned_recipe(db, recipe_id, user)
+    try:
+        image_bytes = await asyncio.wait_for(
+            image_service.generate_recipe_image(recipe.title, recipe.description, recipe.category),
+            timeout=_THUMBNAIL_GENERATION_TIMEOUT_SECONDS,
+        )
+    except TimeoutError:
+        raise HTTPException(504, "La génération d'image a pris trop de temps")
+    except Exception as e:
+        raise HTTPException(502, f"Échec de la génération d'image : {e}")
+
+    image_service.delete_local_thumbnail(recipe.thumbnail_url)
+    recipe.thumbnail_url = image_service.save_thumbnail_bytes(recipe.id, image_bytes, "png")
+    await db.commit()
+    await db.refresh(recipe)
     return recipe
 
 

@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     whisper_model: str = "large-v3"
     whisper_device: str = "cuda"
     media_dir: str = "/app/media"
+    imagegen_base_url: str = "http://imagegen:8001"
     # Le premier compte s'inscrit toujours (amorcage). Les suivants
     # seulement si ceci est vrai : Popote est publie sur un domaine
     # public, une inscription libre laisserait n'importe qui entrer.

@@ -23,6 +23,12 @@ export const updateRecipe = (id, data) => api.put(`/recipes/${id}`, data).then(r
 export const deleteRecipe = (id) => api.delete(`/recipes/${id}`)
 export const toggleFavorite = (id) => api.post(`/recipes/${id}/favorite`).then(r => r.data)
 export const analyzeNutrition = (id) => api.post(`/recipes/${id}/nutrition`).then(r => r.data)
+export const uploadThumbnail = (id, file) => {
+  const form = new FormData()
+  form.append('file', file)
+  return api.post(`/recipes/${id}/thumbnail`, form, { headers: { 'Content-Type': 'multipart/form-data' } }).then(r => r.data)
+}
+export const generateThumbnail = (id) => api.post(`/recipes/${id}/thumbnail/generate`).then(r => r.data)
 export const submitExtraction = (input) => api.post('/extract', { input }).then(r => r.data)
 export const submitImageExtraction = (file) => {
   const form = new FormData()

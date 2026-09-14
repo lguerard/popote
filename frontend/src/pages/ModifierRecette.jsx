@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { getRecipe, updateRecipe } from '../api'
+import { getRecipe, updateRecipe, uploadThumbnail, generateThumbnail } from '../api'
 
 export default function ModifierRecette() {
   const { id } = useParams()
@@ -27,6 +27,28 @@ export default function ModifierRecette() {
       navigate(`/recettes/${id}`)
     },
   })
+
+  // L'image se sauvegarde a part, immediatement : c'est un upload
+  // multipart, pas un champ du formulaire JSON envoye par "Enregistrer".
+  const onThumbnailSaved = (updated) => {
+    setForm((f) => ({ ...f, thumbnail_url: updated.thumbnail_url }))
+    queryClient.setQueryData(['recipe', id], updated)
+    queryClient.invalidateQueries({ queryKey: ['recipes'] })
+  }
+  const uploadMutation = useMutation({
+    mutationFn: (file) => uploadThumbnail(id, file),
+    onSuccess: onThumbnailSaved,
+  })
+  const generateMutation = useMutation({
+    mutationFn: () => generateThumbnail(id),
+    onSuccess: onThumbnailSaved,
+  })
+  const fileRef = useRef(null)
+  const handlePickImage = (e) => {
+    const file = e.target.files[0]
+    e.target.value = '' // permet de reselectionner le meme fichier ensuite
+    if (file) uploadMutation.mutate(file)
+  }
 
   if (isLoading || !form) return <div className="text-gray-400 py-12 text-center">Chargement…</div>
 
@@ -79,6 +101,45 @@ export default function ModifierRecette() {
       <div className="flex items-center gap-4">
         <Link to={`/recettes/${id}`} className="text-sm text-orange-600 hover:underline">← Annuler</Link>
         <h1 className="text-2xl font-bold text-gray-900">Modifier la recette</h1>
+      </div>
+
+      <div>
+        <label className={labelCls}>Image</label>
+        <div className="flex items-start gap-4">
+          <div className="w-40 aspect-video rounded-xl overflow-hidden bg-gray-100 border border-gray-200 flex-shrink-0">
+            {form.thumbnail_url ? (
+              <img src={form.thumbnail_url} alt="" className="w-full h-full object-cover" />
+            ) : (
+              <div className="w-full h-full flex items-center justify-center text-3xl text-gray-300">🍽️</div>
+            )}
+          </div>
+          <div className="flex flex-col gap-2">
+            <input ref={fileRef} type="file" accept="image/*" onChange={handlePickImage} className="hidden" />
+            <button
+              type="button"
+              onClick={() => fileRef.current?.click()}
+              disabled={uploadMutation.isPending || generateMutation.isPending}
+              className="px-3 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors disabled:opacity-50"
+            >
+              {uploadMutation.isPending ? 'Envoi…' : '📷 Changer l’image'}
+            </button>
+            <button
+              type="button"
+              onClick={() => generateMutation.mutate()}
+              disabled={uploadMutation.isPending || generateMutation.isPending}
+              className="px-3 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors disabled:opacity-50"
+            >
+              {generateMutation.isPending ? 'Génération…' : '🪄 Générer avec l’IA'}
+            </button>
+            {(uploadMutation.isError || generateMutation.isError) && (
+              <p className="text-xs text-red-500 max-w-xs">
+                {uploadMutation.error?.response?.data?.detail
+                  || generateMutation.error?.response?.data?.detail
+                  || 'Erreur lors de la mise à jour de l’image.'}
+              </p>
+            )}
+          </div>
+        </div>
       </div>
 
       <div>
