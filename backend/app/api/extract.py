@@ -18,6 +18,25 @@ router = APIRouter(tags=["extraction"])
 # ne doit pas transformer la recette en zombie que rien ne relance jamais.
 EXTRACTION_TIMEOUT_SECONDS = 300
 
+# Champs qu'une extraction a le droit d'ecrire sur la recette. Le modele ne
+# suit pas toujours le schema du prompt a la lettre (ex: un champ "notes"
+# invente, en plus de ceux demandes) : un setattr non filtre sur l'ORM
+# ecrirait une valeur de mauvais type sur une colonne existante (ici
+# `notes`, reservee aux notes personnelles de l'utilisateur) et ferait
+# echouer le commit. Toute cle hors de cette liste est silencieusement
+# ignoree plutot que de planter l'ecriture en base.
+_EXTRACTED_FIELDS = {
+    "title", "description", "source_url", "source_type", "language",
+    "servings", "prep_time", "cook_time", "ingredients", "steps", "tags",
+    "category", "thumbnail_url", "similar_recipe_id",
+}
+
+
+def _apply_extracted_fields(recipe: Recipe, data: dict) -> None:
+    for field, value in data.items():
+        if field in _EXTRACTED_FIELDS and hasattr(recipe, field) and value is not None:
+            setattr(recipe, field, value)
+
 
 @router.post("/extract", response_model=ExtractionResponse, status_code=202)
 async def submit_extraction(
@@ -121,9 +140,7 @@ async def _run_extraction(recipe_id: UUID, input_text: str):
                 extract(input_text, db=db, on_progress=report_progress),
                 timeout=EXTRACTION_TIMEOUT_SECONDS,
             )
-            for field, value in data.items():
-                if hasattr(recipe, field) and value is not None:
-                    setattr(recipe, field, value)
+            _apply_extracted_fields(recipe, data)
             recipe.status = ExtractionStatus.done
             recipe.error_msg = None
             recipe.progress_message = None
@@ -145,6 +162,13 @@ async def _run_extraction(recipe_id: UUID, input_text: str):
             recipe.title = "Extraction échouée"
             await db.commit()
         except Exception as e:
+            # Une exception pendant la flush (ex: valeur du LLM du mauvais
+            # type pour une colonne) laisse la session dans un etat que
+            # SQLAlchemy refuse de recommiter sans rollback prealable —
+            # sans lui, ce commit lève a son tour, non rattrapé puisqu'on
+            # est deja dans le except, et la recette reste "processing"
+            # pour toujours au lieu de passer a "failed".
+            await db.rollback()
             recipe.status = ExtractionStatus.failed
             recipe.error_msg = str(e)
             recipe.progress_message = None
@@ -180,9 +204,7 @@ async def _run_image_extraction(recipe_id: UUID, image_bytes: bytes, mime_type: 
                 raise ValueError(data["error"])
             from ..models.recipe import SourceType
             data["source_type"] = SourceType.text
-            for field, value in data.items():
-                if hasattr(recipe, field) and value is not None:
-                    setattr(recipe, field, value)
+            _apply_extracted_fields(recipe, data)
             recipe.status = ExtractionStatus.done
             recipe.error_msg = None
             recipe.progress_message = None
@@ -202,6 +224,7 @@ async def _run_image_extraction(recipe_id: UUID, image_bytes: bytes, mime_type: 
             recipe.title = "OCR échoué"
             await db.commit()
         except Exception as e:
+            await db.rollback()
             recipe.status = ExtractionStatus.failed
             recipe.error_msg = str(e)
             recipe.progress_message = None
