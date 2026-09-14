@@ -1,0 +1,44 @@
+[
+  {
+    "id": "simple-text",
+    "description": "Recette texte simple, propre, sans bruit.",
+    "input": "Pâtes au pesto maison\n\nPour 2 personnes, préparation 10 minutes, cuisson 10 minutes.\n\nIngrédients :\n- 200 g de pâtes\n- 50 g de basilic frais\n- 30 g de pignons de pin\n- 1 gousse d'ail\n- 50 g de parmesan râpé\n- 8 cl d'huile d'olive\n- sel, poivre\n\nÉtapes :\n1. Faire cuire les pâtes dans l'eau bouillante salée selon les indications du paquet.\n2. Mixer le basilic, les pignons, l'ail, le parmesan et l'huile d'olive jusqu'à obtenir une pâte homogène.\n3. Égoutter les pâtes et les mélanger avec le pesto.\n4. Saler, poivrer et servir aussitôt.",
+    "expected": {
+      "title_keywords": ["pesto"],
+      "language": "fr",
+      "category": "plat",
+      "ingredient_keywords": ["pâtes", "basilic", "pignon", "ail", "parmesan", "huile"],
+      "min_steps": 3,
+      "max_steps": 6,
+      "servings": 2
+    }
+  },
+  {
+    "id": "noisy-web-scrape",
+    "description": "Texte façon page web scrapée : bruit avant/après la recette, comme un vrai scrape.",
+    "input": "Accueil > Recettes > Desserts\n\nCookies vegan ultra fondants\n\nPublié le 3 mars par Camille — 214 commentaires — ★★★★★ 4.8/5 (312 votes)\n\nAbonnez-vous à la newsletter !\n\nUne recette de cookies vegan sans oeuf ni beurre, prêts en 25 minutes.\n\nPortions : 12 cookies | Préparation : 15 min | Cuisson : 10 min\n\nIngrédients\n- 125 g de margarine végétale\n- 100 g de sucre roux\n- 200 g de farine\n- 1 sachet de levure chimique\n- 100 g de pépites de chocolat noir\n- 1 pincée de sel\n\nPréparation\nPréchauffez le four à 180°C.\nFaites fondre la margarine puis mélangez-la avec le sucre.\nAjoutez la farine, la levure et le sel, mélangez jusqu'à obtenir une pâte homogène.\nIncorporez les pépites de chocolat.\nFormez des boules de pâte et déposez-les sur une plaque recouverte de papier cuisson.\nEnfournez 10 minutes.\n\nVous aimerez aussi : Brownies vegan, Tarte aux pommes...\n\n© 2024 Tous droits réservés — Mentions légales — Politique de cookies",
+    "expected": {
+      "title_keywords": ["cookies"],
+      "language": "fr",
+      "category": "dessert",
+      "ingredient_keywords": ["margarine", "sucre", "farine", "levure", "chocolat"],
+      "min_steps": 3,
+      "max_steps": 8,
+      "servings": 12
+    }
+  },
+  {
+    "id": "video-transcript",
+    "description": "Texte façon transcription orale : familier, quantités approximatives, hésitations.",
+    "input": "Alors aujourd'hui on va faire une soupe de lentilles corail, c'est hyper simple et ça réchauffe bien. Il vous faut environ deux cent grammes de lentilles corail, un oignon, deux carottes, une gousse d'ail, un peu de curcuma, disons une cuillère à café, du bouillon de légumes, à peu près un litre, et un filet d'huile d'olive. Alors on commence par faire revenir l'oignon émincé dans l'huile, ensuite on ajoute les carottes coupées en petits dés et l'ail écrasé. On laisse revenir cinq minutes. Après on ajoute les lentilles rincées, le curcuma, et on mouille avec le bouillon. On laisse mijoter environ vingt minutes jusqu'à ce que les lentilles soient bien fondantes. Et voilà, on mixe ou pas selon les goûts, on sale, on poivre et c'est prêt. Ça se fait pour quatre personnes facilement.",
+    "expected": {
+      "title_keywords": ["lentille", "soupe"],
+      "language": "fr",
+      "category": "soupe",
+      "ingredient_keywords": ["lentille", "oignon", "carotte", "ail", "curcuma", "bouillon"],
+      "min_steps": 2,
+      "max_steps": 6,
+      "servings": 4
+    }
+  }
+]
