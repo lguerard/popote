@@ -6,7 +6,7 @@ from .config import settings
 from .database import init_db, AsyncSessionLocal
 from .api.auth import router as auth_router
 from .api.recipes import router as recipes_router
-from .api.extract import router as extract_router
+from .api.extract import router as extract_router, sweep_stuck_extractions
 from .api.shopping import router as shopping_router
 from .api.meal_plan import router as meal_plan_router
 from .api.achievements import router as achievements_router
@@ -53,6 +53,12 @@ async def lifespan(app: FastAPI):
     await init_db()
     async with AsyncSessionLocal() as db:
         await init_achievements(db)
+        n_interrompues = await sweep_stuck_extractions(db)
+        if n_interrompues:
+            logging.getLogger("popote").info(
+                "%d extraction(s) laissée(s) 'processing' par un redémarrage précédent "
+                "marquée(s) en échec", n_interrompues,
+            )
     await ensure_model_available()
     yield
     await close_browser()
