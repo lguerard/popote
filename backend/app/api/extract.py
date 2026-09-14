@@ -1,5 +1,7 @@
+import asyncio
 from uuid import UUID
 from fastapi import APIRouter, Depends, BackgroundTasks, UploadFile, File, HTTPException
+from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 from ..database import get_db
 from ..deps import current_user
@@ -9,6 +11,12 @@ from ..schemas.recipe import ExtractionRequest, ExtractionResponse, RecipeOut
 from ..services.extractor import extract
 
 router = APIRouter(tags=["extraction"])
+
+# Une extraction qui n'a pas fini au bout de ce delai est abandonnee plutot
+# que laissee "processing" indefiniment : un scrape ou un appel LLM qui
+# reste bloque (page qui ne finit jamais de charger, modele local surcharge)
+# ne doit pas transformer la recette en zombie que rien ne relance jamais.
+EXTRACTION_TIMEOUT_SECONDS = 300
 
 
 @router.post("/extract", response_model=ExtractionResponse, status_code=202)
@@ -60,6 +68,28 @@ async def submit_image_extraction(
     )
 
 
+async def sweep_stuck_extractions(db: AsyncSession) -> int:
+    """Marque en échec les extractions laissées "processing" par un redémarrage.
+
+    Les extractions tournent en arrière-plan dans le processus : un
+    redémarrage (déploiement, crash) les tue sans jamais toucher leur ligne,
+    qui resterait "processing" pour toujours sinon — rien ne la relance.
+    Appelé une fois au démarrage.
+    """
+    result = await db.execute(
+        update(Recipe)
+        .where(Recipe.status == ExtractionStatus.processing)
+        .values(
+            status=ExtractionStatus.failed,
+            error_msg="Extraction interrompue par un redémarrage du serveur.",
+            progress_message=None,
+            title="Extraction échouée",
+        )
+    )
+    await db.commit()
+    return result.rowcount
+
+
 @router.get("/tasks/{recipe_id}", response_model=RecipeOut)
 async def get_task_status(
     recipe_id: UUID,
@@ -87,7 +117,10 @@ async def _run_extraction(recipe_id: UUID, input_text: str):
             await db.commit()
 
         try:
-            data = await extract(input_text, db=db, on_progress=report_progress)
+            data = await asyncio.wait_for(
+                extract(input_text, db=db, on_progress=report_progress),
+                timeout=EXTRACTION_TIMEOUT_SECONDS,
+            )
             for field, value in data.items():
                 if hasattr(recipe, field) and value is not None:
                     setattr(recipe, field, value)
@@ -97,6 +130,20 @@ async def _run_extraction(recipe_id: UUID, input_text: str):
             await db.commit()
             from ..services import achievement_service
             await achievement_service.on_recipe_added(db, recipe.source_type or "manual")
+        except TimeoutError:
+            # wait_for a annulé extract() en plein vol, potentiellement au
+            # milieu d'une requete sur `db` (report_progress commite depuis
+            # extract()) : la session doit etre nettoyee avant de pouvoir
+            # s'en resservir pour ecrire l'echec.
+            await db.rollback()
+            recipe.status = ExtractionStatus.failed
+            recipe.error_msg = (
+                f"Extraction trop longue (plus de {EXTRACTION_TIMEOUT_SECONDS // 60} "
+                "minutes) : abandonnée."
+            )
+            recipe.progress_message = None
+            recipe.title = "Extraction échouée"
+            await db.commit()
         except Exception as e:
             recipe.status = ExtractionStatus.failed
             recipe.error_msg = str(e)
@@ -118,14 +165,17 @@ async def _run_image_extraction(recipe_id: UUID, image_bytes: bytes, mime_type: 
         recipe.status = ExtractionStatus.processing
         await db.commit()
 
-        try:
+        async def run_ocr_and_llm() -> dict:
             recipe.progress_message = "Lecture du texte de l'image (OCR)…"
             await db.commit()
             text = await extract_text_from_image(image_bytes, mime_type)
 
             recipe.progress_message = "Analyse de la recette par l'IA…"
             await db.commit()
-            data = await extract_recipe_with_llm(text)
+            return await extract_recipe_with_llm(text)
+
+        try:
+            data = await asyncio.wait_for(run_ocr_and_llm(), timeout=EXTRACTION_TIMEOUT_SECONDS)
             if "error" in data:
                 raise ValueError(data["error"])
             from ..models.recipe import SourceType
@@ -141,6 +191,16 @@ async def _run_image_extraction(recipe_id: UUID, image_bytes: bytes, mime_type: 
             # "image" is not a stored SourceType: it only routes the
             # achievement so "Photographe" is reachable
             await achievement_service.on_recipe_added(db, "image")
+        except TimeoutError:
+            await db.rollback()
+            recipe.status = ExtractionStatus.failed
+            recipe.error_msg = (
+                f"Extraction trop longue (plus de {EXTRACTION_TIMEOUT_SECONDS // 60} "
+                "minutes) : abandonnée."
+            )
+            recipe.progress_message = None
+            recipe.title = "OCR échoué"
+            await db.commit()
         except Exception as e:
             recipe.status = ExtractionStatus.failed
             recipe.error_msg = str(e)
