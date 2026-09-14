@@ -7,7 +7,7 @@ from fastapi.staticfiles import StaticFiles
 from .config import settings
 from .database import init_db, AsyncSessionLocal
 from .api.auth import router as auth_router
-from .api.recipes import router as recipes_router
+from .api.recipes import router as recipes_router, sweep_stuck_thumbnails
 from .api.extract import router as extract_router, sweep_stuck_extractions
 from .api.shopping import router as shopping_router
 from .api.meal_plan import router as meal_plan_router
@@ -60,6 +60,12 @@ async def lifespan(app: FastAPI):
             logging.getLogger("popote").info(
                 "%d extraction(s) laissée(s) 'processing' par un redémarrage précédent "
                 "marquée(s) en échec", n_interrompues,
+            )
+        n_vignettes = await sweep_stuck_thumbnails(db)
+        if n_vignettes:
+            logging.getLogger("popote").info(
+                "%d génération(s) de vignette laissée(s) en cours par un redémarrage "
+                "précédent marquée(s) en échec", n_vignettes,
             )
     await ensure_model_available()
     yield

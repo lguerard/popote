@@ -50,5 +50,11 @@ class Recipe(Base):
     status: Mapped[ExtractionStatus] = mapped_column(SAEnum(ExtractionStatus), default=ExtractionStatus.done)
     error_msg: Mapped[str | None] = mapped_column(Text)
     progress_message: Mapped[str | None] = mapped_column(Text)
+    # Generation de vignette IA : suivie a part du statut d'extraction
+    # ci-dessus, qui concerne toute la recette. La confondre la ferait
+    # disparaitre de la liste (filtree sur status=done) le temps de
+    # regenerer juste l'image d'une recette deja terminee.
+    thumbnail_generating: Mapped[bool] = mapped_column(default=False)
+    thumbnail_error: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))

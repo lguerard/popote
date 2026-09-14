@@ -53,7 +53,9 @@ async def generate_recipe_image(title: str, description: str | None, category: s
         f"Professional food photography of {subject}, appetizing, natural light, "
         "on a wooden table, high quality, detailed, 4k"
     )
-    async with httpx.AsyncClient(timeout=120) as client:
+    # Aligné sur _THUMBNAIL_GENERATION_TIMEOUT_SECONDS côté appelant (recipes.py) :
+    # laisser le temps au premier appel de télécharger le modèle (~2 Go).
+    async with httpx.AsyncClient(timeout=600) as client:
         resp = await client.post(
             f"{settings.imagegen_base_url}/generate",
             json={

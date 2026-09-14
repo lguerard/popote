@@ -39,10 +39,43 @@ export default function ModifierRecette() {
     mutationFn: (file) => uploadThumbnail(id, file),
     onSuccess: onThumbnailSaved,
   })
-  const generateMutation = useMutation({
+
+  // La génération tourne en arrière-plan côté serveur (le premier appel
+  // doit télécharger un modèle de plusieurs Go avant de générer quoi que
+  // ce soit — trop long pour une réponse HTTP classique) : on lance la
+  // tâche puis on interroge la recette jusqu'à ce qu'elle ait fini,
+  // même principe que le suivi d'extraction.
+  const [isGenerating, setIsGenerating] = useState(false)
+  const [generateError, setGenerateError] = useState(null)
+  const startMutation = useMutation({
     mutationFn: () => generateThumbnail(id),
-    onSuccess: onThumbnailSaved,
+    onSuccess: () => { setGenerateError(null); setIsGenerating(true) },
   })
+
+  useEffect(() => {
+    if (recipe?.thumbnail_generating) setIsGenerating(true)
+  }, [recipe])
+
+  useEffect(() => {
+    if (!isGenerating) return undefined
+    const interval = setInterval(async () => {
+      try {
+        const updated = await getRecipe(id)
+        if (!updated.thumbnail_generating) {
+          clearInterval(interval)
+          setIsGenerating(false)
+          if (updated.thumbnail_error) setGenerateError(updated.thumbnail_error)
+          else onThumbnailSaved(updated)
+        }
+      } catch {
+        clearInterval(interval)
+        setIsGenerating(false)
+      }
+    }, 2000)
+    return () => clearInterval(interval)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isGenerating, id])
+
   const fileRef = useRef(null)
   const handlePickImage = (e) => {
     const file = e.target.files[0]
@@ -118,23 +151,29 @@ export default function ModifierRecette() {
             <button
               type="button"
               onClick={() => fileRef.current?.click()}
-              disabled={uploadMutation.isPending || generateMutation.isPending}
+              disabled={uploadMutation.isPending || isGenerating}
               className="px-3 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors disabled:opacity-50"
             >
               {uploadMutation.isPending ? 'Envoi…' : '📷 Changer l’image'}
             </button>
             <button
               type="button"
-              onClick={() => generateMutation.mutate()}
-              disabled={uploadMutation.isPending || generateMutation.isPending}
+              onClick={() => startMutation.mutate()}
+              disabled={uploadMutation.isPending || isGenerating || startMutation.isPending}
               className="px-3 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors disabled:opacity-50"
             >
-              {generateMutation.isPending ? 'Génération…' : '🪄 Générer avec l’IA'}
+              {isGenerating || startMutation.isPending ? 'Génération…' : '🪄 Générer avec l’IA'}
             </button>
-            {(uploadMutation.isError || generateMutation.isError) && (
+            {isGenerating && (
+              <p className="text-xs text-gray-400 max-w-xs">
+                Peut prendre plusieurs minutes la première fois (téléchargement du modèle).
+              </p>
+            )}
+            {(uploadMutation.isError || startMutation.isError || generateError) && (
               <p className="text-xs text-red-500 max-w-xs">
                 {uploadMutation.error?.response?.data?.detail
-                  || generateMutation.error?.response?.data?.detail
+                  || startMutation.error?.response?.data?.detail
+                  || generateError
                   || 'Erreur lors de la mise à jour de l’image.'}
               </p>
             )}
