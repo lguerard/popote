@@ -37,3 +37,7 @@ Thumbs.db
 
 # Git-cliff / release
 RELEASE_NOTES.md
+
+# Surveillance mensuelle des modèles : rapports locaux et logs cron
+scripts/model_watch/reports/
+scripts/model_watch/run.log

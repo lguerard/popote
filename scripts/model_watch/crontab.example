@@ -1,0 +1,8 @@
+# Verification mensuelle des modeles Ollama : le 1er de chaque mois a 4h.
+# Installer avec : crontab -e   (puis coller la ligne ci-dessous, chemin adapte)
+#
+# Le job peut prendre longtemps (telechargement de plusieurs modeles) : le
+# laisser tourner de nuit evite de charger le GPU/reseau pendant une
+# utilisation normale de l'app.
+
+0 4 1 * * /home/laurent/server_setup/popote/scripts/model_watch/check_model.sh >> /home/laurent/server_setup/popote/scripts/model_watch/run.log 2>&1
