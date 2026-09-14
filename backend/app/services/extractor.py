@@ -1,8 +1,15 @@
 import re
+from typing import Awaitable, Callable
 from .video_service import download_and_transcribe
 from .web_scraper import scrape_url
 from .llm_service import extract_recipe_with_llm
 from ..models.recipe import SourceType
+
+ProgressCallback = Callable[[str], Awaitable[None]]
+
+
+async def _noop_progress(_message: str) -> None:
+    pass
 
 VIDEO_DOMAINS = re.compile(
     r"(youtube\.com|youtu\.be|tiktok\.com|instagram\.com|twitter\.com|x\.com|"
@@ -22,21 +29,27 @@ def detect_source_type(input_text: str) -> SourceType:
     return SourceType.web
 
 
-async def extract(input_text: str, db=None) -> dict:
+async def extract(input_text: str, db=None, on_progress: ProgressCallback | None = None) -> dict:
     """
     Returns dict with recipe fields + source_type + thumbnail_url.
     Raises on unrecoverable error. Pass db session for duplicate detection.
+    on_progress, if given, is awaited with a short human-readable message
+    before each slow step so callers can surface what's happening.
     """
+    progress = on_progress or _noop_progress
     source_type = detect_source_type(input_text.strip())
     thumbnail_url = None
 
     if source_type == SourceType.video:
+        await progress("Téléchargement et transcription de la vidéo…")
         raw_text, thumbnail_url = await download_and_transcribe(input_text.strip())
     elif source_type == SourceType.web:
+        await progress("Chargement de la page web…")
         raw_text, thumbnail_url = await scrape_url(input_text.strip())
     else:
         raw_text = input_text
 
+    await progress("Analyse de la recette par l'IA…")
     recipe_data = await extract_recipe_with_llm(raw_text)
 
     if "error" in recipe_data:
@@ -48,6 +61,7 @@ async def extract(input_text: str, db=None) -> dict:
 
     # Duplicate detection
     if db and recipe_data.get("title"):
+        await progress("Vérification des doublons…")
         similar = await _find_similar(recipe_data["title"], db)
         if similar:
             recipe_data["similar_recipe_id"] = similar

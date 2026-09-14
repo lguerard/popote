@@ -49,5 +49,6 @@ class Recipe(Base):
     similar_recipe_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
     status: Mapped[ExtractionStatus] = mapped_column(SAEnum(ExtractionStatus), default=ExtractionStatus.done)
     error_msg: Mapped[str | None] = mapped_column(Text)
+    progress_message: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
