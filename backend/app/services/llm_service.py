@@ -74,6 +74,22 @@ def _normalize_recipe_shape(data: dict) -> None:
                 normalized_steps.append({"order": i, "text": str(item)})
         data["steps"] = normalized_steps
 
+    # Meme chose pour des champs numeriques renvoyes en texte libre
+    # ("15 minutes" au lieu de 15) : la colonne Postgres est un entier,
+    # une string y passe telle quelle jusqu'au crash au commit.
+    for key in ("prep_time", "cook_time", "servings"):
+        if key in data and not isinstance(data[key], (int, type(None))):
+            data[key] = _coerce_int(data[key])
+
+    tags = data.get("tags")
+    if isinstance(tags, list):
+        data["tags"] = [str(t) for t in tags if t is not None]
+
+
+def _coerce_int(value) -> int | None:
+    match = re.search(r"\d+", str(value))
+    return int(match.group()) if match else None
+
 
 async def _extract_ollama(text: str) -> dict:
     prompt = f"Voici le texte à analyser:\n\n{text[:12000]}"
