@@ -73,6 +73,23 @@ def _transcribe(wav_file: str) -> str:
             gc.collect()
 
 
+def _combine_transcript_and_caption(transcript: str, description: str) -> str:
+    """Assemble transcription audio et légende du post en un seul texte.
+
+    Beaucoup de reels recette (Instagram, TikTok) n'ont pas de narration :
+    la recette est ecrite dans la legende, ou affichee a l'ecran (texte
+    incruste, pas extrait ici). Ne garder que la transcription audio rate
+    completement ces cas — la legende est deja recuperee par yt-dlp mais
+    etait jusque-la jetee.
+    """
+    parts = []
+    if transcript.strip():
+        parts.append(f"Transcription audio de la vidéo :\n{transcript.strip()}")
+    if description.strip():
+        parts.append(f"Légende de la publication :\n{description.strip()}")
+    return "\n\n".join(parts)
+
+
 def _download_and_transcribe_sync(url: str) -> tuple[str, str | None]:
     with tempfile.TemporaryDirectory() as tmpdir:
         audio_path = os.path.join(tmpdir, "audio.%(ext)s")
@@ -106,9 +123,10 @@ def _download_and_transcribe_sync(url: str) -> tuple[str, str | None]:
             raise RuntimeError("Téléchargement audio échoué")
 
         transcript = _transcribe(wav_file)
+        description = info.get("description") or ""
         thumbnail_url = info.get("thumbnail") or None
 
-        return transcript, thumbnail_url
+        return _combine_transcript_and_caption(transcript, description), thumbnail_url
 
 
 async def download_and_transcribe(url: str) -> tuple[str, str | None]:
