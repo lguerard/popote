@@ -40,9 +40,39 @@ Règles:
 
 
 async def extract_recipe_with_llm(text: str) -> dict:
-    if settings.use_claude:
-        return await _extract_claude(text)
-    return await _extract_ollama(text)
+    data = await _extract_claude(text) if settings.use_claude else await _extract_ollama(text)
+    if "error" not in data:
+        _normalize_recipe_shape(data)
+    return data
+
+
+def _normalize_recipe_shape(data: dict) -> None:
+    """Coerce ingredients/steps into the objects the API expects.
+
+    Models — especially smaller local ones — don't always follow the
+    structured schema in the prompt and sometimes return a flat list of
+    strings instead. Saved as-is, a single malformed recipe like that
+    breaks the response validation for the whole recipe list, not just
+    itself, so normalize defensively rather than trust the shape.
+    """
+    ingredients = data.get("ingredients")
+    if isinstance(ingredients, list):
+        data["ingredients"] = [
+            item if isinstance(item, dict)
+            else {"quantity": None, "unit": None, "name": str(item), "notes": None}
+            for item in ingredients
+        ]
+
+    steps = data.get("steps")
+    if isinstance(steps, list):
+        normalized_steps = []
+        for i, item in enumerate(steps, 1):
+            if isinstance(item, dict):
+                item.setdefault("order", i)
+                normalized_steps.append(item)
+            else:
+                normalized_steps.append({"order": i, "text": str(item)})
+        data["steps"] = normalized_steps
 
 
 async def _extract_ollama(text: str) -> dict:
