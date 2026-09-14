@@ -1,7 +1,7 @@
 import asyncio
 from uuid import UUID
-from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
-from sqlalchemy import select, or_
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, UploadFile, File
+from sqlalchemy import select, or_, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from ..database import get_db
 from ..deps import current_user
@@ -16,7 +16,12 @@ router = APIRouter(prefix="/recipes", tags=["recipes"])
 # produit en pratique, et ce que les navigateurs affichent tous nativement.
 _ALLOWED_IMAGE_TYPES = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp"}
 _MAX_UPLOAD_BYTES = 8 * 1024 * 1024
-_THUMBNAIL_GENERATION_TIMEOUT_SECONDS = 90
+# Genereux : couvre le tout premier appel, qui doit en plus telecharger le
+# modele (~2 Go) avant de generer quoi que ce soit. Tourne en arriere-plan
+# (voir generate_thumbnail/_run_thumbnail_generation) donc rien n'attend
+# cette duree sur une connexion HTTP — un appel synchrone plus tot a fini
+# par depasser les delais de nginx/Cloudflare et casser la reponse.
+_THUMBNAIL_GENERATION_TIMEOUT_SECONDS = 600
 
 async def _owned_recipe(db: AsyncSession, recipe_id: UUID, user: User) -> Recipe:
     """Recupere une recette appartenant a l'utilisateur courant.
@@ -208,28 +213,84 @@ async def upload_thumbnail(
     return recipe
 
 
-@router.post("/{recipe_id}/thumbnail/generate", response_model=RecipeOut)
+@router.post("/{recipe_id}/thumbnail/generate", response_model=RecipeOut, status_code=202)
 async def generate_thumbnail(
     recipe_id: UUID,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(current_user),
 ):
-    recipe = await _owned_recipe(db, recipe_id, user)
-    try:
-        image_bytes = await asyncio.wait_for(
-            image_service.generate_recipe_image(recipe.title, recipe.description, recipe.category),
-            timeout=_THUMBNAIL_GENERATION_TIMEOUT_SECONDS,
-        )
-    except TimeoutError:
-        raise HTTPException(504, "La génération d'image a pris trop de temps")
-    except Exception as e:
-        raise HTTPException(502, f"Échec de la génération d'image : {e}")
+    """Lance la génération en arrière-plan ; le client suit via GET /recipes/{id}.
 
-    image_service.delete_local_thumbnail(recipe.thumbnail_url)
-    recipe.thumbnail_url = image_service.save_thumbnail_bytes(recipe.id, image_bytes, "png")
+    La toute première génération doit télécharger le modèle (~2 Go) avant
+    de produire quoi que ce soit : une réponse synchrone dépasserait les
+    délais de nginx/Cloudflare et casserait la connexion en plein milieu,
+    exactement le même problème que l'extraction de recette avait déjà
+    résolu avec ce même pattern tâche de fond + statut interrogé par le
+    client.
+    """
+    recipe = await _owned_recipe(db, recipe_id, user)
+    recipe.thumbnail_generating = True
+    recipe.thumbnail_error = None
     await db.commit()
     await db.refresh(recipe)
+    background_tasks.add_task(_run_thumbnail_generation, recipe.id)
     return recipe
+
+
+async def _run_thumbnail_generation(recipe_id: UUID):
+    from ..database import AsyncSessionLocal
+
+    async with AsyncSessionLocal() as db:
+        recipe = await db.get(Recipe, recipe_id)
+        if not recipe:
+            return
+        try:
+            image_bytes = await asyncio.wait_for(
+                image_service.generate_recipe_image(recipe.title, recipe.description, recipe.category),
+                timeout=_THUMBNAIL_GENERATION_TIMEOUT_SECONDS,
+            )
+            image_service.delete_local_thumbnail(recipe.thumbnail_url)
+            recipe.thumbnail_url = image_service.save_thumbnail_bytes(recipe.id, image_bytes, "png")
+            recipe.thumbnail_generating = False
+            recipe.thumbnail_error = None
+            await db.commit()
+        except TimeoutError:
+            # wait_for annule la coroutine en plein vol, potentiellement
+            # en pleine requete sur `db` : la session doit etre nettoyee
+            # avant de pouvoir s'en resservir (meme lecon que pour
+            # l'extraction de recette, voir api/extract.py).
+            await db.rollback()
+            recipe.thumbnail_generating = False
+            recipe.thumbnail_error = (
+                f"Génération trop longue (plus de {_THUMBNAIL_GENERATION_TIMEOUT_SECONDS // 60} minutes)."
+            )
+            await db.commit()
+        except Exception as e:
+            await db.rollback()
+            recipe.thumbnail_generating = False
+            recipe.thumbnail_error = str(e)
+            await db.commit()
+
+
+async def sweep_stuck_thumbnails(db: AsyncSession) -> int:
+    """Marque en échec les générations laissées 'en cours' par un redémarrage.
+
+    Meme raisonnement que sweep_stuck_extractions dans api/extract.py :
+    une tache de fond ne survit pas a un redemarrage du processus, donc
+    toute recette encore thumbnail_generating=true au demarrage est
+    forcement un reste d'un ancien processus, jamais une tache en cours.
+    """
+    result = await db.execute(
+        update(Recipe)
+        .where(Recipe.thumbnail_generating.is_(True))
+        .values(
+            thumbnail_generating=False,
+            thumbnail_error="Génération interrompue par un redémarrage du serveur.",
+        )
+    )
+    await db.commit()
+    return result.rowcount
 
 
 @router.post("/{recipe_id}/nutrition", response_model=NutritionOut)
