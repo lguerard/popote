@@ -1,7 +1,9 @@
 import logging
+import os
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from .config import settings
 from .database import init_db, AsyncSessionLocal
 from .api.auth import router as auth_router
@@ -72,6 +74,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Vignettes uploadees/generees (backend/app/services/image_service.py).
+# Distinct du prefixe /api : ce sont des fichiers statiques, pas une route API.
+os.makedirs(settings.media_dir, exist_ok=True)
+app.mount("/media", StaticFiles(directory=settings.media_dir), name="media")
 
 app.include_router(auth_router, prefix="/api")
 app.include_router(recipes_router, prefix="/api")

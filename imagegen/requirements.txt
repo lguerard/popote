@@ -1,0 +1,16 @@
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+pydantic==2.9.2
+
+# Roue CUDA officielle : contient son propre runtime CUDA embarque (pas de
+# partage de bibliotheques avec le cublas/cudnn epingles pour ctranslate2
+# dans le conteneur backend — normal, ce service tourne dans SON PROPRE
+# conteneur, isole expres pour eviter tout conflit de versions).
+--extra-index-url https://download.pytorch.org/whl/cu121
+torch==2.4.1+cu121
+
+diffusers==0.30.3
+transformers==4.44.2
+accelerate==0.34.2
+pillow==10.4.0
+safetensors==0.4.5
