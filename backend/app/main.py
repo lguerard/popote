@@ -12,6 +12,7 @@ from .api.meal_plan import router as meal_plan_router
 from .api.achievements import router as achievements_router
 from .services.llm_service import ensure_model_available
 from .services.achievement_service import init_achievements
+from .services.web_scraper import close_browser
 
 
 # Valeurs historiques du depot et de docker-compose : elles ne doivent
@@ -54,6 +55,7 @@ async def lifespan(app: FastAPI):
         await init_achievements(db)
     await ensure_model_available()
     yield
+    await close_browser()
 
 
 app = FastAPI(title="Popote", lifespan=lifespan)

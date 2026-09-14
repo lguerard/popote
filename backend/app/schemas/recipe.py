@@ -58,6 +58,7 @@ class RecipeOut(RecipeBase):
     id: uuid.UUID
     status: ExtractionStatus
     error_msg: str | None = None
+    progress_message: str | None = None
     similar_recipe_id: uuid.UUID | None = None
     created_at: datetime
     updated_at: datetime

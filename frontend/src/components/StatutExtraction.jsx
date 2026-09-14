@@ -11,6 +11,7 @@ const MESSAGES = {
 
 export default function StatutExtraction({ recipeId, onError }) {
   const [status, setStatus] = useState('pending')
+  const [progressMessage, setProgressMessage] = useState(null)
   const [errorMsg, setErrorMsg] = useState(null)
   const navigate = useNavigate()
 
@@ -20,6 +21,7 @@ export default function StatutExtraction({ recipeId, onError }) {
       try {
         const data = await getTaskStatus(recipeId)
         setStatus(data.status)
+        setProgressMessage(data.progress_message || null)
         if (data.status === 'done') {
           clearInterval(interval)
           navigate(`/recettes/${recipeId}`)
@@ -42,7 +44,9 @@ export default function StatutExtraction({ recipeId, onError }) {
       ) : (
         <div className="text-5xl">❌</div>
       )}
-      <p className="text-lg font-medium text-gray-700">{MESSAGES[status]}</p>
+      <p className="text-lg font-medium text-gray-700">
+        {status === 'processing' && progressMessage ? progressMessage : MESSAGES[status]}
+      </p>
       {errorMsg && <p className="text-sm text-red-500 max-w-md text-center">{errorMsg}</p>}
     </div>
   )

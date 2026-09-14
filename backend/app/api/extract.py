@@ -82,19 +82,25 @@ async def _run_extraction(recipe_id: UUID, input_text: str):
         recipe.status = ExtractionStatus.processing
         await db.commit()
 
+        async def report_progress(message: str) -> None:
+            recipe.progress_message = message
+            await db.commit()
+
         try:
-            data = await extract(input_text, db=db)
+            data = await extract(input_text, db=db, on_progress=report_progress)
             for field, value in data.items():
                 if hasattr(recipe, field) and value is not None:
                     setattr(recipe, field, value)
             recipe.status = ExtractionStatus.done
             recipe.error_msg = None
+            recipe.progress_message = None
             await db.commit()
             from ..services import achievement_service
             await achievement_service.on_recipe_added(db, recipe.source_type or "manual")
         except Exception as e:
             recipe.status = ExtractionStatus.failed
             recipe.error_msg = str(e)
+            recipe.progress_message = None
             recipe.title = "Extraction échouée"
             await db.commit()
 
@@ -113,7 +119,12 @@ async def _run_image_extraction(recipe_id: UUID, image_bytes: bytes, mime_type: 
         await db.commit()
 
         try:
+            recipe.progress_message = "Lecture du texte de l'image (OCR)…"
+            await db.commit()
             text = await extract_text_from_image(image_bytes, mime_type)
+
+            recipe.progress_message = "Analyse de la recette par l'IA…"
+            await db.commit()
             data = await extract_recipe_with_llm(text)
             if "error" in data:
                 raise ValueError(data["error"])
@@ -124,6 +135,7 @@ async def _run_image_extraction(recipe_id: UUID, image_bytes: bytes, mime_type: 
                     setattr(recipe, field, value)
             recipe.status = ExtractionStatus.done
             recipe.error_msg = None
+            recipe.progress_message = None
             await db.commit()
             from ..services import achievement_service
             # "image" is not a stored SourceType: it only routes the
@@ -132,5 +144,6 @@ async def _run_image_extraction(recipe_id: UUID, image_bytes: bytes, mime_type: 
         except Exception as e:
             recipe.status = ExtractionStatus.failed
             recipe.error_msg = str(e)
+            recipe.progress_message = None
             recipe.title = "OCR échoué"
             await db.commit()
