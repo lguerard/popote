@@ -1,7 +1,7 @@
 import asyncio
 from uuid import UUID
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, UploadFile, File
-from sqlalchemy import select, or_, update
+from sqlalchemy import func, select, or_, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from ..database import get_db
 from ..deps import current_user
@@ -101,7 +101,12 @@ async def list_recipes(
     if source_type:
         q = q.where(Recipe.source_type == source_type)
     if max_time:
-        q = q.where((Recipe.prep_time + Recipe.cook_time) <= max_time)
+        # COALESCE : sinon un prep_time ou cook_time NULL (frequent sur les
+        # recettes manuelles simples, ex: pas de vraie "cuisson") propage sa
+        # nullite a toute la somme en SQL, et la recette sort du filtre
+        # meme quand le temps rempli, a lui seul, est bien sous le seuil.
+        total_time = func.coalesce(Recipe.prep_time, 0) + func.coalesce(Recipe.cook_time, 0)
+        q = q.where(total_time <= max_time)
     q = q.offset((page - 1) * limit).limit(limit)
     result = await db.execute(q)
     return result.scalars().all()
