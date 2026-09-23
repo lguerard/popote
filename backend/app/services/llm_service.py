@@ -91,24 +91,42 @@ def _coerce_int(value) -> int | None:
     return int(match.group()) if match else None
 
 
+# Aligné juste sous EXTRACTION_TIMEOUT_SECONDS (api/extract.py, 300s) : ce
+# client avait un timeout de 120s, plus court que le delai de 5 minutes
+# decide plus haut dans la pile — il coupait la requete avant que le budget
+# global ait la moindre chance de s'appliquer, sur un modele local qui peut
+# etre lent (charge GPU partagee avec imagegen, machine occupee...).
+_OLLAMA_TIMEOUT_SECONDS = 280
+
+
 async def _extract_ollama(text: str) -> dict:
     prompt = f"Voici le texte à analyser:\n\n{text[:12000]}"
-    async with httpx.AsyncClient(timeout=120) as client:
-        resp = await client.post(
-            f"{settings.ollama_base_url}/api/chat",
-            json={
-                "model": settings.ollama_model,
-                "messages": [
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": prompt},
-                ],
-                "stream": False,
-                "format": "json",
-            },
+    try:
+        async with httpx.AsyncClient(timeout=_OLLAMA_TIMEOUT_SECONDS) as client:
+            resp = await client.post(
+                f"{settings.ollama_base_url}/api/chat",
+                json={
+                    "model": settings.ollama_model,
+                    "messages": [
+                        {"role": "system", "content": SYSTEM_PROMPT},
+                        {"role": "user", "content": prompt},
+                    ],
+                    "stream": False,
+                    "format": "json",
+                },
+            )
+            resp.raise_for_status()
+            content = resp.json()["message"]["content"]
+            return _parse_json(content)
+    except httpx.TimeoutException:
+        # httpx.TimeoutException se transforme souvent en message vide
+        # (str(e) == ""), ce qui laissait error_msg vide en base — "Extraction
+        # échouée" sans la moindre raison affichée.
+        raise RuntimeError(
+            f"Le modèle Ollama {settings.ollama_model} n'a pas répondu en "
+            f"{_OLLAMA_TIMEOUT_SECONDS}s. Il est peut-être surchargé "
+            "(GPU partagé avec la génération d'image, machine occupée…)."
         )
-        resp.raise_for_status()
-        content = resp.json()["message"]["content"]
-        return _parse_json(content)
 
 
 async def _extract_claude(text: str) -> dict:
