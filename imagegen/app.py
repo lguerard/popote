@@ -23,8 +23,30 @@ from pydantic import BaseModel
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("imagegen")
 
-MODEL_ID = os.environ.get("IMAGE_GEN_MODEL", "stabilityai/sd-turbo")
+MODEL_ID = os.environ.get("IMAGE_GEN_MODEL", "stabilityai/sdxl-turbo")
 REQUESTED_DEVICE = os.environ.get("IMAGE_GEN_DEVICE", "cuda")
+
+# Réglages propres à chaque modèle. Les modèles « turbo » sont distillés
+# pour quelques pas SANS guidance (guidance_scale=0, le prompt négatif est
+# alors ignoré) : une config classique (25 pas, guidance 6) les fait sortir
+# de leur plage d'entraînement. Les autres (SDXL, SD 1.5 photoréalistes…)
+# veulent l'inverse. Surchargeables par IMAGE_GEN_STEPS / _GUIDANCE / _SIZE.
+_PRESETS = {
+    "stabilityai/sd-turbo": {"steps": 4, "guidance": 0.0, "size": 512},
+    "stabilityai/sdxl-turbo": {"steps": 4, "guidance": 0.0, "size": 512},
+}
+_DEFAULT_PRESET = {"steps": 25, "guidance": 6.0, "size": 768}
+
+
+def _setting(name: str, default, cast):
+    raw = os.environ.get(f"IMAGE_GEN_{name.upper()}", "").strip()
+    return cast(raw) if raw else default
+
+
+PRESET = _PRESETS.get(MODEL_ID, _DEFAULT_PRESET)
+STEPS = _setting("steps", PRESET["steps"], int)
+GUIDANCE = _setting("guidance", PRESET["guidance"], float)
+SIZE = _setting("size", PRESET["size"], int)
 
 app = FastAPI(title="Popote Image Generator")
 
@@ -32,8 +54,8 @@ app = FastAPI(title="Popote Image Generator")
 class GenerateRequest(BaseModel):
     prompt: str
     negative_prompt: str | None = None
-    width: int = 512
-    height: int = 512
+    width: int | None = None
+    height: int | None = None
 
 
 def _load_pipeline(device: str):
@@ -62,18 +84,15 @@ def _generate_sync(req: GenerateRequest) -> bytes:
         pipe = _load_pipeline(device)
 
     try:
-        # sd-turbo est distillé pour 1-4 pas SANS guidance (guidance_scale=0) :
-        # une config classique (20-50 pas, guidance>1) le fait sortir de sa
-        # plage d'entraînement et dégrade fortement le résultat.
-        steps = 2 if device == "cuda" else 4
         image = pipe(
             prompt=req.prompt,
-            negative_prompt=req.negative_prompt,
-            num_inference_steps=steps,
-            guidance_scale=0.0,
-            width=req.width,
-            height=req.height,
+            negative_prompt=req.negative_prompt if GUIDANCE > 1 else None,
+            num_inference_steps=STEPS,
+            guidance_scale=GUIDANCE,
+            width=req.width or SIZE,
+            height=req.height or SIZE,
         ).images[0]
+        logger.info("Image générée sur %s (%s, %d pas)", device, MODEL_ID, STEPS)
     finally:
         del pipe
         if device == "cuda":
@@ -96,4 +115,7 @@ async def generate(req: GenerateRequest):
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "model": MODEL_ID, "cuda_available": torch.cuda.is_available()}
+    return {
+        "status": "ok", "model": MODEL_ID, "steps": STEPS, "guidance": GUIDANCE,
+        "size": SIZE, "cuda_available": torch.cuda.is_available(),
+    }

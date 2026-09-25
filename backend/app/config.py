@@ -14,6 +14,9 @@ class Settings(BaseSettings):
     whisper_device: str = "cuda"
     media_dir: str = "/app/media"
     imagegen_base_url: str = "http://imagegen:8001"
+    # Décharge le modèle Ollama du GPU avant chaque génération d'image : sans
+    # ça, il n'y a pas la place de générer sur le GPU (repli CPU très lent).
+    image_gen_free_gpu: bool = True
     # Le premier compte s'inscrit toujours (amorcage). Les suivants
     # seulement si ceci est vrai : Popote est publie sur un domaine
     # public, une inscription libre laisserait n'importe qui entrer.

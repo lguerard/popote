@@ -16,10 +16,28 @@ complètement les deux, comme `ollama` est déjà son propre conteneur.
 
 ## Modèle
 
-`stabilityai/sd-turbo` par défaut (`IMAGE_GEN_MODEL`) : un modèle distillé
-pour générer en 1 à 4 pas d'inférence sans guidance, donc rapide (quelques
-secondes sur GPU) et léger (~2 Go en fp16). Changeable via `.env`
-(`IMAGE_GEN_MODEL`, `IMAGE_GEN_DEVICE=cuda|cpu`).
+`stabilityai/sdxl-turbo` par défaut (`IMAGE_GEN_MODEL`) : SDXL distillé
+pour générer en 4 pas sans guidance, quelques secondes sur GPU, ~7 Go de
+VRAM en fp16. Bien meilleur que `stabilityai/sd-turbo` (l'ancien défaut,
+~2 Go), qui reste le bon choix sans GPU ou avec peu de RAM : sur CPU,
+sdxl-turbo demande ~12 Go de RAM. Licence de sdxl-turbo : usage non
+commercial (usage personnel OK).
+
+Tout modèle diffusers texte→image fonctionne (`IMAGE_GEN_MODEL`, par
+exemple un SDXL photoréaliste). Les modèles « turbo » connus ont leurs
+réglages (pas, guidance, taille) dans `_PRESETS` ; pour les autres, 25 pas,
+guidance 6, 768 px, surchargeables via `IMAGE_GEN_STEPS`,
+`IMAGE_GEN_GUIDANCE`, `IMAGE_GEN_SIZE`.
+
+## Le prompt
+
+Le backend ne transmet pas le titre brut : le LLM (Ollama ou Claude)
+décrit d'abord en anglais, en une phrase, à quoi ressemble le plat servi
+(contenant, couleurs, garniture), à partir du titre, des ingrédients et
+des dernières étapes (souvent le dressage). Le style photo vient après.
+Deux raisons : ces modèles comprennent mal le français, et ils ne lisent
+que 77 tokens (un titre français + une liste d'ingrédients remplissait
+tout, style compris).
 
 ## Gestion de la VRAM
 
@@ -31,14 +49,18 @@ modèle résident dépasserait le budget disponible. En échange, chaque
 génération ajoute quelques secondes de chargement — acceptable pour une
 action ponctuelle (créer/éditer une recette), pas pour un usage répété.
 
-Si le chargement GPU échoue (VRAM insuffisante, pilote absent...), repli
-automatique sur CPU (beaucoup plus lent, mais fonctionnel).
+Le modèle Ollama occupant presque tout le GPU, le backend le décharge
+juste avant de demander une image (`IMAGE_GEN_FREE_GPU=true`, par défaut) ;
+Ollama le recharge tout seul à la prochaine extraction, en quelques
+secondes. Si le chargement GPU échoue quand même (VRAM insuffisante,
+pilote absent...), repli automatique sur CPU (beaucoup plus lent, mais
+fonctionnel).
 
 ## API
 
 - `POST /generate` `{"prompt": "...", "negative_prompt": "..."}` → image
   PNG en réponse brute.
-- `GET /health` → `{"status": "ok", "model": "...", "cuda_available": bool}`.
+- `GET /health` → modèle, pas, guidance, taille et disponibilité de CUDA.
 
 ## Non testé en conditions réelles
 

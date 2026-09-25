@@ -301,7 +301,8 @@ async def _run_thumbnail_generation(recipe_id: UUID):
         try:
             image_bytes = await asyncio.wait_for(
                 image_service.generate_recipe_image(
-                    recipe.title, recipe.description, recipe.category, recipe.ingredients
+                    recipe.title, recipe.description, recipe.category,
+                    recipe.ingredients, recipe.steps,
                 ),
                 timeout=_THUMBNAIL_GENERATION_TIMEOUT_SECONDS,
             )

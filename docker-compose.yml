@@ -37,7 +37,7 @@ services:
       # recreation du conteneur.
       - imagegen_models:/root/.cache/huggingface
     environment:
-      IMAGE_GEN_MODEL: ${IMAGE_GEN_MODEL:-stabilityai/sd-turbo}
+      IMAGE_GEN_MODEL: ${IMAGE_GEN_MODEL:-stabilityai/sdxl-turbo}
       IMAGE_GEN_DEVICE: ${IMAGE_GEN_DEVICE:-cuda}
     deploy:
       resources:
@@ -63,6 +63,7 @@ services:
       OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:14b}
       OLLAMA_NUM_CTX: ${OLLAMA_NUM_CTX:-8192}
       IMAGEGEN_BASE_URL: http://imagegen:8001
+      IMAGE_GEN_FREE_GPU: ${IMAGE_GEN_FREE_GPU:-true}
       CLAUDE_API_KEY: ${CLAUDE_API_KEY:-}
       # Signe les jetons de session : le backend refuse de demarrer si
       # elle est absente, trop courte ou laissee par defaut.
