@@ -48,7 +48,7 @@ class RecipeDetailViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun setRecipe(r: Recipe) {
         _recipe.value = r
-        if (r.reextracting) pollReextraction(r.id)
+        if (r.reextracting || r.thumbnail_generating) pollReextraction(r.id)
     }
 
     private fun loadHistory(id: String) {
@@ -57,7 +57,7 @@ class RecipeDetailViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /** Suit une réextraction en cours jusqu'à la fin (le serveur travaille en tâche de fond). */
+    /** Suit une réextraction ou une génération d'image jusqu'à la fin (tâches de fond du serveur). */
     private fun pollReextraction(id: String) {
         if (polling?.isActive == true) return
         polling = viewModelScope.launch {
@@ -65,7 +65,7 @@ class RecipeDetailViewModel(app: Application) : AndroidViewModel(app) {
                 delay(2000)
                 val r = try { repo.getRecipe(id) } catch (_: Exception) { continue }
                 _recipe.value = r
-                if (!r.reextracting) {
+                if (!r.reextracting && !r.thumbnail_generating) {
                     _notesDraft.value = r.notes ?: _notesDraft.value
                     break
                 }
@@ -132,6 +132,11 @@ class RecipeDetailViewModel(app: Application) : AndroidViewModel(app) {
     fun reextract(replaceImage: Boolean) {
         val id = _recipe.value?.id ?: return
         act("Réextraction impossible") { setRecipe(repo.reextract(id, replaceImage)) }
+    }
+
+    fun generateImage() {
+        val id = _recipe.value?.id ?: return
+        act("Génération impossible") { setRecipe(repo.generateImage(id)) }
     }
 
     /** Crée (si besoin) le lien public puis le transmet à la feuille de partage. */

@@ -10,7 +10,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import coil.compose.AsyncImage
+import coil.compose.SubcomposeAsyncImage
 import com.popote.data.Recipe
 
 @Composable
@@ -29,18 +29,18 @@ fun RecipeCard(recipe: Recipe, onClick: () -> Unit) {
             ) {
                 val image = imageUrl(recipe.thumbnail_url, LocalServerUrl.current)
                 if (image != null) {
-                    AsyncImage(
+                    // Image absente ou lien expiré (Instagram, TikTok…) : visuel de
+                    // remplacement plutôt qu'un rectangle blanc.
+                    SubcomposeAsyncImage(
                         model = image,
                         contentDescription = recipe.title,
                         contentScale = ContentScale.Crop,
                         modifier = Modifier.fillMaxSize(),
+                        error = { RecipePlaceholder(recipe.category) },
+                        loading = { RecipePlaceholder(recipe.category) },
                     )
                 } else {
-                    Surface(color = MaterialTheme.colorScheme.surfaceVariant, modifier = Modifier.fillMaxSize()) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Text("🍽️", style = MaterialTheme.typography.headlineLarge)
-                        }
-                    }
+                    RecipePlaceholder(recipe.category)
                 }
                 // Source icon badge
                 Surface(
@@ -92,6 +92,20 @@ fun RecipeCard(recipe: Recipe, onClick: () -> Unit) {
                     }
                 }
             }
+        }
+    }
+}
+
+private val CATEGORY_EMOJI = mapOf(
+    "petit-déjeuner" to "☕", "entrée" to "🥗", "plat" to "🍲", "dessert" to "🍰",
+    "snack" to "🥨", "soupe" to "🍜", "apéritif" to "🥂", "boisson" to "🥤", "sauce" to "🫙",
+)
+
+@Composable
+fun RecipePlaceholder(category: String?) {
+    Surface(color = MaterialTheme.colorScheme.primaryContainer, modifier = Modifier.fillMaxSize()) {
+        Box(contentAlignment = Alignment.Center) {
+            Text(CATEGORY_EMOJI[category] ?: "🍽️", style = MaterialTheme.typography.displaySmall)
         }
     }
 }

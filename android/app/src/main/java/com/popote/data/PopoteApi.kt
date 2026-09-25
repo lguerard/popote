@@ -60,6 +60,9 @@ interface PopoteApi {
     @DELETE("api/recipes/{id}/share")
     suspend fun unshareRecipe(@Path("id") id: String): Recipe
 
+    @POST("api/recipes/{id}/thumbnail/generate")
+    suspend fun generateImage(@Path("id") id: String): Recipe
+
     @POST("api/recipes/{id}/reextract")
     suspend fun reextract(@Path("id") id: String, @Query("replace_image") replaceImage: Boolean): Recipe
 
