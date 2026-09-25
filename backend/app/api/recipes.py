@@ -504,14 +504,16 @@ async def reextract_recipe(
 async def _run_reextraction(recipe_id: UUID):
     from ..database import AsyncSessionLocal
     from ..services.extractor import extract
-    from .extract import EXTRACTION_TIMEOUT_SECONDS
+    from .extract import EXTRACTION_TIMEOUT_SECONDS, StepTracker
 
     async with AsyncSessionLocal() as db:
         recipe = await db.get(Recipe, recipe_id)
         if not recipe:
             return
+        steps = StepTracker(f"réextraction {(recipe.source_url or '')[:80]}")
 
         async def report_progress(message: str) -> None:
+            steps.record(message)
             recipe.progress_message = message
             await db.commit()
 
@@ -520,6 +522,7 @@ async def _run_reextraction(recipe_id: UUID):
                 extract(recipe.source_url, on_progress=report_progress),
                 timeout=EXTRACTION_TIMEOUT_SECONDS,
             )
+            steps.record("terminé")
             for field in _REEXTRACTED_FIELDS:
                 if data.get(field) not in (None, "", []):
                     setattr(recipe, field, data[field])
@@ -530,9 +533,8 @@ async def _run_reextraction(recipe_id: UUID):
             recipe.error_msg = None
         except TimeoutError:
             await db.rollback()
-            recipe.error_msg = (
-                f"Réextraction trop longue (plus de {EXTRACTION_TIMEOUT_SECONDS // 60} minutes) : "
-                "la recette n'a pas été modifiée."
+            recipe.error_msg = steps.timeout_message(
+                "Réextraction", "la recette n'a pas été modifiée."
             )
         except Exception as e:
             await db.rollback()

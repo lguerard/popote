@@ -75,6 +75,8 @@ services:
       ALLOW_SIGNUP: ${ALLOW_SIGNUP:-false}
       WHISPER_MODEL: ${WHISPER_MODEL:-large-v3}
       WHISPER_DEVICE: ${WHISPER_DEVICE:-cuda}
+      WHISPER_CPU_MODEL: ${WHISPER_CPU_MODEL:-small}
+      WHISPER_FREE_GPU: ${WHISPER_FREE_GPU:-true}
     volumes:
       - media_data:/app/media
     deploy:

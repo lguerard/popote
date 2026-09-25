@@ -1,4 +1,6 @@
 import asyncio
+import logging
+import time
 from uuid import UUID
 from fastapi import APIRouter, Depends, BackgroundTasks, UploadFile, File, HTTPException
 from sqlalchemy import update
@@ -11,6 +13,7 @@ from ..schemas.recipe import ExtractionRequest, ExtractionResponse, RecipeOut
 from ..services.extractor import extract
 
 router = APIRouter(tags=["extraction"])
+logger = logging.getLogger(__name__)
 
 # Une extraction qui n'a pas fini au bout de ce delai est abandonnee plutot
 # que laissee "processing" indefiniment : un scrape ou un appel LLM qui
@@ -30,6 +33,39 @@ _EXTRACTED_FIELDS = {
     "servings", "prep_time", "cook_time", "ingredients", "steps", "tags",
     "category", "thumbnail_url", "similar_recipe_id",
 }
+
+
+class StepTracker:
+    """Journalise chaque étape d'une extraction avec sa durée.
+
+    Sans cela, une extraction qui dépassait le délai ne laissait aucune
+    trace de l'étape qui avait pris tout le temps (téléchargement,
+    transcription, OCR, LLM…).
+    """
+
+    def __init__(self, label: str):
+        self.label = label
+        self.started = time.monotonic()
+        self.step: str | None = None
+        self.step_started = self.started
+
+    def record(self, message: str) -> None:
+        now = time.monotonic()
+        if self.step:
+            logger.info("%s : « %s » en %.0fs", self.label, self.step, now - self.step_started)
+        self.step, self.step_started = message, now
+
+    def timeout_message(self, what: str = "Extraction", suffix: str = "abandonnée.") -> str:
+        stuck = f", bloquée à l'étape « {self.step.rstrip('…. ')} »" if self.step else ""
+        logger.warning(
+            "%s : délai dépassé après %.0fs, étape en cours « %s » depuis %.0fs",
+            self.label, time.monotonic() - self.started, self.step,
+            time.monotonic() - self.step_started,
+        )
+        return (
+            f"{what} trop longue (plus de {EXTRACTION_TIMEOUT_SECONDS // 60} minutes)"
+            f"{stuck} : {suffix}"
+        )
 
 
 def _apply_extracted_fields(recipe: Recipe, data: dict) -> None:
@@ -130,8 +166,10 @@ async def _run_extraction(recipe_id: UUID, input_text: str):
 
         recipe.status = ExtractionStatus.processing
         await db.commit()
+        steps = StepTracker(f"extraction {input_text.strip()[:80]}")
 
         async def report_progress(message: str) -> None:
+            steps.record(message)
             recipe.progress_message = message
             await db.commit()
 
@@ -140,6 +178,7 @@ async def _run_extraction(recipe_id: UUID, input_text: str):
                 extract(input_text, db=db, on_progress=report_progress, owner_id=recipe.owner_id),
                 timeout=EXTRACTION_TIMEOUT_SECONDS,
             )
+            steps.record("terminé")
             _apply_extracted_fields(recipe, data)
             recipe.status = ExtractionStatus.done
             recipe.error_msg = None
@@ -154,10 +193,7 @@ async def _run_extraction(recipe_id: UUID, input_text: str):
             # s'en resservir pour ecrire l'echec.
             await db.rollback()
             recipe.status = ExtractionStatus.failed
-            recipe.error_msg = (
-                f"Extraction trop longue (plus de {EXTRACTION_TIMEOUT_SECONDS // 60} "
-                "minutes) : abandonnée."
-            )
+            recipe.error_msg = steps.timeout_message()
             recipe.progress_message = None
             recipe.title = "Extraction échouée"
             await db.commit()

@@ -12,6 +12,11 @@ class Settings(BaseSettings):
     secret_key: str = "changeme"
     whisper_model: str = "large-v3"
     whisper_device: str = "cuda"
+    # Utilisé seulement si le GPU est indisponible : large-v3 sur CPU est
+    # trop lent pour tenir dans le délai d'extraction.
+    whisper_cpu_model: str = "small"
+    # Décharge le modèle Ollama du GPU avant une transcription Whisper.
+    whisper_free_gpu: bool = True
     media_dir: str = "/app/media"
     imagegen_base_url: str = "http://imagegen:8001"
     # Décharge le modèle Ollama du GPU avant chaque génération d'image : sans
