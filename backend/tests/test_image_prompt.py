@@ -96,3 +96,52 @@ def test_generation_falls_back_when_the_llm_is_down(monkeypatch):
     )
     asyncio.run(image_service.generate_recipe_image("Crêpes", None, "dessert", [{"name": "farine"}]))
     assert prompts[0].startswith("Crêpes, a dessert with farine, served on a plate")
+
+
+class _Recipe:
+    def __init__(self, thumbnail_url):
+        self.id = "r1"
+        self.thumbnail_url = thumbnail_url
+
+
+def _serve_image(monkeypatch, tmp_path, content_type="image/jpeg", status=200):
+    monkeypatch.setattr(image_service.settings, "media_dir", str(tmp_path))
+    real_client = httpx.AsyncClient
+
+    def handler(request):
+        return httpx.Response(status, content=b"JPEG", headers={"content-type": content_type})
+
+    monkeypatch.setattr(
+        image_service.httpx, "AsyncClient",
+        lambda **kw: real_client(transport=httpx.MockTransport(handler), **kw),
+    )
+
+
+def test_reextraction_keeps_a_user_image_unless_asked(monkeypatch, tmp_path):
+    _serve_image(monkeypatch, tmp_path)
+    old = image_service.save_thumbnail_bytes("r1", b"old", "png")
+    recipe = _Recipe(old)
+    asyncio.run(image_service.apply_source_image(recipe, "https://cdn.example/a.jpg", replace=False))
+    assert recipe.thumbnail_url == old
+
+    asyncio.run(image_service.apply_source_image(recipe, "https://cdn.example/a.jpg", replace=True))
+    assert recipe.thumbnail_url.startswith("/media/recipes/r1-") and recipe.thumbnail_url.endswith(".jpg")
+    assert (tmp_path / recipe.thumbnail_url.removeprefix("/media/")).read_bytes() == b"JPEG"
+    assert not (tmp_path / old.removeprefix("/media/")).exists()
+
+
+def test_reextraction_stores_expiring_source_images_locally(monkeypatch, tmp_path):
+    _serve_image(monkeypatch, tmp_path)
+    recipe = _Recipe("https://scontent.cdninstagram.com/old.jpg?oe=expired")
+    asyncio.run(image_service.apply_source_image(recipe, "https://scontent.cdninstagram.com/new.jpg", replace=False))
+    assert recipe.thumbnail_url.startswith("/media/recipes/")
+
+
+def test_reextraction_falls_back_to_the_link_when_download_fails(monkeypatch, tmp_path):
+    _serve_image(monkeypatch, tmp_path, content_type="text/html")
+    recipe = _Recipe(None)
+    asyncio.run(image_service.apply_source_image(recipe, "https://exemple.fr/img", replace=True))
+    assert recipe.thumbnail_url == "https://exemple.fr/img"
+
+    asyncio.run(image_service.apply_source_image(recipe, None, replace=True))
+    assert recipe.thumbnail_url == "https://exemple.fr/img"

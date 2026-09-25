@@ -68,7 +68,11 @@ export default function DetailRecette() {
   const favMut = useMutation({ mutationFn: () => toggleFavorite(id), onSuccess: (r) => qc.setQueryData(['recipe', id], r) })
   const setRecipe = (r) => { qc.setQueryData(['recipe', id], r); qc.invalidateQueries({ queryKey: ['recipes'] }) }
   const avisMut = useMutation({ mutationFn: (data) => patchRecipe(id, data), onSuccess: setRecipe })
-  const reextractMut = useMutation({ mutationFn: () => reextractRecipe(id), onSuccess: setRecipe })
+  const [reextraction, setReextraction] = useState(null) // null = panneau fermé, sinon { remplacerImage }
+  const reextractMut = useMutation({
+    mutationFn: (remplacerImage) => reextractRecipe(id, remplacerImage),
+    onSuccess: (r) => { setRecipe(r); setReextraction(null) },
+  })
   const shareMut = useMutation({ mutationFn: () => shareRecipe(id), onSuccess: setRecipe })
   const unshareMut = useMutation({ mutationFn: () => unshareRecipe(id), onSuccess: setRecipe })
   const nutritionMut = useMutation({ mutationFn: () => analyzeNutrition(id), onSuccess: (n) => qc.setQueryData(['recipe', id], prev => ({ ...prev, nutrition: n })) })
@@ -177,12 +181,40 @@ export default function DetailRecette() {
           <span className="ml-auto text-gray-300 group-hover:text-orange-400 flex-shrink-0">↗</span>
         </a>
         <button
-          onClick={() => { if (confirm('Relire la recette depuis sa source ? Titre, ingrédients et étapes seront remplacés ; vos notes, avis, historique et image importée sont conservés.')) reextractMut.mutate() }}
+          onClick={() => setReextraction(r => (r ? null : { remplacerImage: false }))}
           disabled={recipe.reextracting || reextractMut.isPending}
           title="Relancer l'extraction depuis la source, avec l'extraction améliorée"
-          className="px-3 py-2 text-sm bg-white border border-gray-200 rounded-xl hover:border-orange-300 disabled:opacity-50">
+          className={`px-3 py-2 text-sm border rounded-xl disabled:opacity-50 ${
+            reextraction ? 'bg-orange-50 border-orange-300' : 'bg-white border-gray-200 hover:border-orange-300'
+          }`}>
           🔄 Réextraire
         </button>
+        </div>
+      )}
+      {reextraction && !recipe.reextracting && (
+        <div className="mb-5 p-4 bg-white rounded-xl border border-orange-200 text-sm space-y-3">
+          <p className="text-gray-600">
+            Relire la recette depuis sa source : titre, ingrédients, étapes et temps seront remplacés.
+            Vos notes, avis et historique sont conservés.
+          </p>
+          <label className="flex items-start gap-2 cursor-pointer">
+            <input type="checkbox" checked={reextraction.remplacerImage}
+              onChange={e => setReextraction({ remplacerImage: e.target.checked })}
+              className="accent-orange-600 w-4 h-4 mt-0.5" />
+            <span>
+              Remplacer aussi l'image par celle de la source
+              {recipe.thumbnail_url?.startsWith('/media/') && (
+                <span className="block text-xs text-gray-400">Sinon, votre image importée ou générée est conservée.</span>
+              )}
+            </span>
+          </label>
+          <div className="flex gap-2">
+            <button onClick={() => reextractMut.mutate(reextraction.remplacerImage)} disabled={reextractMut.isPending}
+              className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 disabled:opacity-50">
+              {reextractMut.isPending ? 'Lancement…' : 'Réextraire'}
+            </button>
+            <button onClick={() => setReextraction(null)} className="px-4 py-2 bg-gray-100 rounded-lg hover:bg-gray-200">Annuler</button>
+          </div>
         </div>
       )}
 

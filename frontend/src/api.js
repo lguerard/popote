@@ -50,7 +50,8 @@ export const getCookHistory = (id) => api.get(`/recipes/${id}/history`).then(r =
 export const deleteCookLog = (id, logId) => api.delete(`/recipes/${id}/history/${logId}`).then(r => r.data)
 
 // Réextraction, partage
-export const reextractRecipe = (id) => api.post(`/recipes/${id}/reextract`).then(r => r.data)
+export const reextractRecipe = (id, replaceImage = false) =>
+  api.post(`/recipes/${id}/reextract`, null, { params: { replace_image: replaceImage } }).then(r => r.data)
 export const shareRecipe = (id) => api.post(`/recipes/${id}/share`).then(r => r.data)
 export const unshareRecipe = (id) => api.delete(`/recipes/${id}/share`).then(r => r.data)
 
