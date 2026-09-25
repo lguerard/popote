@@ -533,8 +533,9 @@ async def _run_reextraction(recipe_id: UUID):
             recipe.error_msg = None
         except TimeoutError:
             await db.rollback()
+            from ..services.llm_service import offload_hint
             recipe.error_msg = steps.timeout_message(
-                "Réextraction", "la recette n'a pas été modifiée."
+                "Réextraction", "la recette n'a pas été modifiée.", offload_hint(),
             )
         except Exception as e:
             await db.rollback()

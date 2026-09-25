@@ -97,7 +97,7 @@ SECRET_KEY=une-cle-secrete-aleatoire
 docker compose up -d --build
 ```
 
-> **Premier démarrage** : Ollama va télécharger le modèle `qwen2.5:14b` (~8 GB).
+> **Premier démarrage** : Ollama va télécharger le modèle `qwen2.5:7b` (~5 GB).
 > Surveiller avec : `docker compose logs -f ollama`
 
 ### 4.4 Vérifier
@@ -246,7 +246,7 @@ WHISPER_DEVICE=cpu
 ```bash
 docker compose logs ollama
 # Si le modèle n'est pas téléchargé :
-docker compose exec ollama ollama pull qwen2.5:14b
+docker compose exec ollama ollama pull qwen2.5:7b
 ```
 
 ### Extraction échoue sur une vidéo

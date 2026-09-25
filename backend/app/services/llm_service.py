@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import re
@@ -201,7 +202,69 @@ def _normalize_recipe_shape(data: dict) -> None:
     data["tags"] = recipe_parsing.normalize_tags(tags if isinstance(tags, list) else [])
 
 
+# Part du modèle Ollama tournant sur CPU faute de VRAM (None : inconnu).
+# Mesurée pendant les extractions, reprise dans le message d'échec.
+cpu_offload_ratio: float | None = None
+_OFFLOAD_CHECK_DELAY_SECONDS = 15
+
+
+def offload_ratio(ps: dict, model: str) -> float | None:
+    """Part du modèle hors GPU d'après /api/ps (0 = tout sur GPU)."""
+    for entry in ps.get("models") or []:
+        name = entry.get("name") or entry.get("model") or ""
+        if name == model or name.split(":latest")[0] == model:
+            size, vram = entry.get("size") or 0, entry.get("size_vram") or 0
+            return max(0.0, 1 - vram / size) if size else None
+    return None
+
+
+def offload_hint() -> str:
+    """Explication à ajouter à un échec par délai dépassé, si elle est connue."""
+    if not cpu_offload_ratio or cpu_offload_ratio < 0.02:
+        return ""
+    return (
+        f"Le modèle {settings.ollama_model} ne tient pas sur le GPU "
+        f"({cpu_offload_ratio:.0%} tourne sur le processeur) : prendre un modèle "
+        "plus petit (OLLAMA_MODEL=qwen2.5:7b) ou baisser OLLAMA_NUM_CTX."
+    )
+
+
+async def _check_offload() -> None:
+    """Mesure, une fois le modèle chargé, s'il déborde du GPU sur le CPU.
+
+    Un modèle trop gros pour la VRAM est chargé en partie sur le CPU sans
+    la moindre erreur : l'analyse passe de quelques secondes à plusieurs
+    minutes, et rien ne l'explique dans les logs.
+    """
+    global cpu_offload_ratio
+    await asyncio.sleep(_OFFLOAD_CHECK_DELAY_SECONDS)
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            ps = (await client.get(f"{settings.ollama_base_url}/api/ps")).json()
+    except Exception:
+        return
+    ratio = offload_ratio(ps, settings.ollama_model)
+    if ratio is None:
+        return
+    cpu_offload_ratio = ratio
+    if ratio >= 0.02:
+        logger.warning(
+            "Le modèle %s déborde du GPU : %.0f%% tourne sur le processeur, "
+            "l'analyse sera très lente. Prendre un modèle plus petit "
+            "(OLLAMA_MODEL=qwen2.5:7b) ou baisser OLLAMA_NUM_CTX (actuellement %d).",
+            settings.ollama_model, ratio * 100, settings.ollama_num_ctx,
+        )
+
+
 async def _extract_ollama(text: str) -> dict:
+    checker = asyncio.create_task(_check_offload())
+    try:
+        return await _chat_ollama(text)
+    finally:
+        checker.cancel()
+
+
+async def _chat_ollama(text: str) -> dict:
     global _schema_supported
     try:
         async with httpx.AsyncClient(timeout=_OLLAMA_TIMEOUT_SECONDS) as client:
@@ -222,8 +285,8 @@ async def _extract_ollama(text: str) -> dict:
         # échouée" sans la moindre raison affichée.
         raise RuntimeError(
             f"Le modèle Ollama {settings.ollama_model} n'a pas répondu en "
-            f"{_OLLAMA_TIMEOUT_SECONDS}s. Il est peut-être surchargé "
-            "(GPU partagé avec la génération d'image, machine occupée…)."
+            f"{_OLLAMA_TIMEOUT_SECONDS}s. "
+            + (offload_hint() or "Il est peut-être surchargé (machine occupée…).")
         )
 
 

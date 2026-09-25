@@ -105,7 +105,7 @@ Internet / LAN
      ▼
 [FastAPI :8000]
      ├── PostgreSQL :5432   (recettes, planning, succès)
-     ├── Ollama :11434      (LLM qwen2.5:14b, GPU)
+     ├── Ollama :11434      (LLM qwen2.5:7b, GPU)
      └── faster-whisper     (transcription, GPU CUDA)
 ```
 
@@ -117,7 +117,7 @@ Internet / LAN
 | Base de données | PostgreSQL 16, JSONB pour ingrédients/étapes/tags |
 | Transcription | faster-whisper `large-v3`, CUDA (RTX 3080) |
 | Scraping | yt-dlp (vidéos), Playwright (web) |
-| LLM | Ollama `qwen2.5:14b` + Claude `claude-sonnet-4-6` (fallback) |
+| LLM | Ollama `qwen2.5:7b` + Claude `claude-sonnet-4-6` (fallback) |
 | OCR | Claude Vision (si clé API), sinon Ollama llava → pytesseract |
 | Frontend web | React 18, Vite, Tailwind CSS, React Query |
 | App Android | Kotlin, Jetpack Compose, Material 3, Retrofit, Coil |
@@ -160,7 +160,7 @@ cp .env.example .env
 docker compose up -d
 ```
 
-Le premier démarrage télécharge `qwen2.5:14b` (~5 GB) — prévoir 10-15 min.
+Le premier démarrage télécharge `qwen2.5:7b` (~5 GB) — prévoir 10-15 min.
 
 ### 3. Accéder
 
@@ -178,7 +178,7 @@ voir [`DEPLOIEMENT.md`](DEPLOIEMENT.md).
 | Variable | Défaut | Description |
 |---|---|---|
 | `POSTGRES_PASSWORD` | `popote` | Mot de passe PostgreSQL |
-| `OLLAMA_MODEL` | `qwen2.5:14b` | Modèle LLM local |
+| `OLLAMA_MODEL` | `qwen2.5:7b` | Modèle LLM local |
 | `CLAUDE_API_KEY` | *(vide)* | Active Claude en priorité sur Ollama |
 | `WHISPER_MODEL` | `large-v3` | Modèle Whisper |
 | `WHISPER_DEVICE` | `cuda` | `cuda` ou `cpu` |

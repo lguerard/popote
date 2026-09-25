@@ -21,6 +21,15 @@ from .services.achievement_service import init_achievements
 from .services.web_scraper import close_browser
 
 
+# Sans configuration, Python n'affiche que les avertissements : toutes les
+# traces INFO du backend (durée de chaque étape d'extraction, source utilisée
+# pour une vidéo…) disparaissaient des logs Docker. Les loggers d'uvicorn
+# ont leurs propres handlers et ne sont pas dupliqués.
+logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+# Une ligne par requête HTTP sortante : du bruit.
+logging.getLogger("httpx").setLevel(logging.WARNING)
+
+
 # Valeurs historiques du depot et de docker-compose : elles ne doivent
 # jamais servir en production.
 _CLES_FAIBLES = {"changeme", "changeme-in-production", "secret", "popote"}

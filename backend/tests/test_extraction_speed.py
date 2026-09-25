@@ -66,3 +66,29 @@ def test_timeout_message_names_the_stuck_step():
         "« Transcription de l'audio de la vidéo » : la recette n'a pas été modifiée."
     )
     assert StepTracker("x").timeout_message() == "Extraction trop longue (plus de 5 minutes) : abandonnée."
+
+
+def test_offload_ratio_from_ollama_ps():
+    from app.services import llm_service
+
+    ps = {"models": [
+        {"name": "qwen2.5:14b", "size": 11_000_000_000, "size_vram": 8_800_000_000},
+        {"name": "llava:latest", "size": 5, "size_vram": 5},
+    ]}
+    assert round(llm_service.offload_ratio(ps, "qwen2.5:14b"), 2) == 0.2
+    assert llm_service.offload_ratio(ps, "llava") == 0
+    assert llm_service.offload_ratio(ps, "qwen2.5:7b") is None
+
+
+def test_timeout_message_explains_an_offloaded_model(monkeypatch):
+    from app.services import llm_service
+
+    monkeypatch.setattr(llm_service, "cpu_offload_ratio", 0.2)
+    hint = llm_service.offload_hint()
+    assert "20% tourne sur le processeur" in hint and "qwen2.5:7b" in hint
+    steps = StepTracker("x")
+    steps.record("Analyse de la recette par l'IA…")
+    assert steps.timeout_message(hint=hint).endswith(hint)
+
+    monkeypatch.setattr(llm_service, "cpu_offload_ratio", 0.0)
+    assert llm_service.offload_hint() == ""
