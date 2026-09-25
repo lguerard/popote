@@ -276,3 +276,102 @@ async def ensure_model_available():
             "les extractions échoueront tant qu'il n'est pas disponible",
             settings.ollama_model,
         )
+
+
+# ---------------------------------------------------------------------------
+# Description visuelle du plat, pour la génération d'image
+# ---------------------------------------------------------------------------
+
+IMAGE_DESCRIPTION_PROMPT = """You write prompts for a text-to-image model that makes food photos.
+From the recipe below (often written in French), describe in English what the FINISHED dish looks like when it is served: the food itself, its colors and textures, what it is served in (plate, bowl, glass, jar, pan…), and one or two visible garnishes.
+Rules: only mention what is visible in the finished dish (no raw ingredients that were cooked or blended away), no people, no text, no brands. One sentence, at most 35 words. Reply with the sentence only."""
+
+_IMAGE_DESCRIPTION_TIMEOUT_SECONDS = 90
+
+
+def image_description_input(
+    title: str, description: str | None, category: str | None,
+    ingredients: list | None, steps: list | None,
+) -> str:
+    """Ce que le LLM voit de la recette : les dernières étapes disent souvent
+    comment le plat est dressé (verrines, parsemer de…)."""
+    names = [
+        str(i.get("name")).strip() for i in (ingredients or [])
+        if isinstance(i, dict) and i.get("name")
+    ][:15]
+    texts = [
+        str(s.get("text") if isinstance(s, dict) else s).strip() for s in (steps or [])
+    ]
+    parts = [f"Titre : {title}"]
+    if category:
+        parts.append(f"Catégorie : {category}")
+    if description:
+        parts.append(f"Description : {description[:300]}")
+    if names:
+        parts.append("Ingrédients : " + ", ".join(names))
+    if texts:
+        parts.append("Dernières étapes : " + " ".join(texts[-3:])[:600])
+    return "\n".join(parts)
+
+
+def clean_image_description(text: str) -> str:
+    """Une seule phrase anglaise, sans guillemets ni préambule, bornée en longueur."""
+    text = " ".join((text or "").split())
+    text = re.sub(r"^(?:here is|prompt|description)\b[^:]*:\s*", "", text, flags=re.I)
+    text = text.strip(" \"'“”`*")
+    words = text.split()
+    if len(words) > 45:
+        text = " ".join(words[:45])
+    return text.rstrip(" ,;")
+
+
+async def describe_dish_for_image(
+    title: str, description: str | None, category: str | None,
+    ingredients: list | None, steps: list | None,
+) -> str:
+    """Courte description anglaise de l'apparence du plat servi.
+
+    Les modèles d'image comprennent mal le français et ne lisent que 77
+    tokens : un titre français suivi d'une liste d'ingrédients bruts
+    remplissait tout, et le plat généré ne ressemblait pas à la recette.
+    """
+    recipe = image_description_input(title, description, category, ingredients, steps)
+    if settings.use_claude:
+        import anthropic
+        client = anthropic.AsyncAnthropic(api_key=settings.claude_api_key)
+        message = await client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=200,
+            system=IMAGE_DESCRIPTION_PROMPT,
+            messages=[{"role": "user", "content": recipe}],
+        )
+        return clean_image_description(message.content[0].text)
+    async with httpx.AsyncClient(timeout=_IMAGE_DESCRIPTION_TIMEOUT_SECONDS) as client:
+        resp = await client.post(f"{settings.ollama_base_url}/api/chat", json={
+            "model": settings.ollama_model,
+            "stream": False,
+            "messages": [
+                {"role": "system", "content": IMAGE_DESCRIPTION_PROMPT},
+                {"role": "user", "content": recipe},
+            ],
+            "options": {"temperature": 0.2, "num_predict": 120},
+        })
+        resp.raise_for_status()
+        return clean_image_description(resp.json()["message"]["content"])
+
+
+async def unload_ollama_model() -> None:
+    """Libère la VRAM occupée par le modèle Ollama (rechargé à la demande).
+
+    Le modèle de texte occupe presque tout le GPU (OLLAMA_KEEP_ALIVE=24h) :
+    sans cela, le générateur d'image retombait sur le CPU, lent, et devait
+    se contenter d'un petit modèle. La prochaine extraction le recharge en
+    quelques secondes.
+    """
+    if settings.use_claude:
+        return
+    async with httpx.AsyncClient(timeout=30) as client:
+        await client.post(
+            f"{settings.ollama_base_url}/api/generate",
+            json={"model": settings.ollama_model, "keep_alive": 0},
+        )

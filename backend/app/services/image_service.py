@@ -7,12 +7,15 @@ jamais entrer en conflit avec les roues CUDA épinglées pour Whisper dans
 CE conteneur.
 """
 
+import logging
 import uuid
 from pathlib import Path
 
 import httpx
 
 from ..config import settings
+
+logger = logging.getLogger(__name__)
 
 THUMBNAIL_SUBDIR = "recipes"
 
@@ -61,54 +64,70 @@ _CATEGORY_EN = {
     "soupe": "soup",
 }
 
+# Placé APRÈS la description du plat : le modèle ne lit que 77 tokens, ce
+# qui dépasse est ignoré. Le sujet d'abord, le style ensuite.
+_STYLE = (
+    "professional food photography, appetizing, natural window light, "
+    "shallow depth of field, sharp focus, high detail"
+)
 
-def _build_prompt(
-    title: str, description: str | None, category: str | None, ingredients: list[dict] | None
+NEGATIVE_PROMPT = (
+    "text, watermark, logo, hands, people, blurry, low quality, deformed, "
+    "cartoon, drawing, illustration, oversaturated"
+)
+
+
+def build_prompt(
+    visual: str | None, title: str, category: str | None, ingredients: list[dict] | None,
 ) -> str:
-    """Construit un prompt ancré dans le contenu réel de la recette.
+    """Prompt final : description visuelle (LLM) + style photo.
 
-    Se limiter au titre (et a la categorie) laissait le modele deviner a
-    quoi ressemble le plat a partir du seul nom, souvent en francais : le
-    resultat etait generique et ne reflétait ni les ingredients ni la
-    preparation. Lister les ingredients reels donne des indices concrets
-    (couleur, texture, composants visibles) que le titre seul ne donne pas.
+    Sans description (LLM indisponible), repli sur un gabarit court : un
+    prompt long en français était tronqué par le modèle avant même
+    d'atteindre les consignes de style.
     """
-    category_en = _CATEGORY_EN.get((category or "").lower(), category)
-
-    names = []
-    for ing in (ingredients or [])[:6]:
-        name = ing.get("name") if isinstance(ing, dict) else None
-        if name:
-            names.append(name)
-
-    parts = [f"Professional food photography of {title}"]
-    if category_en:
-        parts.append(f"a {category_en}")
+    if visual:
+        return f"{visual.rstrip('.')}. {_STYLE}"
+    category_en = _CATEGORY_EN.get((category or "").lower(), "dish")
+    names = [
+        ing["name"] for ing in (ingredients or [])[:4]
+        if isinstance(ing, dict) and ing.get("name")
+    ]
+    subject = f"{title}, a {category_en}"
     if names:
-        parts.append("made with " + ", ".join(names))
-    if description:
-        parts.append(description)
-    parts.append(
-        "served on a plate, appetizing, natural light, on a wooden table, "
-        "shallow depth of field, high quality, detailed, realistic, 4k"
-    )
-    return ", ".join(parts)
+        subject += " with " + ", ".join(names)
+    return f"{subject}, served on a plate, {_STYLE}"
 
 
 async def generate_recipe_image(
-    title: str, description: str | None, category: str | None, ingredients: list[dict] | None = None
+    title: str, description: str | None, category: str | None,
+    ingredients: list[dict] | None = None, steps: list | None = None,
 ) -> bytes:
     """Demande une image au service imagegen. Lève sur échec (délai géré par l'appelant)."""
-    prompt = _build_prompt(title, description, category, ingredients)
+    from . import llm_service
+
+    visual = None
+    try:
+        visual = await llm_service.describe_dish_for_image(
+            title, description, category, ingredients, steps,
+        )
+    except Exception:
+        logger.warning("Description visuelle du plat indisponible, prompt de secours", exc_info=True)
+    prompt = build_prompt(visual, title, category, ingredients)
+    logger.info("Génération d'image pour « %s » : %s", title, prompt)
+
+    if settings.image_gen_free_gpu:
+        try:
+            await llm_service.unload_ollama_model()
+        except Exception:
+            logger.warning("Impossible de libérer le GPU d'Ollama", exc_info=True)
+
     # Aligné sur _THUMBNAIL_GENERATION_TIMEOUT_SECONDS côté appelant (recipes.py) :
-    # laisser le temps au premier appel de télécharger le modèle (~2 Go).
+    # laisser le temps au premier appel de télécharger le modèle.
     async with httpx.AsyncClient(timeout=600) as client:
         resp = await client.post(
             f"{settings.imagegen_base_url}/generate",
-            json={
-                "prompt": prompt,
-                "negative_prompt": "text, watermark, logo, blurry, low quality, cartoon, drawing",
-            },
+            json={"prompt": prompt, "negative_prompt": NEGATIVE_PROMPT},
         )
         resp.raise_for_status()
         return resp.content
