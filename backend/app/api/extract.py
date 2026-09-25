@@ -137,7 +137,7 @@ async def _run_extraction(recipe_id: UUID, input_text: str):
 
         try:
             data = await asyncio.wait_for(
-                extract(input_text, db=db, on_progress=report_progress),
+                extract(input_text, db=db, on_progress=report_progress, owner_id=recipe.owner_id),
                 timeout=EXTRACTION_TIMEOUT_SECONDS,
             )
             _apply_extracted_fields(recipe, data)
