@@ -1,6 +1,10 @@
 package com.popote.ui.viewmodels
 
 import android.app.Application
+import android.net.Uri
+import com.popote.data.ExtractionResponse
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.popote.data.RecipeRepository
@@ -23,11 +27,23 @@ class AddRecipeViewModel(app: Application) : AndroidViewModel(app) {
     private val _state = MutableStateFlow<AddState>(AddState.Idle)
     val state: StateFlow<AddState> = _state.asStateFlow()
 
-    fun submit(input: String) {
+    fun submit(input: String) = startExtraction { repo.extract(input.trim()) }
+
+    /** Photo choisie dans la galerie ou prise à l'instant. */
+    fun submitImage(uri: Uri) = startExtraction {
+        val resolver = getApplication<Application>().contentResolver
+        val mime = resolver.getType(uri) ?: "image/jpeg"
+        val bytes = withContext(Dispatchers.IO) {
+            resolver.openInputStream(uri)?.use { it.readBytes() }
+        } ?: throw Exception("Impossible de lire la photo")
+        repo.extractImage(bytes, mime)
+    }
+
+    private fun startExtraction(start: suspend () -> ExtractionResponse) {
         viewModelScope.launch {
             _state.value = AddState.Submitting
             try {
-                val response = repo.extract(input.trim())
+                val response = start()
                 _state.value = AddState.Polling(response.recipe_id, "En attente…")
                 val recipe = repo.pollTask(response.recipe_id) { status, progress ->
                     val label = when (status) {
@@ -39,7 +55,7 @@ class AddRecipeViewModel(app: Application) : AndroidViewModel(app) {
                 }
                 _state.value = AddState.Success(recipe.id)
             } catch (e: Exception) {
-                _state.value = AddState.Error(e.message ?: "Erreur inconnue")
+                _state.value = AddState.Error(repo.describe(e))
             }
         }
     }

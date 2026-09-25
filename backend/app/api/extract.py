@@ -139,8 +139,13 @@ async def _run_extraction(recipe_id: UUID, input_text: str):
                 extract(input_text, db=db, on_progress=report_progress, owner_id=recipe.owner_id),
                 timeout=EXTRACTION_TIMEOUT_SECONDS,
             )
-            steps.record("terminé")
             _apply_extracted_fields(recipe, data)
+            # Image de la source stockée ici : les liens Instagram/TikTok
+            # expirent au bout de quelques jours (image cassée ensuite).
+            from ..services import image_service
+            await report_progress("Enregistrement de l'image…")
+            await image_service.apply_source_image(recipe, data.get("thumbnail_url"), replace=False)
+            steps.record("terminé")
             recipe.status = ExtractionStatus.done
             recipe.error_msg = None
             recipe.progress_message = None

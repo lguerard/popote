@@ -1,5 +1,7 @@
 package com.popote.ui.screens
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -26,6 +28,9 @@ fun AddRecipeScreen(
 ) {
     var input by remember { mutableStateOf("") }
     val state by vm.state.collectAsState()
+    val pickPhoto = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) vm.submitImage(uri)
+    }
 
     // Partage reçu d'une autre appli : import lancé directement, sans
     // repasser par le bouton. Le serveur retrouve l'URL même au milieu
@@ -94,6 +99,13 @@ fun AddRecipeScreen(
                         enabled = input.isNotBlank(),
                     ) {
                         Text("Extraire la recette", style = MaterialTheme.typography.titleMedium)
+                    }
+
+                    OutlinedButton(
+                        onClick = { pickPhoto.launch("image/*") },
+                        modifier = Modifier.fillMaxWidth().height(52.dp),
+                    ) {
+                        Text("📷  Depuis une photo (livre, fiche manuscrite…)")
                     }
 
                     // Sources hint

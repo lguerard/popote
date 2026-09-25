@@ -1,11 +1,12 @@
 package com.popote.ui.screens
 
-import android.app.Application
 import android.content.Intent
 import android.net.Uri
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -23,17 +24,22 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.AndroidViewModel
-import androidx.lifecycle.viewModelScope
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
+import com.popote.data.CookLog
 import com.popote.data.Nutrition
 import com.popote.data.Recipe
-import com.popote.data.RecipeRepository
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.launch
+import com.popote.data.RecipeCollection
+import com.popote.ui.components.LocalServerUrl
+import com.popote.ui.components.Stars
+import com.popote.ui.components.formatIsoDate
+import com.popote.ui.components.formatSeconds
+import com.popote.ui.components.imageUrl
+import com.popote.ui.components.parseStepSeconds
+import com.popote.ui.components.shareText
+import com.popote.ui.viewmodels.RecipeDetailViewModel
+import java.time.LocalDate
 import kotlin.math.abs
 import kotlin.math.floor
 import kotlin.math.roundToInt
@@ -68,76 +74,6 @@ private fun scaleQty(qty: String?, scale: Double): String? {
     return formatQty(n * scale)
 }
 
-// ── ViewModel ─────────────────────────────────────────────────────────────────
-
-class RecipeDetailViewModel(app: Application) : AndroidViewModel(app) {
-    private val repo = RecipeRepository(app)
-    private val _recipe = MutableStateFlow<Recipe?>(null)
-    val recipe: StateFlow<Recipe?> = _recipe.asStateFlow()
-    private val _error = MutableStateFlow<String?>(null)
-    val error: StateFlow<String?> = _error.asStateFlow()
-    private val _nutritionLoading = MutableStateFlow(false)
-    val nutritionLoading: StateFlow<Boolean> = _nutritionLoading.asStateFlow()
-    private val _notesDraft = MutableStateFlow<String?>(null)
-    val notesDraft: StateFlow<String?> = _notesDraft.asStateFlow()
-    private val _notesSaving = MutableStateFlow(false)
-    val notesSaving: StateFlow<Boolean> = _notesSaving.asStateFlow()
-
-    fun load(id: String) {
-        viewModelScope.launch {
-            try {
-                val r = repo.getRecipe(id)
-                _recipe.value = r
-                _notesDraft.value = r.notes ?: ""
-            } catch (_: Exception) { _error.value = "Impossible de charger la recette" }
-        }
-    }
-
-    fun delete(id: String, onDone: () -> Unit) {
-        viewModelScope.launch {
-            try { repo.deleteRecipe(id); onDone() }
-            catch (_: Exception) { _error.value = "Erreur lors de la suppression" }
-        }
-    }
-
-    fun toggleFavorite() {
-        val id = _recipe.value?.id ?: return
-        viewModelScope.launch {
-            try { _recipe.value = repo.toggleFavorite(id) }
-            catch (_: Exception) {}
-        }
-    }
-
-    fun analyzeNutrition() {
-        val id = _recipe.value?.id ?: return
-        viewModelScope.launch {
-            _nutritionLoading.value = true
-            try {
-                val n = repo.analyzeNutrition(id)
-                _recipe.value = _recipe.value?.copy(nutrition = n)
-            } catch (_: Exception) { _error.value = "Analyse nutritionnelle échouée" }
-            finally { _nutritionLoading.value = false }
-        }
-    }
-
-    fun clearError() { _error.value = null }
-
-    fun setNotesDraft(s: String) { _notesDraft.value = s }
-
-    fun saveNotes() {
-        val id = _recipe.value?.id ?: return
-        val notes = _notesDraft.value ?: return
-        viewModelScope.launch {
-            _notesSaving.value = true
-            try {
-                repo.updateNotes(id, notes)
-                _recipe.value = _recipe.value?.copy(notes = notes)
-            } catch (_: Exception) { _error.value = "Erreur sauvegarde notes" }
-            finally { _notesSaving.value = false }
-        }
-    }
-}
-
 // ── Screen ────────────────────────────────────────────────────────────────────
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -152,12 +88,18 @@ fun RecipeDetailScreen(
     val nutritionLoading by vm.nutritionLoading.collectAsState()
     val notesDraft by vm.notesDraft.collectAsState()
     val notesSaving by vm.notesSaving.collectAsState()
+    val history by vm.history.collectAsState()
+    val collections by vm.collections.collectAsState()
     var showDeleteDialog by remember { mutableStateOf(false) }
+    var showCookedDialog by remember { mutableStateOf(false) }
+    var showReextractDialog by remember { mutableStateOf(false) }
+    var showCollections by remember { mutableStateOf(false) }
+    var menuOpen by remember { mutableStateOf(false) }
     var cookingMode by remember { mutableStateOf(false) }
 
     val context = LocalContext.current
 
-    // Wake lock during cooking mode
+    // Écran toujours allumé en mode cuisine
     DisposableEffect(cookingMode) {
         val window = (context as? ComponentActivity)?.window
         if (cookingMode) window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -167,7 +109,14 @@ fun RecipeDetailScreen(
     LaunchedEffect(recipeId) { vm.load(recipeId) }
 
     if (cookingMode && recipe != null) {
-        CookingModeOverlay(recipe = recipe!!, onExit = { cookingMode = false })
+        CookingModeOverlay(
+            recipe = recipe!!,
+            onExit = { cookingMode = false },
+            onCooked = { rating ->
+                vm.markCooked(LocalDate.now(), rating, null)
+                cookingMode = false
+            },
+        )
         return
     }
 
@@ -186,6 +135,36 @@ fun RecipeDetailScreen(
         )
     }
 
+    if (showCookedDialog) {
+        CookedDialog(
+            onDismiss = { showCookedDialog = false },
+            onConfirm = { date, rating, comment ->
+                vm.markCooked(date, rating, comment)
+                showCookedDialog = false
+            },
+        )
+    }
+
+    if (showReextractDialog && recipe != null) {
+        ReextractDialog(
+            hasLocalImage = recipe!!.thumbnail_url?.startsWith("/media/") == true,
+            onDismiss = { showReextractDialog = false },
+            onConfirm = { replaceImage ->
+                vm.reextract(replaceImage)
+                showReextractDialog = false
+            },
+        )
+    }
+
+    if (showCollections) {
+        CollectionsSheet(
+            collections = collections,
+            onToggle = vm::toggleCollection,
+            onCreate = vm::createCollection,
+            onDismiss = { showCollections = false },
+        )
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -194,16 +173,47 @@ fun RecipeDetailScreen(
                     IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Retour") }
                 },
                 actions = {
-                    if (recipe != null) {
+                    val r = recipe
+                    if (r != null) {
                         IconButton(onClick = vm::toggleFavorite) {
                             Icon(
-                                if (recipe!!.is_favorite) Icons.Default.Favorite else Icons.Outlined.FavoriteBorder,
+                                if (r.is_favorite) Icons.Default.Favorite else Icons.Outlined.FavoriteBorder,
                                 "Favori",
-                                tint = if (recipe!!.is_favorite) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                                tint = if (r.is_favorite) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
-                        IconButton(onClick = { showDeleteDialog = true }) {
-                            Icon(Icons.Default.Delete, "Supprimer", tint = MaterialTheme.colorScheme.error)
+                        IconButton(onClick = {
+                            vm.shareLink { link -> shareText(context, "${r.title}\n$link", "Partager la recette") }
+                        }) { Icon(Icons.Default.Share, "Partager") }
+                        Box {
+                            IconButton(onClick = { menuOpen = true }) { Icon(Icons.Default.MoreVert, "Plus") }
+                            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                                DropdownMenuItem(
+                                    text = { Text("Ajouter à un carnet") },
+                                    leadingIcon = { Icon(Icons.Default.CollectionsBookmark, null) },
+                                    onClick = { menuOpen = false; vm.loadCollections(); showCollections = true },
+                                )
+                                if (r.source_url != null) {
+                                    DropdownMenuItem(
+                                        text = { Text("Réextraire depuis la source") },
+                                        leadingIcon = { Icon(Icons.Default.Refresh, null) },
+                                        enabled = !r.reextracting,
+                                        onClick = { menuOpen = false; showReextractDialog = true },
+                                    )
+                                }
+                                if (r.share_token != null) {
+                                    DropdownMenuItem(
+                                        text = { Text("Désactiver le lien de partage") },
+                                        leadingIcon = { Icon(Icons.Default.LinkOff, null) },
+                                        onClick = { menuOpen = false; vm.revokeLink() },
+                                    )
+                                }
+                                DropdownMenuItem(
+                                    text = { Text("Supprimer", color = MaterialTheme.colorScheme.error) },
+                                    leadingIcon = { Icon(Icons.Default.Delete, null, tint = MaterialTheme.colorScheme.error) },
+                                    onClick = { menuOpen = false; showDeleteDialog = true },
+                                )
+                            }
                         }
                     }
                 },
@@ -214,7 +224,7 @@ fun RecipeDetailScreen(
             recipe == null && error != null -> Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(error!!, color = MaterialTheme.colorScheme.error)
-                    Button(onClick = { vm.load(recipeId) }) { Text("Réessayer") }
+                    Button(onClick = { vm.clearError(); vm.load(recipeId) }) { Text("Réessayer") }
                 }
             }
             recipe == null -> Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
@@ -232,55 +242,100 @@ fun RecipeDetailScreen(
                 notesSaving = notesSaving,
                 onSaveNotes = vm::saveNotes,
                 onStartCooking = { cookingMode = true },
+                history = history,
+                onRate = vm::setRating,
+                onToggleCookAgain = vm::toggleCookAgain,
+                onCooked = { showCookedDialog = true },
+                onDeleteLog = vm::deleteCookLog,
             )
         }
     }
 }
 
-// ── Full-screen cooking mode ───────────────────────────────────────────────────
+// ── Dialogues ─────────────────────────────────────────────────────────────────
 
 @Composable
-private fun CookingModeOverlay(recipe: Recipe, onExit: () -> Unit) {
-    var stepIdx by remember { mutableIntStateOf(0) }
-    val steps = recipe.steps
-    val progress = if (steps.isEmpty()) 1f else (stepIdx + 1).toFloat() / steps.size
-
-    Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-        Column(Modifier.fillMaxSize().padding(24.dp)) {
-            // Header
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onExit) { Icon(Icons.Default.Close, "Quitter") }
-                Text(recipe.title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text("${stepIdx + 1}/${steps.size}", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+private fun CookedDialog(onDismiss: () -> Unit, onConfirm: (LocalDate, Int?, String?) -> Unit) {
+    var daysAgo by remember { mutableIntStateOf(0) }
+    var rating by remember { mutableStateOf<Int?>(null) }
+    var comment by remember { mutableStateOf("") }
+    val date = LocalDate.now().minusDays(daysAgo.toLong())
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Je l'ai cuisinée") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf(0 to "Aujourd'hui", 1 to "Hier", 2 to "Avant-hier").forEach { (d, label) ->
+                        FilterChip(selected = daysAgo == d, onClick = { daysAgo = d }, label = { Text(label) })
+                    }
+                }
+                Stars(rating, onChange = { rating = it })
+                OutlinedTextField(
+                    value = comment, onValueChange = { comment = it },
+                    placeholder = { Text("Un mot ? (trop salé, doubler la sauce…)") },
+                    modifier = Modifier.fillMaxWidth(),
+                )
             }
-            LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp))
+        },
+        confirmButton = { Button(onClick = { onConfirm(date, rating, comment) }) { Text("Enregistrer") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Annuler") } },
+    )
+}
 
-            // Step content
-            if (steps.isNotEmpty()) {
-                val step = steps[stepIdx]
-                Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
-                    Column(verticalArrangement = Arrangement.spacedBy(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                        Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.primary) {
-                            Text("Étape ${step.order}", Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                                style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onPrimary)
-                        }
-                        Text(step.text, style = MaterialTheme.typography.headlineSmall, modifier = Modifier.fillMaxWidth())
+@Composable
+private fun ReextractDialog(hasLocalImage: Boolean, onDismiss: () -> Unit, onConfirm: (Boolean) -> Unit) {
+    var replaceImage by remember { mutableStateOf(false) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Réextraire la recette ?") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Titre, ingrédients, étapes et temps seront relus depuis la source. Vos notes, avis et historique sont conservés.")
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(checked = replaceImage, onCheckedChange = { replaceImage = it })
+                    Column {
+                        Text("Remplacer aussi l'image par celle de la source")
+                        if (hasLocalImage) Text("Sinon, votre image est conservée.",
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }
+        },
+        confirmButton = { Button(onClick = { onConfirm(replaceImage) }) { Text("Réextraire") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Annuler") } },
+    )
+}
 
-            // Navigation
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                FilledTonalButton(onClick = { if (stepIdx > 0) stepIdx-- }, enabled = stepIdx > 0) { Text("← Précédent") }
-                if (stepIdx < steps.size - 1) {
-                    Button(onClick = { stepIdx++ }) { Text("Suivant →") }
-                } else {
-                    Button(onClick = onExit, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.tertiary)) {
-                        Icon(Icons.Default.Check, null, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text("Terminé !")
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun CollectionsSheet(
+    collections: List<RecipeCollection>?,
+    onToggle: (RecipeCollection) -> Unit,
+    onCreate: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var name by remember { mutableStateOf("") }
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(Modifier.padding(horizontal = 20.dp).padding(bottom = 32.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("📚 Carnets", style = MaterialTheme.typography.titleLarge)
+            when {
+                collections == null -> CircularProgressIndicator(Modifier.padding(16.dp))
+                collections.isEmpty() -> Text("Aucun carnet : créez le premier ci-dessous.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                else -> collections.forEach { c ->
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                        Checkbox(checked = c.contains_recipe == true, onCheckedChange = { onToggle(c) })
+                        Text("${c.emoji ?: "📒"} ${c.name}", Modifier.weight(1f))
+                        Text("${c.recipe_count}", style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
+            }
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(value = name, onValueChange = { name = it }, singleLine = true,
+                    placeholder = { Text("Nouveau carnet…") }, modifier = Modifier.weight(1f))
+                FilledTonalButton(onClick = { onCreate(name); name = "" }, enabled = name.isNotBlank()) { Text("Créer") }
             }
         }
     }
@@ -301,14 +356,19 @@ private fun RecipeContent(
     notesSaving: Boolean,
     onSaveNotes: () -> Unit,
     onStartCooking: () -> Unit,
+    history: List<CookLog>,
+    onRate: (Int) -> Unit,
+    onToggleCookAgain: () -> Unit,
+    onCooked: () -> Unit,
+    onDeleteLog: (String) -> Unit,
 ) {
     val context = LocalContext.current
+    val server = LocalServerUrl.current
     var scale by remember { mutableDoubleStateOf(1.0) }
     val scaledServings = recipe.servings?.let { (it * scale).roundToInt() }
 
     LazyColumn(modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 32.dp)) {
 
-        // Action error banner (e.g. failed save/analyze/delete) — doesn't hide the recipe
         if (actionError != null) {
             item {
                 Card(
@@ -323,7 +383,27 @@ private fun RecipeContent(
             }
         }
 
-        // Duplicate warning
+        // Réextraction en cours / échouée
+        if (recipe.reextracting) {
+            item {
+                Card(Modifier.fillMaxWidth().padding(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
+                    Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                        Text(recipe.progress_message ?: "Réextraction en cours…", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            }
+        } else if (!recipe.error_msg.isNullOrBlank()) {
+            item {
+                Card(Modifier.fillMaxWidth().padding(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
+                    Text(recipe.error_msg, Modifier.padding(12.dp), style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onErrorContainer)
+                }
+            }
+        }
+
         if (recipe.similar_recipe_id != null) {
             item {
                 Card(
@@ -338,11 +418,11 @@ private fun RecipeContent(
             }
         }
 
-        // Thumbnail
-        if (recipe.thumbnail_url != null) {
+        val image = imageUrl(recipe.thumbnail_url, server)
+        if (image != null) {
             item {
                 AsyncImage(
-                    model = recipe.thumbnail_url,
+                    model = image,
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f),
@@ -350,22 +430,48 @@ private fun RecipeContent(
             }
         }
 
-        // Mode Cuisine button
-        if (recipe.steps.isNotEmpty()) {
-            item {
-                Button(
-                    onClick = onStartCooking,
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.tertiary),
-                ) {
-                    Icon(Icons.Default.Restaurant, null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text("Mode Cuisine")
+        // Avis : étoiles, « à refaire », historique résumé
+        item {
+            Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Stars(recipe.rating, onChange = onRate)
+                    FilterChip(
+                        selected = recipe.cook_again == true,
+                        onClick = onToggleCookAgain,
+                        label = { Text(if (recipe.cook_again == true) "🔁 À refaire !" else "🔁 À refaire ?") },
+                    )
+                }
+                Text(
+                    if (recipe.cooked_count > 0)
+                        "Cuisinée ${recipe.cooked_count} fois · dernière le ${formatIsoDate(recipe.last_cooked_at)}"
+                    else "Jamais cuisinée",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+
+        // Cuisiner / Je l'ai cuisinée
+        item {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (recipe.steps.isNotEmpty()) {
+                    Button(
+                        onClick = onStartCooking,
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.tertiary),
+                    ) {
+                        Icon(Icons.Default.Restaurant, null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("Mode cuisine")
+                    }
+                }
+                OutlinedButton(onClick = onCooked, modifier = Modifier.weight(1f)) {
+                    Icon(Icons.Default.Check, null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Je l'ai cuisinée")
                 }
             }
         }
 
-        // Source link
         if (recipe.source_url != null) {
             item {
                 val sourceIcon = when (recipe.source_type) { "video" -> "🎬"; "web" -> "🌐"; else -> "🔗" }
@@ -386,7 +492,6 @@ private fun RecipeContent(
             }
         }
 
-        // Description
         if (recipe.description != null) {
             item {
                 Text(recipe.description, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -394,7 +499,6 @@ private fun RecipeContent(
             }
         }
 
-        // Meta
         item {
             Row(Modifier.padding(horizontal = 16.dp, vertical = 4.dp).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (recipe.prep_time != null) MetaChip("🥄 Prép.", "${recipe.prep_time} min")
@@ -403,9 +507,9 @@ private fun RecipeContent(
             }
         }
 
-        // Category + tags
         item {
-            Row(Modifier.padding(horizontal = 16.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(Modifier.padding(horizontal = 16.dp, vertical = 4.dp).horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 if (recipe.category != null) {
                     Surface(shape = MaterialTheme.shapes.small, color = MaterialTheme.colorScheme.primaryContainer) {
                         Text(recipe.category, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onPrimaryContainer,
@@ -421,13 +525,11 @@ private fun RecipeContent(
             }
         }
 
-        // Nutrition
         item {
             SectionTitle("Nutrition")
             NutritionSection(recipe.nutrition, nutritionLoading, onAnalyzeNutrition)
         }
 
-        // Ingrédients
         if (recipe.ingredients.isNotEmpty()) {
             item {
                 Row(Modifier.padding(start = 16.dp, end = 16.dp, top = 24.dp, bottom = 4.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -455,7 +557,6 @@ private fun RecipeContent(
             }
         }
 
-        // Étapes
         if (recipe.steps.isNotEmpty()) {
             item { SectionTitle("Préparation") }
             itemsIndexed(recipe.steps) { idx, step ->
@@ -463,12 +564,38 @@ private fun RecipeContent(
                     Surface(shape = MaterialTheme.shapes.small, color = MaterialTheme.colorScheme.primary) {
                         Text("${idx + 1}", Modifier.padding(horizontal = 10.dp, vertical = 4.dp), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.Bold)
                     }
-                    Text(step.text, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+                    Column(Modifier.weight(1f)) {
+                        Text(step.text, style = MaterialTheme.typography.bodyLarge)
+                        parseStepSeconds(step.text)?.let { sec ->
+                            Text("⏱ ${formatSeconds(sec)}", style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary)
+                        }
+                    }
                 }
             }
         }
 
-        // Notes
+        // Historique
+        item {
+            SectionTitle("Historique")
+            if (history.isEmpty()) {
+                Text("Pas encore cuisinée.", style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 16.dp))
+            }
+        }
+        items(history, key = { it.id }) { log ->
+            ListItem(
+                headlineContent = { Text(formatIsoDate(log.cooked_on)) },
+                supportingContent = log.comment?.let { { Text(it) } },
+                leadingContent = { if (log.rating != null) Stars(log.rating, size = 14.sp) },
+                trailingContent = {
+                    IconButton(onClick = { onDeleteLog(log.id) }) {
+                        Icon(Icons.Default.Close, "Supprimer", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                },
+            )
+        }
+
         item {
             SectionTitle("Notes personnelles")
             OutlinedTextField(

@@ -7,8 +7,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -18,6 +19,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.popote.data.GenerateShoppingRequest
 import com.popote.data.MealPlan
 import com.popote.data.MealPlanCreate
 import com.popote.data.Recipe
@@ -90,6 +92,25 @@ class MealPlannerViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    private val _message = MutableStateFlow<String?>(null)
+    val message: StateFlow<String?> = _message.asStateFlow()
+
+    /** Tous les ingrédients des repas de la semaine affichée, rangés par rayon. */
+    fun weeklyShopping(replace: Boolean, onDone: () -> Unit) {
+        viewModelScope.launch {
+            try {
+                val dates = weekDates()
+                val fmt = DateTimeFormatter.ISO_LOCAL_DATE
+                repo.generateShopping(GenerateShoppingRequest(
+                    date_from = dates.first().format(fmt), date_to = dates.last().format(fmt), replace = replace,
+                ))
+                onDone()
+            } catch (e: Exception) { _message.value = repo.describe(e) }
+        }
+    }
+
+    fun clearMessage() { _message.value = null }
+
     fun removeMeal(id: String) {
         viewModelScope.launch {
             try { repo.deleteMealPlan(id); loadAll() } catch (_: Exception) {}
@@ -99,7 +120,14 @@ class MealPlannerViewModel(app: Application) : AndroidViewModel(app) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MealPlannerScreen(onBack: () -> Unit, vm: MealPlannerViewModel = viewModel()) {
+fun MealPlannerScreen(
+    onBack: () -> Unit,
+    onRecipeClick: (String) -> Unit = {},
+    onShoppingReady: () -> Unit = {},
+    vm: MealPlannerViewModel = viewModel(),
+) {
+    val message by vm.message.collectAsState()
+    var askReplace by remember { mutableStateOf(false) }
     val plans by vm.plans.collectAsState()
     val recipes by vm.recipes.collectAsState()
     val weekOffset by vm.weekOffset.collectAsState()
@@ -117,8 +145,10 @@ fun MealPlannerScreen(onBack: () -> Unit, vm: MealPlannerViewModel = viewModel()
         topBar = {
             TopAppBar(
                 title = { Text("📅 Planning") },
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Retour") } },
                 actions = {
+                    IconButton(onClick = { askReplace = true }, enabled = plans.isNotEmpty()) {
+                        Icon(Icons.Default.ShoppingCart, "Courses de la semaine")
+                    }
                     TextButton(onClick = vm::prevWeek) { Text("←") }
                     TextButton(onClick = vm::thisWeek) { Text("Auj.") }
                     TextButton(onClick = vm::nextWeek) { Text("→") }
@@ -127,6 +157,17 @@ fun MealPlannerScreen(onBack: () -> Unit, vm: MealPlannerViewModel = viewModel()
         }
     ) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
+        if (message != null) {
+            Card(
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+            ) {
+                Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(message!!, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+                    TextButton(onClick = vm::clearMessage) { Text("OK") }
+                }
+            }
+        }
         if (error != null) {
             Card(
                 Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
@@ -169,14 +210,21 @@ fun MealPlannerScreen(onBack: () -> Unit, vm: MealPlannerViewModel = viewModel()
                         Box(Modifier.height(100.dp).fillMaxWidth().padding(2.dp)) {
                             Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                 cell.forEach { plan ->
+                                    // Toucher ouvre la recette ; la croix retire le repas (avant,
+                                    // un simple toucher le supprimait, sans confirmation).
                                     Card(
-                                        onClick = { vm.removeMeal(plan.id) },
+                                        onClick = { onRecipeClick(plan.recipe_id) },
                                         modifier = Modifier.fillMaxWidth(),
                                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
                                     ) {
-                                        Text(plan.recipe_title ?: "Recette", style = MaterialTheme.typography.labelSmall,
-                                            maxLines = 2, overflow = TextOverflow.Ellipsis,
-                                            modifier = Modifier.padding(4.dp))
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Text(plan.recipe_title ?: "Recette", style = MaterialTheme.typography.labelSmall,
+                                                maxLines = 2, overflow = TextOverflow.Ellipsis,
+                                                modifier = Modifier.weight(1f).padding(4.dp))
+                                            IconButton(onClick = { vm.removeMeal(plan.id) }, modifier = Modifier.size(24.dp)) {
+                                                Icon(Icons.Default.Close, "Retirer ce repas", modifier = Modifier.size(12.dp))
+                                            }
+                                        }
                                     }
                                 }
                                 IconButton(onClick = { picker = Pair(day, mealType); pickerSearch = "" }, modifier = Modifier.size(24.dp)) {
@@ -189,6 +237,24 @@ fun MealPlannerScreen(onBack: () -> Unit, vm: MealPlannerViewModel = viewModel()
             }
         }
         }
+    }
+
+    if (askReplace) {
+        AlertDialog(
+            onDismissRequest = { askReplace = false },
+            title = { Text("Courses de la semaine") },
+            text = { Text("Générer la liste avec les ingrédients de tous les repas de cette semaine ?") },
+            confirmButton = {
+                Button(onClick = { askReplace = false; vm.weeklyShopping(replace = true, onDone = onShoppingReady) }) {
+                    Text("Remplacer la liste")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { askReplace = false; vm.weeklyShopping(replace = false, onDone = onShoppingReady) }) {
+                    Text("Ajouter à la liste")
+                }
+            },
+        )
     }
 
     // Recipe picker dialog
