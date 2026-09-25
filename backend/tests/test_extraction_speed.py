@@ -1,6 +1,6 @@
 import asyncio
 
-from app.api.extract import StepTracker
+from app.services.extraction_steps import StepTracker
 from app.services import video_service
 
 

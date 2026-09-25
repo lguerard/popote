@@ -504,7 +504,7 @@ async def reextract_recipe(
 async def _run_reextraction(recipe_id: UUID):
     from ..database import AsyncSessionLocal
     from ..services.extractor import extract
-    from .extract import EXTRACTION_TIMEOUT_SECONDS, StepTracker
+    from ..services.extraction_steps import EXTRACTION_TIMEOUT_SECONDS, StepTracker
 
     async with AsyncSessionLocal() as db:
         recipe = await db.get(Recipe, recipe_id)
