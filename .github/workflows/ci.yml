@@ -5,6 +5,10 @@ on:
     branches: [main, dev]
   pull_request:
     branches: [main]
+  # Bouton « Run workflow » (onglet Actions, branche main) : publie une
+  # release même sans nouveau commit, par exemple pour obtenir un APK signé
+  # après avoir ajouté les secrets KEYSTORE_*.
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -102,8 +106,18 @@ jobs:
           NEXT=$(git cliff --bumped-version --github-token "$GITHUB_TOKEN" \
             2>/dev/null || echo "v0.1.0")
           if git rev-parse -q --verify "refs/tags/$NEXT" >/dev/null; then
-            echo "::error::git-cliff propose $NEXT, qui existe déjà : aucun commit depuis n'a été reconnu (voir commit_preprocessors dans cliff.toml)."
-            exit 1
+            if [ "${{ github.event_name }}" != "workflow_dispatch" ]; then
+              echo "::error::git-cliff propose $NEXT, qui existe déjà : aucun commit depuis n'a été reconnu (voir commit_preprocessors dans cliff.toml)."
+              exit 1
+            fi
+            # Lancement manuel sans nouveau commit : version corrective.
+            IFS='.' read -r MA MI PA <<< "${NEXT#v}"
+            NEXT="v${MA}.${MI}.$(( PA + 1 ))"
+            while git rev-parse -q --verify "refs/tags/$NEXT" >/dev/null; do
+              IFS='.' read -r MA MI PA <<< "${NEXT#v}"
+              NEXT="v${MA}.${MI}.$(( PA + 1 ))"
+            done
+            echo "manual=true" >> "$GITHUB_OUTPUT"
           fi
           echo "tag=$NEXT" >> "$GITHUB_OUTPUT"
           SEMVER="${NEXT#v}"
@@ -118,6 +132,9 @@ jobs:
         run: |
           git cliff --tag "${{ steps.version.outputs.tag }}" --unreleased \
             --strip all --github-token "$GITHUB_TOKEN" -o RELEASE_NOTES.md
+          if [ "${{ steps.version.outputs.manual }}" = "true" ]; then
+            printf '\nPublication manuelle : aucun changement de code depuis la version précédente.\n' >> RELEASE_NOTES.md
+          fi
           cat RELEASE_NOTES.md
 
       - uses: actions/setup-java@v4
