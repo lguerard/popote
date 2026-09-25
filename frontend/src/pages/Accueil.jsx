@@ -1,4 +1,5 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useMemo } from 'react'
+import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { getRecipes } from '../api'
 import CarteRecette from '../components/CarteRecette'
@@ -31,12 +32,28 @@ const SOURCE_FILTERS = [
   { value: 'manual', label: 'Manuel', emoji: '✏️' },
 ]
 
+const HISTORY_FILTERS = [
+  { value: null, label: 'Toutes' },
+  { value: 'never_cooked', label: '🆕 Jamais faites' },
+  { value: 'cook_again', label: '🔁 À refaire' },
+]
+
+const SORTS = [
+  { value: 'recent', label: 'Plus récentes' },
+  { value: 'rating', label: 'Mieux notées' },
+  { value: 'last_cooked', label: 'Cuisinées récemment' },
+  { value: 'most_cooked', label: 'Les plus cuisinées' },
+  { value: 'title', label: 'Titre (A→Z)' },
+]
+
 export default function Accueil() {
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const [category, setCategory] = useState(null)
   const [maxTime, setMaxTime] = useState(null)
   const [sourceType, setSourceType] = useState(null)
+  const [history, setHistory] = useState(null)
+  const [sort, setSort] = useState('recent')
   const timerRef = useRef(null)
 
   const filters = {
@@ -44,6 +61,8 @@ export default function Accueil() {
     ...(category === 'favoris' ? { favorites_only: true } : category ? { category } : {}),
     ...(maxTime && { max_time: maxTime }),
     ...(sourceType && { source_type: sourceType }),
+    ...(history && { [history]: true }),
+    ...(sort !== 'recent' && { sort }),
     limit: 1000,
   }
 
@@ -58,7 +77,19 @@ export default function Accueil() {
     timerRef.current = setTimeout(() => setDebouncedSearch(val), 400)
   }
 
-  const activeFilters = [category, maxTime, sourceType].filter(Boolean).length
+  // « À découvrir » : quelques recettes jamais cuisinées, tirées au hasard,
+  // pour ne pas laisser dormir celles importées puis oubliées.
+  const { data: jamais = [] } = useQuery({
+    queryKey: ['recipes', { never_cooked: true, limit: 1000 }],
+    queryFn: () => getRecipes({ never_cooked: true, limit: 1000 }),
+  })
+  const idees = useMemo(
+    () => [...jamais].sort(() => Math.random() - 0.5).slice(0, 6),
+    // Retirage seulement quand la liste change, pas à chaque rendu.
+    [jamais.map(r => r.id).join()],
+  )
+
+  const activeFilters = [category, maxTime, sourceType, history].filter(Boolean).length
 
   return (
     <div>
@@ -128,15 +159,56 @@ export default function Accueil() {
             </button>
           ))}
         </div>
+        <div className="flex gap-1.5">
+          {HISTORY_FILTERS.map((h) => (
+            <button
+              key={h.value ?? 'all'}
+              onClick={() => setHistory(h.value)}
+              className={`px-3 py-1 rounded-lg text-xs font-medium transition-colors ${
+                history === h.value
+                  ? 'bg-green-50 text-green-700 border border-green-200'
+                  : 'bg-white text-gray-500 border border-gray-200 hover:border-green-200'
+              }`}
+            >
+              {h.label}
+            </button>
+          ))}
+        </div>
+        <select value={sort} onChange={(e) => setSort(e.target.value)}
+          className="px-2 py-1 rounded-lg text-xs border border-gray-200 bg-white text-gray-600">
+          {SORTS.map(o => <option key={o.value} value={o.value}>↕ {o.label}</option>)}
+        </select>
         {activeFilters > 0 && (
           <button
-            onClick={() => { setCategory(null); setMaxTime(null); setSourceType(null) }}
+            onClick={() => { setCategory(null); setMaxTime(null); setSourceType(null); setHistory(null) }}
             className="text-xs text-red-500 hover:text-red-700 underline"
           >
             Réinitialiser ({activeFilters})
           </button>
         )}
       </div>
+
+      {idees.length > 0 && !debouncedSearch && [category, maxTime, sourceType, history].every(v => !v) && (
+        <section className="mb-8">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="font-semibold text-gray-800">💡 À découvrir : jamais cuisinées</h2>
+            <button onClick={() => setHistory('never_cooked')} className="text-xs text-orange-600 hover:underline">
+              Voir les {jamais.length}
+            </button>
+          </div>
+          <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide">
+            {idees.map(r => (
+              <Link key={r.id} to={`/recettes/${r.id}`}
+                className="flex-shrink-0 w-40 bg-white rounded-xl shadow-sm hover:shadow-md overflow-hidden group">
+                <div className="aspect-video bg-orange-50 flex items-center justify-center text-3xl overflow-hidden">
+                  {r.thumbnail_url ? <img src={r.thumbnail_url} alt="" className="w-full h-full object-cover" /> : '🍽️'}
+                </div>
+                <p className="p-2 text-sm font-medium text-gray-800 line-clamp-2 group-hover:text-orange-600">{r.title}</p>
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* Grille */}
       {isLoading ? (

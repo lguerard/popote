@@ -1,8 +1,15 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { getRecipe, deleteRecipe, toggleFavorite, updateRecipe, analyzeNutrition } from '../api'
+import {
+  getRecipe, deleteRecipe, toggleFavorite, updateRecipe, analyzeNutrition, patchRecipe,
+  reextractRecipe, shareRecipe, unshareRecipe,
+} from '../api'
 import StepTimer, { parseStepTime } from '../components/Timer'
+import Etoiles from '../components/Etoiles'
+import LienPartage from '../components/LienPartage'
+import Historique from '../components/Historique'
+import ChoixCarnets from '../components/ChoixCarnets'
 
 const SOURCE_ICONS = { video: '🎬', web: '🌐', text: '📝', manual: '✏️' }
 const SOURCE_LABELS = { video: 'Vidéo', web: 'Site web', text: 'Texte', manual: 'Manuel' }
@@ -44,10 +51,13 @@ export default function DetailRecette() {
   const [customScale, setCustomScale] = useState('')
   const [notes, setNotes] = useState(null) // null = not editing
   const [savingNotes, setSavingNotes] = useState(false)
+  const [panneau, setPanneau] = useState(null) // 'carnets' | 'partage' | null
 
   const { data: recipe, isLoading, error } = useQuery({
     queryKey: ['recipe', id],
     queryFn: () => getRecipe(id),
+    // Réextraction en cours : on suit sa progression jusqu'à la fin.
+    refetchInterval: (query) => (query.state.data?.reextracting ? 2000 : false),
   })
 
   useEffect(() => {
@@ -56,6 +66,11 @@ export default function DetailRecette() {
 
   const deleteMut = useMutation({ mutationFn: () => deleteRecipe(id), onSuccess: () => { qc.invalidateQueries({ queryKey: ['recipes'] }); navigate('/') } })
   const favMut = useMutation({ mutationFn: () => toggleFavorite(id), onSuccess: (r) => qc.setQueryData(['recipe', id], r) })
+  const setRecipe = (r) => { qc.setQueryData(['recipe', id], r); qc.invalidateQueries({ queryKey: ['recipes'] }) }
+  const avisMut = useMutation({ mutationFn: (data) => patchRecipe(id, data), onSuccess: setRecipe })
+  const reextractMut = useMutation({ mutationFn: () => reextractRecipe(id), onSuccess: setRecipe })
+  const shareMut = useMutation({ mutationFn: () => shareRecipe(id), onSuccess: setRecipe })
+  const unshareMut = useMutation({ mutationFn: () => unshareRecipe(id), onSuccess: setRecipe })
   const nutritionMut = useMutation({ mutationFn: () => analyzeNutrition(id), onSuccess: (n) => qc.setQueryData(['recipe', id], prev => ({ ...prev, nutrition: n })) })
 
   const saveNotes = async () => {
@@ -83,7 +98,7 @@ export default function DetailRecette() {
       )}
 
       {/* Header */}
-      <div className="flex items-start justify-between gap-4 mb-4">
+      <div className="flex items-start justify-between gap-4 mb-4 flex-wrap">
         <div>
           <Link to="/" className="text-sm text-orange-600 hover:underline mb-2 inline-block">← Retour</Link>
           <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-2">
@@ -94,12 +109,30 @@ export default function DetailRecette() {
             </button>
           </h1>
           {recipe.description && <p className="text-gray-500 mt-2">{recipe.description}</p>}
+          <div className="flex items-center gap-3 mt-3 flex-wrap">
+            <Etoiles value={recipe.rating} onChange={(rating) => avisMut.mutate({ rating })} />
+            <button onClick={() => avisMut.mutate({ cook_again: !recipe.cook_again })}
+              className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
+                recipe.cook_again ? 'bg-green-50 border-green-300 text-green-700' : 'bg-white border-gray-200 text-gray-500 hover:border-green-300'
+              }`}>
+              🔁 {recipe.cook_again ? 'À refaire !' : 'À refaire ?'}
+            </button>
+            <span className="text-xs text-gray-400">
+              {recipe.cooked_count
+                ? `Cuisinée ${recipe.cooked_count} fois · dernière le ${new Date(`${recipe.last_cooked_at}T00:00:00`).toLocaleDateString('fr-FR')}`
+                : 'Jamais cuisinée'}
+            </span>
+          </div>
         </div>
-        <div className="flex gap-2 flex-shrink-0">
+        <div className="flex gap-2 flex-wrap">
           <Link to={`/recettes/${id}/cuisine`} className="px-3 py-2 text-sm bg-orange-600 text-white hover:bg-orange-700 rounded-lg transition-colors">
             👨‍🍳 Cuisiner
           </Link>
           <Link to={`/recettes/${id}/modifier`} className="px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors">Modifier</Link>
+          <button onClick={() => setPanneau(p => p === 'carnets' ? null : 'carnets')} title="Ajouter à un carnet"
+            className={`px-3 py-2 text-sm rounded-lg transition-colors ${panneau === 'carnets' ? 'bg-orange-100 text-orange-700' : 'bg-gray-100 hover:bg-gray-200'}`}>📚</button>
+          <button onClick={() => setPanneau(p => p === 'partage' ? null : 'partage')} title="Partager par lien"
+            className={`px-3 py-2 text-sm rounded-lg transition-colors ${panneau === 'partage' ? 'bg-orange-100 text-orange-700' : 'bg-gray-100 hover:bg-gray-200'}`}>🔗</button>
           {confirmDelete ? (
             <div className="flex gap-2">
               <button onClick={() => deleteMut.mutate()} className="px-3 py-2 text-sm bg-red-600 text-white rounded-lg">Confirmer</button>
@@ -111,10 +144,31 @@ export default function DetailRecette() {
         </div>
       </div>
 
+      {panneau === 'carnets' && <ChoixCarnets recipeId={id} />}
+      {panneau === 'partage' && (
+        <div className="mb-5 p-4 bg-white rounded-xl border border-gray-100">
+          <p className="text-sm text-gray-600 mb-3">Toute personne ayant le lien peut lire la recette, sans compte. Vos notes, avis et historique restent privés.</p>
+          <LienPartage token={recipe.share_token} path={`/partage/r/${recipe.share_token}`}
+            onShare={() => shareMut.mutate()} onUnshare={() => unshareMut.mutate()}
+            busy={shareMut.isPending || unshareMut.isPending} />
+        </div>
+      )}
+
+      {recipe.reextracting && (
+        <div className="mb-4 bg-blue-50 border border-blue-200 text-blue-800 px-4 py-3 rounded-xl text-sm flex items-center gap-3">
+          <span className="w-4 h-4 border-2 border-blue-200 border-t-blue-600 rounded-full animate-spin flex-shrink-0" />
+          {recipe.progress_message || 'Réextraction en cours…'}
+        </div>
+      )}
+      {!recipe.reextracting && recipe.error_msg && (
+        <div className="mb-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm">{recipe.error_msg}</div>
+      )}
+
       {/* Source — mis en avant */}
       {recipe.source_url && (
+        <div className="mb-5 flex items-center gap-2 flex-wrap">
         <a href={recipe.source_url} target="_blank" rel="noopener noreferrer"
-          className="mb-5 flex items-center gap-2 px-4 py-2.5 bg-white border border-gray-200 rounded-xl hover:border-orange-300 hover:bg-orange-50 transition-colors group w-fit max-w-full">
+          className="flex items-center gap-2 px-4 py-2.5 bg-white border border-gray-200 rounded-xl hover:border-orange-300 hover:bg-orange-50 transition-colors group w-fit max-w-full">
           <span className="text-lg flex-shrink-0">{SOURCE_ICONS[recipe.source_type] || '🔗'}</span>
           <div className="min-w-0">
             <p className="text-xs text-gray-400">{SOURCE_LABELS[recipe.source_type] || 'Source'}</p>
@@ -122,6 +176,14 @@ export default function DetailRecette() {
           </div>
           <span className="ml-auto text-gray-300 group-hover:text-orange-400 flex-shrink-0">↗</span>
         </a>
+        <button
+          onClick={() => { if (confirm('Relire la recette depuis sa source ? Titre, ingrédients et étapes seront remplacés ; vos notes, avis, historique et image importée sont conservés.')) reextractMut.mutate() }}
+          disabled={recipe.reextracting || reextractMut.isPending}
+          title="Relancer l'extraction depuis la source, avec l'extraction améliorée"
+          className="px-3 py-2 text-sm bg-white border border-gray-200 rounded-xl hover:border-orange-300 disabled:opacity-50">
+          🔄 Réextraire
+        </button>
+        </div>
       )}
 
       {/* Thumbnail */}
@@ -231,6 +293,8 @@ export default function DetailRecette() {
           </ol>
         </section>
       )}
+
+      <Historique recipeId={id} onChange={setRecipe} />
 
       {/* Notes personnelles */}
       <section className="mb-8 p-4 bg-white rounded-xl border border-gray-100">

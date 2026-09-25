@@ -1,4 +1,4 @@
-import { Routes, Route, Link } from 'react-router-dom'
+import { Routes, Route, Link, useLocation } from 'react-router-dom'
 import Accueil from './pages/Accueil'
 import DetailRecette from './pages/DetailRecette'
 import AjouterRecette from './pages/AjouterRecette'
@@ -10,10 +10,24 @@ import Succes from './pages/Succes'
 import Comptes from './pages/Comptes'
 import Navigation from './components/Navigation'
 import Connexion from './pages/Connexion'
+import Frigo from './pages/Frigo'
+import { Carnets, Carnet } from './pages/Carnets'
+import Partage from './pages/Partage'
 import { useAuth } from './auth'
 
 export default function App() {
   const { user, chargement } = useAuth()
+  const { pathname } = useLocation()
+
+  // Liens partagés : lisibles sans compte, avant toute vérification de
+  // session (la personne qui les ouvre n'a généralement pas de compte).
+  if (pathname.startsWith('/partage/')) {
+    return (
+      <Routes>
+        <Route path="/partage/*" element={<Partage />} />
+      </Routes>
+    )
+  }
 
   // Tant que /auth/me n'a pas repondu, on n'affiche ni l'application ni
   // l'ecran de connexion : sinon ce dernier clignote a chaque
@@ -40,6 +54,9 @@ export default function App() {
           <Route path="/planning" element={<Planning />} />
           <Route path="/ajouter" element={<AjouterRecette />} />
           <Route path="/succes" element={<Succes />} />
+          <Route path="/frigo" element={<Frigo />} />
+          <Route path="/carnets" element={<Carnets />} />
+          <Route path="/carnets/:id" element={<Carnet />} />
           {/* Route montee seulement pour un administrateur : sans ça,
               un non-admin verrait la page avant son erreur 403. */}
           {user.is_admin && <Route path="/comptes" element={<Comptes />} />}

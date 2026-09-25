@@ -3,6 +3,8 @@ import { useAuth } from '../auth'
 
 const NAV = [
   { to: '/', label: 'Recettes', emoji: '🍽️' },
+  { to: '/frigo', label: 'Frigo', emoji: '🧊', title: "Qu'est-ce que je cuisine ?" },
+  { to: '/carnets', label: 'Carnets', emoji: '📚' },
   { to: '/planning', label: 'Planning', emoji: '📅' },
   { to: '/courses', label: 'Courses', emoji: '🛒' },
   { to: '/succes', label: 'Succès', emoji: '🏆' },
@@ -13,24 +15,25 @@ export default function Navigation() {
   const { user, deconnexion } = useAuth()
   return (
     <nav className="bg-white shadow-sm border-b border-orange-100 sticky top-0 z-40">
-      <div className="max-w-7xl mx-auto px-4 h-14 flex items-center justify-between gap-4">
+      <div className="max-w-7xl mx-auto px-4 h-14 flex items-center justify-between gap-2 sm:gap-4">
         <Link to="/" className="flex items-center gap-2 text-lg font-bold text-orange-600 flex-shrink-0">
           <span>🍳</span>
           <span className="hidden sm:block">Popote</span>
         </Link>
-        <div className="flex items-center gap-1">
-          {NAV.map(({ to, label, emoji }) => (
+        <div className="flex items-center gap-0.5 sm:gap-1 overflow-x-auto scrollbar-hide min-w-0">
+          {NAV.map(({ to, label, emoji, title }) => (
             <Link
               key={to}
               to={to}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                pathname === to
+              title={title || label}
+              className={`flex items-center gap-1.5 px-2 lg:px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                (to === '/' ? pathname === '/' : pathname.startsWith(to))
                   ? 'bg-orange-100 text-orange-700'
                   : 'text-gray-600 hover:text-orange-600 hover:bg-orange-50'
               }`}
             >
               <span>{emoji}</span>
-              <span className="hidden sm:block">{label}</span>
+              <span className="hidden lg:block">{label}</span>
             </Link>
           ))}
         </div>
@@ -38,14 +41,14 @@ export default function Navigation() {
           <Link
             to="/comptes"
             title="Valider les demandes de compte"
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-medium text-sm flex-shrink-0 ${
+            className={`flex items-center gap-1.5 px-2 lg:px-3 py-1.5 rounded-lg font-medium text-sm flex-shrink-0 ${
               pathname === '/comptes'
                 ? 'bg-orange-100 text-orange-700'
                 : 'text-gray-600 hover:text-orange-600 hover:bg-orange-50'
             }`}
           >
             <span>🔑</span>
-            <span className="hidden sm:block">Comptes</span>
+            <span className="hidden lg:block">Comptes</span>
           </Link>
         )}
         <button
@@ -54,7 +57,7 @@ export default function Navigation() {
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-medium text-sm text-gray-500 hover:text-orange-600 hover:bg-orange-50 flex-shrink-0"
         >
           <span>👤</span>
-          <span className="hidden sm:block">{user?.display_name}</span>
+          <span className="hidden lg:block">{user?.display_name}</span>
         </button>
         <Link
           to="/ajouter"
@@ -65,7 +68,7 @@ export default function Navigation() {
           }`}
         >
           <span>+</span>
-          <span>Ajouter</span>
+          <span className="hidden sm:inline">Ajouter</span>
         </Link>
       </div>
     </nav>

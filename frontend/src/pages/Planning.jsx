@@ -1,6 +1,7 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { getMealPlans, createMealPlan, deleteMealPlan, getRecipes } from '../api'
+import { getMealPlans, createMealPlan, deleteMealPlan, getRecipes, generateShoppingItems, getShoppingItems } from '../api'
 
 const DAYS = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim']
 const MEAL_TYPES = [
@@ -22,13 +23,18 @@ function getWeekDates(offset = 0) {
   })
 }
 
-function fmt(date) { return date.toISOString().split('T')[0] }
+// Date locale (et non UTC) : toISOString() décalait d'un jour les soirs
+// en France, le repas du lundi tombait dans la case du dimanche.
+function fmt(date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+}
 
 export default function Planning() {
   const [weekOffset, setWeekOffset] = useState(0)
   const [picker, setPicker] = useState(null) // {date, meal_type}
   const [search, setSearch] = useState('')
   const qc = useQueryClient()
+  const navigate = useNavigate()
 
   const days = getWeekDates(weekOffset)
   const dateFrom = fmt(days[0])
@@ -55,14 +61,30 @@ export default function Planning() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['meal-plans'] }),
   })
 
+  const courses = useMutation({
+    mutationFn: async () => {
+      const current = await getShoppingItems()
+      const replace = !current.items.some(i => !i.checked) || window.confirm(
+        'Votre liste de courses contient déjà des articles.\n\nOK : la remplacer par celle de la semaine\nAnnuler : ajouter à la suite'
+      )
+      return generateShoppingItems({ date_from: dateFrom, date_to: dateTo, replace })
+    },
+    onSuccess: (list) => { qc.setQueryData(['shopping-items'], list); navigate('/courses') },
+  })
+
   const getPlansFor = (date, mealType) =>
     plans.filter(p => p.date === fmt(date) && p.meal_type === mealType)
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between gap-3 mb-6 flex-wrap">
         <h1 className="text-2xl font-bold text-gray-900">📅 Planning des repas</h1>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <button onClick={() => courses.mutate()} disabled={!plans.length || courses.isPending}
+            title={plans.length ? 'Tous les ingrédients des repas de cette semaine, par rayon' : 'Aucun repas planifié cette semaine'}
+            className="px-3 py-1.5 bg-orange-600 text-white rounded-lg text-sm hover:bg-orange-700 disabled:opacity-40">
+            {courses.isPending ? 'Génération…' : '🛒 Courses de la semaine'}
+          </button>
           <button onClick={() => setWeekOffset(w => w - 1)} className="px-3 py-1.5 bg-white border border-gray-200 rounded-lg hover:border-orange-300">←</button>
           <button onClick={() => setWeekOffset(0)} className="px-3 py-1.5 bg-white border border-gray-200 rounded-lg text-sm hover:border-orange-300">Aujourd'hui</button>
           <button onClick={() => setWeekOffset(w => w + 1)} className="px-3 py-1.5 bg-white border border-gray-200 rounded-lg hover:border-orange-300">→</button>

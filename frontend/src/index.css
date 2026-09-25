@@ -8,9 +8,15 @@
   }
 }
 
+@layer utilities {
+  .scrollbar-hide { scrollbar-width: none; -ms-overflow-style: none; }
+  .scrollbar-hide::-webkit-scrollbar { display: none; }
+}
+
 @media print {
   nav, .print\:hidden { display: none !important; }
   body { background: white; }
   main { max-width: 100%; padding: 0; }
   button, a[class*="bg-orange"], a[class*="bg-red"] { display: none !important; }
+  button.print-keep { display: flex !important; }
 }
