@@ -17,7 +17,9 @@ import androidx.compose.ui.Modifier
 import androidx.navigation.NavType
 import androidx.navigation.compose.*
 import androidx.navigation.navArgument
+import androidx.navigation.NavGraph.Companion.findStartDestination
 import com.popote.data.RecipeRepository
+import com.popote.ui.components.LocalServerUrl
 import com.popote.ui.screens.*
 import com.popote.ui.theme.PopoteTheme
 
@@ -66,8 +68,8 @@ class MainActivity : ComponentActivity() {
         val navController = rememberNavController()
         val currentBackStack by navController.currentBackStackEntryAsState()
         val currentRoute = currentBackStack?.destination?.route
-
-        val topLevelRoutes = setOf("home", "shopping", "planning", "achievements")
+        val repo = remember { RecipeRepository(applicationContext) }
+        val serverUrl by repo.serverUrl.collectAsState(initial = "")
 
         LaunchedEffect(sharedText) {
             if (sharedText != null && currentRoute != "add") {
@@ -75,34 +77,36 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+        // Onglets du bas : l'état de chaque onglet est conservé quand on en change.
+        fun openTab(route: String) {
+            navController.navigate(route) {
+                popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                launchSingleTop = true
+                restoreState = true
+            }
+        }
+
+        val tabs = listOf(
+            Triple("home", "Recettes", Icons.Default.MenuBook),
+            Triple("fridge", "Frigo", Icons.Default.Kitchen),
+            Triple("planning", "Planning", Icons.Default.CalendarMonth),
+            Triple("shopping", "Courses", Icons.Default.ShoppingCart),
+            Triple("collections", "Carnets", Icons.Default.CollectionsBookmark),
+        )
+
+        CompositionLocalProvider(LocalServerUrl provides serverUrl) {
         Scaffold(
             bottomBar = {
-                if (currentRoute in topLevelRoutes) {
+                if (currentRoute in tabs.map { it.first }) {
                     NavigationBar {
-                        NavigationBarItem(
-                            selected = currentRoute == "home",
-                            onClick = { navController.navigate("home") { launchSingleTop = true; restoreState = true } },
-                            icon = { Icon(Icons.Default.MenuBook, null) },
-                            label = { Text("Recettes") },
-                        )
-                        NavigationBarItem(
-                            selected = currentRoute == "planning",
-                            onClick = { navController.navigate("planning") { launchSingleTop = true; restoreState = true } },
-                            icon = { Icon(Icons.Default.CalendarMonth, null) },
-                            label = { Text("Planning") },
-                        )
-                        NavigationBarItem(
-                            selected = currentRoute == "shopping",
-                            onClick = { navController.navigate("shopping") { launchSingleTop = true; restoreState = true } },
-                            icon = { Icon(Icons.Default.ShoppingCart, null) },
-                            label = { Text("Courses") },
-                        )
-                        NavigationBarItem(
-                            selected = currentRoute == "achievements",
-                            onClick = { navController.navigate("achievements") { launchSingleTop = true; restoreState = true } },
-                            icon = { Icon(Icons.Default.EmojiEvents, null) },
-                            label = { Text("Succès") },
-                        )
+                        tabs.forEach { (route, label, icon) ->
+                            NavigationBarItem(
+                                selected = currentRoute == route,
+                                onClick = { openTab(route) },
+                                icon = { Icon(icon, null) },
+                                label = { Text(label) },
+                            )
+                        }
                     }
                 }
             }
@@ -114,13 +118,34 @@ class MainActivity : ComponentActivity() {
                         onRecipeClick = { id -> navController.navigate("recipe/$id") },
                         onAddClick = { navController.navigate("add") },
                         onSettingsClick = { navController.navigate("settings") },
+                        onAchievementsClick = { navController.navigate("achievements") },
                     )
                 }
+                composable("fridge") {
+                    FridgeScreen(onRecipeClick = { id -> navController.navigate("recipe/$id") })
+                }
                 composable("planning") {
-                    MealPlannerScreen(onBack = { navController.popBackStack() })
+                    MealPlannerScreen(
+                        onBack = { navController.popBackStack() },
+                        onRecipeClick = { id -> navController.navigate("recipe/$id") },
+                        onShoppingReady = { openTab("shopping") },
+                    )
                 }
                 composable("shopping") {
                     ShoppingListScreen(onBack = { navController.popBackStack() })
+                }
+                composable("collections") {
+                    CollectionsScreen(onOpen = { id -> navController.navigate("collection/$id") })
+                }
+                composable(
+                    "collection/{id}",
+                    arguments = listOf(navArgument("id") { type = NavType.StringType }),
+                ) { backStack ->
+                    CollectionDetailScreen(
+                        collectionId = backStack.arguments!!.getString("id")!!,
+                        onBack = { navController.popBackStack() },
+                        onRecipeClick = { id -> navController.navigate("recipe/$id") },
+                    )
                 }
                 composable(
                     "recipe/{id}",
@@ -148,6 +173,7 @@ class MainActivity : ComponentActivity() {
                     SettingsScreen(onBack = { navController.popBackStack() })
                 }
             }
+        }
         }
     }
 }

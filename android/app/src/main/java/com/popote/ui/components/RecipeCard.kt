@@ -27,9 +27,10 @@ fun RecipeCard(recipe: Recipe, onClick: () -> Unit) {
                     .clip(MaterialTheme.shapes.large),
                 contentAlignment = Alignment.Center,
             ) {
-                if (recipe.thumbnail_url != null) {
+                val image = imageUrl(recipe.thumbnail_url, LocalServerUrl.current)
+                if (image != null) {
                     AsyncImage(
-                        model = recipe.thumbnail_url,
+                        model = image,
                         contentDescription = recipe.title,
                         contentScale = ContentScale.Crop,
                         modifier = Modifier.fillMaxSize(),
@@ -68,6 +69,10 @@ fun RecipeCard(recipe: Recipe, onClick: () -> Unit) {
                         Text("⏱ ${recipe.totalTime} min", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     if (recipe.servings != null)
                         Text("👥 ${recipe.servings}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if ((recipe.rating ?: 0) > 0)
+                        Text("★ ${recipe.rating}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                    if (recipe.cook_again == true)
+                        Text("🔁", style = MaterialTheme.typography.labelSmall)
                 }
                 if (recipe.tags.isNotEmpty()) {
                     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {

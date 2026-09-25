@@ -24,9 +24,80 @@ data class Recipe(
     val similar_recipe_id: String? = null,
     val created_at: String,
     val updated_at: String,
+    // Champs ajoutés côté serveur : nullables car Gson ne passe pas par le
+    // constructeur (une valeur absente du JSON reste null, jamais la valeur
+    // par défaut Kotlin).
+    val rating: Int? = null,
+    val cook_again: Boolean? = null,
+    val cooked_count: Int = 0,
+    val last_cooked_at: String? = null,
+    val share_token: String? = null,
+    val reextracting: Boolean = false,
 ) {
     val totalTime get() = (prep_time ?: 0) + (cook_time ?: 0)
 }
+
+// ── Historique ────────────────────────────────────────────────────────────────
+
+data class CookLog(val id: String, val cooked_on: String, val rating: Int?, val comment: String?)
+data class CookedRequest(val cooked_on: String? = null, val rating: Int? = null, val comment: String? = null)
+
+// ── Liste de courses persistée ───────────────────────────────────────────────
+
+data class ShoppingEntry(
+    val id: String,
+    val name: String,
+    val quantity: String?,
+    val unit: String?,
+    val aisle: String?,
+    val recipes: List<String>?,
+    val checked: Boolean,
+)
+
+data class ShoppingListResponse(
+    val items: List<ShoppingEntry>?,
+    val aisles: List<String>?,
+    val share_token: String?,
+)
+
+data class GenerateShoppingRequest(
+    val recipe_ids: List<String> = emptyList(),
+    val date_from: String? = null,
+    val date_to: String? = null,
+    val replace: Boolean = true,
+)
+
+data class ShoppingItemCreate(val name: String)
+
+// ── Frigo ─────────────────────────────────────────────────────────────────────
+
+data class PantryRequest(val ingredients: List<String>, val assume_staples: Boolean = true)
+data class PantryMatch(val recipe: Recipe, val matched: List<String>?, val missing: List<String>?, val coverage: Double)
+
+// ── Carnets ───────────────────────────────────────────────────────────────────
+
+data class RecipeCollection(
+    val id: String,
+    val name: String,
+    val emoji: String?,
+    val description: String?,
+    val share_token: String?,
+    val recipe_count: Int,
+    val covers: List<String>?,
+    val contains_recipe: Boolean?,
+)
+
+data class RecipeCollectionDetail(
+    val id: String,
+    val name: String,
+    val emoji: String?,
+    val description: String?,
+    val share_token: String?,
+    val recipe_count: Int,
+    val recipes: List<Recipe>?,
+)
+
+data class CollectionCreate(val name: String, val emoji: String? = null, val description: String? = null)
 
 data class Nutrition(
     val calories: Double?,

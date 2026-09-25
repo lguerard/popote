@@ -29,35 +29,59 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
     private val _maxTime = MutableStateFlow<Int?>(null)
     val maxTime: StateFlow<Int?> = _maxTime.asStateFlow()
 
+    // "favorites" | "never_cooked" | "cook_again" | null
+    private val _history = MutableStateFlow<String?>(null)
+    val history: StateFlow<String?> = _history.asStateFlow()
+
+    private val _sort = MutableStateFlow("recent")
+    val sort: StateFlow<String> = _sort.asStateFlow()
+
+    private val _refreshing = MutableStateFlow(false)
+    val refreshing: StateFlow<Boolean> = _refreshing.asStateFlow()
+
     val serverUrl = repo.serverUrl.stateIn(viewModelScope, SharingStarted.Eagerly, "")
 
     init {
         viewModelScope.launch {
-            combine(_search.debounce(400), _category, _maxTime) { s, c, t -> Triple(s, c, t)
-            }.collect { (s, c, t) ->
-                load(s.ifBlank { null }, c, t)
+            combine(_search.debounce(400), _category, _maxTime, _history, _sort) { _, _, _, _, _ -> Unit }
+                .collect { load() }
+        }
+    }
+
+    fun load(pullToRefresh: Boolean = false) {
+        viewModelScope.launch {
+            if (pullToRefresh) _refreshing.value = true
+            // Pas de grand spinner quand une liste est déjà affichée : elle
+            // reste visible le temps de la mise à jour.
+            else if (_recipes.value.isEmpty()) _isLoading.value = true
+            _error.value = null
+            try {
+                val h = _history.value
+                _recipes.value = repo.getRecipes(
+                    search = _search.value.ifBlank { null },
+                    category = _category.value,
+                    maxTime = _maxTime.value,
+                    favoritesOnly = h == "favorites",
+                    neverCooked = h == "never_cooked",
+                    cookAgain = h == "cook_again",
+                    sort = _sort.value.takeIf { it != "recent" },
+                )
+            } catch (e: Exception) {
+                _error.value = repo.describe(e)
+            } finally {
+                _isLoading.value = false
+                _refreshing.value = false
             }
         }
     }
 
-    fun load(search: String? = null, category: String? = _category.value, maxTime: Int? = _maxTime.value) {
-        viewModelScope.launch {
-            _isLoading.value = true
-            _error.value = null
-            try {
-                _recipes.value = repo.getRecipes(search = search, category = category, maxTime = maxTime)
-            } catch (e: Exception) {
-                _error.value = "Impossible de contacter le serveur"
-            } finally {
-                _isLoading.value = false
-            }
-        }
-    }
+    fun setHistory(h: String?) { _history.value = h }
+    fun setSort(s: String) { _sort.value = s }
 
     fun onSearchChange(q: String) { _search.value = q }
     fun setCategory(c: String?) { _category.value = c }
     fun setMaxTime(t: Int?) { _maxTime.value = t }
-    fun resetFilters() { _category.value = null; _maxTime.value = null }
+    fun resetFilters() { _category.value = null; _maxTime.value = null; _history.value = null }
 
     fun deleteRecipe(id: String) {
         viewModelScope.launch {

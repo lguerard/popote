@@ -6,9 +6,12 @@ import androidx.compose.foundation.lazy.grid.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.SwapVert
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -34,6 +37,20 @@ val CATEGORIES = listOf(
     CategoryItem("sauce", "Sauce", "🫙"),
 )
 
+val HISTORY_FILTERS = listOf(
+    "favorites" to "❤️ Favoris",
+    "never_cooked" to "🆕 Jamais faites",
+    "cook_again" to "🔁 À refaire",
+)
+
+val SORTS = listOf(
+    "recent" to "Plus récentes",
+    "rating" to "Mieux notées",
+    "last_cooked" to "Cuisinées récemment",
+    "most_cooked" to "Les plus cuisinées",
+    "title" to "Titre (A→Z)",
+)
+
 val TIME_FILTERS = listOf(
     TimeItem(null, "Tout"),
     TimeItem(30, "≤ 30 min"),
@@ -46,6 +63,7 @@ fun HomeScreen(
     onRecipeClick: (String) -> Unit,
     onAddClick: () -> Unit,
     onSettingsClick: () -> Unit,
+    onAchievementsClick: () -> Unit = {},
     vm: HomeViewModel = viewModel(),
 ) {
     val recipes by vm.recipes.collectAsState()
@@ -54,6 +72,10 @@ fun HomeScreen(
     val search by vm.search.collectAsState()
     val selectedCategory by vm.category.collectAsState()
     val selectedMaxTime by vm.maxTime.collectAsState()
+    val history by vm.history.collectAsState()
+    val sort by vm.sort.collectAsState()
+    val refreshing by vm.refreshing.collectAsState()
+    var sortMenu by remember { mutableStateOf(false) }
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 
     Scaffold(
@@ -62,6 +84,22 @@ fun HomeScreen(
             LargeTopAppBar(
                 title = { Text("🍳 Popote") },
                 actions = {
+                    Box {
+                        IconButton(onClick = { sortMenu = true }) {
+                            Icon(Icons.Default.SwapVert, contentDescription = "Trier")
+                        }
+                        DropdownMenu(expanded = sortMenu, onDismissRequest = { sortMenu = false }) {
+                            SORTS.forEach { (value, label) ->
+                                DropdownMenuItem(
+                                    text = { Text(if (sort == value) "✓ $label" else label) },
+                                    onClick = { vm.setSort(value); sortMenu = false },
+                                )
+                            }
+                        }
+                    }
+                    IconButton(onClick = onAchievementsClick) {
+                        Icon(Icons.Default.EmojiEvents, contentDescription = "Succès")
+                    }
                     IconButton(onClick = onSettingsClick) {
                         Icon(Icons.Default.Settings, contentDescription = "Paramètres")
                     }
@@ -112,6 +150,20 @@ fun HomeScreen(
                 }
             }
 
+            // Favoris / historique
+            Row(
+                modifier = Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 2.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                HISTORY_FILTERS.forEach { (value, label) ->
+                    FilterChip(
+                        selected = history == value,
+                        onClick = { vm.setHistory(if (history == value) null else value) },
+                        label = { Text(label, style = MaterialTheme.typography.labelSmall) },
+                    )
+                }
+            }
+
             // Time filter chips
             Row(
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
@@ -125,13 +177,18 @@ fun HomeScreen(
                         label = { Text(t.label, style = MaterialTheme.typography.labelSmall) },
                     )
                 }
-                if (selectedCategory != null || selectedMaxTime != null) {
+                if (selectedCategory != null || selectedMaxTime != null || history != null) {
                     TextButton(onClick = vm::resetFilters, contentPadding = PaddingValues(horizontal = 8.dp)) {
                         Text("Réinitialiser", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
                     }
                 }
             }
 
+            PullToRefreshBox(
+                isRefreshing = refreshing,
+                onRefresh = { vm.load(pullToRefresh = true) },
+                modifier = Modifier.fillMaxSize(),
+            ) {
             when {
                 isLoading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
@@ -161,6 +218,7 @@ fun HomeScreen(
                     }
                     item { Spacer(Modifier.height(80.dp)) }
                 }
+            }
             }
         }
     }
