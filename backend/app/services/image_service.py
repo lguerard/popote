@@ -36,6 +36,53 @@ def save_thumbnail_bytes(recipe_id, image_bytes: bytes, ext: str) -> str:
     return f"/media/{THUMBNAIL_SUBDIR}/{filename}"
 
 
+_DOWNLOAD_TYPES = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp"}
+_MAX_DOWNLOAD_BYTES = 8 * 1024 * 1024
+
+
+async def download_image(url: str) -> tuple[bytes, str]:
+    """(contenu, extension) d'une image distante (vignette de la source).
+
+    Lève si ce n'est pas une image JPEG/PNG/WEBP de taille raisonnable.
+    """
+    headers = {"User-Agent": "Mozilla/5.0 (compatible; Popote/1.0)"}
+    async with httpx.AsyncClient(timeout=20, follow_redirects=True, headers=headers) as client:
+        resp = await client.get(url)
+        resp.raise_for_status()
+    content_type = resp.headers.get("content-type", "").split(";")[0].strip().lower()
+    ext = _DOWNLOAD_TYPES.get(content_type)
+    if not ext:
+        raise ValueError(f"Type d'image non géré : {content_type or 'inconnu'}")
+    if len(resp.content) > _MAX_DOWNLOAD_BYTES:
+        raise ValueError("Image trop volumineuse")
+    return resp.content, ext
+
+
+async def apply_source_image(recipe, source_url: str | None, replace: bool) -> None:
+    """Met à jour l'image d'une recette après une réextraction.
+
+    Sans ``replace``, une image importée ou générée par l'utilisateur
+    (/media/…) prime sur celle de la source. Sinon l'image de la source est
+    téléchargée et stockée ici : les liens d'Instagram/TikTok sont signés
+    et expirent au bout de quelques jours (image cassée ensuite). Si le
+    téléchargement échoue, le lien direct sert de repli.
+    """
+    if not source_url:
+        return
+    current = recipe.thumbnail_url or ""
+    if current.startswith(f"/media/{THUMBNAIL_SUBDIR}/") and not replace:
+        return
+    try:
+        data, ext = await download_image(source_url)
+    except Exception:
+        logger.warning("Image de la source non téléchargeable : %s", source_url, exc_info=True)
+        recipe.thumbnail_url = source_url
+    else:
+        recipe.thumbnail_url = save_thumbnail_bytes(recipe.id, data, ext)
+    if recipe.thumbnail_url != current:
+        delete_local_thumbnail(current)
+
+
 def delete_local_thumbnail(thumbnail_url: str | None) -> None:
     """Supprime l'ancien fichier local, sans jamais toucher une URL externe.
 

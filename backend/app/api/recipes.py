@@ -479,6 +479,9 @@ _REEXTRACTED_FIELDS = (
 async def reextract_recipe(
     recipe_id: UUID,
     background_tasks: BackgroundTasks,
+    replace_image: bool = Query(
+        False, description="Remplacer aussi l'image actuelle par celle de la source",
+    ),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(current_user),
 ):
@@ -497,11 +500,11 @@ async def reextract_recipe(
     recipe.progress_message = "En attente…"
     await db.commit()
     await db.refresh(recipe)
-    background_tasks.add_task(_run_reextraction, recipe.id)
+    background_tasks.add_task(_run_reextraction, recipe.id, replace_image)
     return recipe
 
 
-async def _run_reextraction(recipe_id: UUID):
+async def _run_reextraction(recipe_id: UUID, replace_image: bool = False):
     from ..database import AsyncSessionLocal
     from ..services.extractor import extract
     from ..services.extraction_steps import EXTRACTION_TIMEOUT_SECONDS, StepTracker
@@ -526,10 +529,7 @@ async def _run_reextraction(recipe_id: UUID):
             for field in _REEXTRACTED_FIELDS:
                 if data.get(field) not in (None, "", []):
                     setattr(recipe, field, data[field])
-            # Une image importée ou générée par l'utilisateur (/media/…)
-            # prime sur celle de la source.
-            if data.get("thumbnail_url") and not (recipe.thumbnail_url or "").startswith("/media/"):
-                recipe.thumbnail_url = data["thumbnail_url"]
+            await image_service.apply_source_image(recipe, data.get("thumbnail_url"), replace_image)
             recipe.error_msg = None
         except TimeoutError:
             await db.rollback()
