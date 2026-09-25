@@ -34,6 +34,8 @@ export default function CarteRecette({ recipe }) {
         <div className="mt-auto flex items-center gap-3 text-xs text-gray-400">
           {totalTime > 0 && <span>⏱ {totalTime} min</span>}
           {recipe.servings && <span>👥 {recipe.servings} pers.</span>}
+          {recipe.rating > 0 && <span className="text-amber-500" title={`${recipe.rating}/5`}>★ {recipe.rating}</span>}
+          {recipe.cook_again && <span title="À refaire">🔁</span>}
           {recipe.tags?.slice(0, 2).map(tag => (
             <span key={tag} className="bg-orange-50 text-orange-600 px-2 py-0.5 rounded-full">
               {tag}

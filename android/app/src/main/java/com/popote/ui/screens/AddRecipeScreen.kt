@@ -19,12 +19,23 @@ import com.popote.ui.viewmodels.AddState
 @Composable
 fun AddRecipeScreen(
     sharedText: String? = null,
+    onSharedConsumed: () -> Unit = {},
     onBack: () -> Unit,
     onSuccess: (String) -> Unit,
     vm: AddRecipeViewModel = viewModel(),
 ) {
-    var input by remember { mutableStateOf(sharedText ?: "") }
+    var input by remember { mutableStateOf("") }
     val state by vm.state.collectAsState()
+
+    // Partage reçu d'une autre appli : import lancé directement, sans
+    // repasser par le bouton. Le serveur retrouve l'URL même au milieu
+    // d'un texte (« Regarde ce reel ! https://… »).
+    LaunchedEffect(sharedText) {
+        val shared = sharedText ?: return@LaunchedEffect
+        input = shared
+        vm.submit(shared)
+        onSharedConsumed()
+    }
 
     LaunchedEffect(state) {
         if (state is AddState.Success) {

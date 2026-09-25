@@ -296,3 +296,45 @@ def test_extract_text_and_errors(monkeypatch):
         _run_extract(monkeypatch, "bonjour", llm_result={"error": "Aucune recette trouvée"})
     with pytest.raises(ValueError, match="Aucun contenu"):
         _run_extract(monkeypatch, "https://example.com/vide", web_scraper.ScrapeResult("  ", None))
+
+
+# ---------------------------------------------------------------------------
+# Texte de partage contenant une URL, texte incrusté des vidéos
+# ---------------------------------------------------------------------------
+
+from app.services.extractor import resolve_input  # noqa: E402
+from app.services.video_service import merge_ocr_lines  # noqa: E402
+
+
+@pytest.mark.parametrize("shared, expected", [
+    ("https://www.instagram.com/reel/abc/", "https://www.instagram.com/reel/abc/"),
+    ("Regarde cette recette ! https://www.instagram.com/reel/abc/?igsh=xyz",
+     "https://www.instagram.com/reel/abc/?igsh=xyz"),
+    ("Cookies vegan (https://www.planetevegan.com/recettes/cookies-vegan/).",
+     "https://www.planetevegan.com/recettes/cookies-vegan/"),
+    ("Pas de lien ici", "Pas de lien ici"),
+])
+def test_resolve_input_extracts_url_from_share_text(shared, expected):
+    assert resolve_input(shared) == expected
+
+
+def test_resolve_input_keeps_a_pasted_recipe_that_cites_its_source():
+    recipe = (
+        "Ingrédients : 200 g de farine, 100 g de sucre, 2 œufs, 50 g de beurre.\n"
+        "Préchauffer le four. Mélanger la farine et le sucre, ajouter les œufs, "
+        "verser dans le moule et cuire 20 minutes.\nSource : https://exemple.fr/gateau"
+    )
+    assert resolve_input(recipe) == recipe.strip()
+
+
+def test_merge_ocr_lines_dedupes_frames_and_drops_noise():
+    frames = [
+        "200 g de farine\n|| ~~",
+        "200 g de farine\n2 oeufs",
+        "2 œufs\nMélanger",
+        "Mélanger le tout",
+        "",
+    ]
+    assert merge_ocr_lines(frames).splitlines() == [
+        "200 g de farine", "2 oeufs", "Mélanger le tout",
+    ]

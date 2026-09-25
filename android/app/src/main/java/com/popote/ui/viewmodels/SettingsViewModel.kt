@@ -13,6 +13,11 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
     private val repo = RecipeRepository(app)
 
     val serverUrl = repo.serverUrl
+    val userName = repo.userName
+
+    fun logout() {
+        viewModelScope.launch { repo.logout() }
+    }
 
     private val _testResult = MutableStateFlow<String?>(null)
     val testResult: StateFlow<String?> = _testResult.asStateFlow()

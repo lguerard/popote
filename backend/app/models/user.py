@@ -46,3 +46,6 @@ class User(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
+    # Lien public vers la liste de courses (/partage/courses/<jeton>) : le
+    # reste du foyer coche les articles en magasin sans avoir de compte.
+    shopping_share_token: Mapped[str | None] = mapped_column(String(64), unique=True, index=True)

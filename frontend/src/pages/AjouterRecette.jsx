@@ -1,4 +1,5 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { submitExtraction, submitImageExtraction } from '../api'
 import StatutExtraction from '../components/StatutExtraction'
 
@@ -16,13 +17,31 @@ export default function AjouterRecette() {
   const [recipeId, setRecipeId] = useState(null)
   const [error, setError] = useState(null)
   const fileRef = useRef(null)
+  const [params, setParams] = useSearchParams()
+  const partageTraite = useRef(false)
 
-  const handleSubmitUrl = async (e) => {
+  // Arrivée depuis le menu « Partager » (PWA installée, voir
+  // public/manifest.json) : ?url=…&text=…&title=… Instagram et TikTok
+  // mettent souvent le lien dans `text` ; le serveur en extrait l'URL.
+  useEffect(() => {
+    const partage = params.get('url') || params.get('text') || params.get('title')
+    // La ref évite un double envoi quand React rejoue l'effet (StrictMode).
+    if (!partage?.trim() || partageTraite.current) return
+    partageTraite.current = true
+    setParams({}, { replace: true })
+    setInput(partage.trim())
+    envoyer(partage.trim())
+  }, []) // une seule fois, à l'ouverture
+
+  const handleSubmitUrl = (e) => {
     e.preventDefault()
-    if (!input.trim()) return
+    if (input.trim()) envoyer(input.trim())
+  }
+
+  async function envoyer(texte) {
     setLoading(true); setError(null)
     try {
-      const res = await submitExtraction(input.trim())
+      const res = await submitExtraction(texte)
       setRecipeId(res.recipe_id)
     } catch (err) {
       setError(err.response?.data?.detail || 'Erreur lors de la soumission')

@@ -7,7 +7,11 @@ from fastapi.staticfiles import StaticFiles
 from .config import settings
 from .database import init_db, AsyncSessionLocal
 from .api.auth import router as auth_router
-from .api.recipes import router as recipes_router, sweep_stuck_thumbnails
+from .api.recipes import (
+    router as recipes_router, sweep_stuck_reextractions, sweep_stuck_thumbnails,
+)
+from .api.collections import router as collections_router
+from .api.public import router as public_router
 from .api.extract import router as extract_router, sweep_stuck_extractions
 from .api.shopping import router as shopping_router
 from .api.meal_plan import router as meal_plan_router
@@ -67,6 +71,7 @@ async def lifespan(app: FastAPI):
                 "%d génération(s) de vignette laissée(s) en cours par un redémarrage "
                 "précédent marquée(s) en échec", n_vignettes,
             )
+        await sweep_stuck_reextractions(db)
     await ensure_model_available()
     yield
     await close_browser()
@@ -92,6 +97,8 @@ app.include_router(extract_router, prefix="/api")
 app.include_router(shopping_router, prefix="/api")
 app.include_router(meal_plan_router, prefix="/api")
 app.include_router(achievements_router, prefix="/api")
+app.include_router(collections_router, prefix="/api")
+app.include_router(public_router, prefix="/api")
 
 
 @app.get("/api/health")

@@ -6,6 +6,7 @@ from typing import Awaitable, Callable
 from .video_service import video_to_text
 from .web_scraper import scrape_url
 from .llm_service import extract_recipe_with_llm
+from . import recipe_parsing
 from ..models.recipe import SourceType
 
 logger = logging.getLogger(__name__)
@@ -23,6 +24,29 @@ VIDEO_DOMAINS = re.compile(
 )
 
 URL_PATTERN = re.compile(r"^https?://\S+$", re.IGNORECASE)
+_URL_IN_TEXT = re.compile(r"https?://[^\s<>\"']+", re.IGNORECASE)
+# Au-delà, le texte partagé est probablement la recette elle-même (copiée
+# depuis une page) et l'URL qu'il contient n'est qu'une mention de source.
+_SHARED_TEXT_MAX_CHARS = 400
+
+
+def resolve_input(input_text: str) -> str:
+    """L'URL à extraire quand l'entrée est un texte de partage qui en contient une.
+
+    Le bouton « Partager » d'Instagram, TikTok ou d'un navigateur envoie
+    souvent « Regarde cette recette ! https://… » plutôt que l'URL seule :
+    traité comme du texte, le LLM ne trouvait évidemment aucune recette.
+    Un texte long qui contient déjà ingrédients et étapes reste du texte.
+    """
+    text = input_text.strip()
+    if URL_PATTERN.match(text):
+        return text
+    match = _URL_IN_TEXT.search(text)
+    if not match:
+        return text
+    if len(text) > _SHARED_TEXT_MAX_CHARS or recipe_parsing.has_full_recipe(text):
+        return text
+    return match.group(0).rstrip(".,;:!?)]}»")
 
 
 def detect_source_type(input_text: str) -> SourceType:
@@ -44,11 +68,11 @@ async def extract(
     human-readable message before each slow step.
     """
     progress = on_progress or _noop_progress
-    source = input_text.strip()
+    source = resolve_input(input_text)
     source_type = detect_source_type(source)
     thumbnail_url = None
     recipe_data = None
-    raw_text = input_text
+    raw_text = source
     started = time.monotonic()
 
     if source_type == SourceType.video:

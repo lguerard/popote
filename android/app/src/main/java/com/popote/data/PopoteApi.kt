@@ -4,6 +4,9 @@ import retrofit2.http.*
 import retrofit2.http.PATCH
 
 interface PopoteApi {
+    @POST("api/auth/login")
+    suspend fun login(@Body body: LoginRequest): LoginResponse
+
     @GET("api/recipes")
     suspend fun getRecipes(
         @Query("search") search: String? = null,
