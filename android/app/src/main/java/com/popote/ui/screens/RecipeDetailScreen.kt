@@ -26,7 +26,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import coil.compose.AsyncImage
+import coil.compose.SubcomposeAsyncImage
+import com.popote.ui.components.RecipePlaceholder
 import com.popote.data.CookLog
 import com.popote.data.Nutrition
 import com.popote.data.Recipe
@@ -201,6 +202,12 @@ fun RecipeDetailScreen(
                                         onClick = { menuOpen = false; showReextractDialog = true },
                                     )
                                 }
+                                DropdownMenuItem(
+                                    text = { Text("Générer une image (IA)") },
+                                    leadingIcon = { Icon(Icons.Default.AutoAwesome, null) },
+                                    enabled = !r.thumbnail_generating,
+                                    onClick = { menuOpen = false; vm.generateImage() },
+                                )
                                 if (r.share_token != null) {
                                     DropdownMenuItem(
                                         text = { Text("Désactiver le lien de partage") },
@@ -394,6 +401,24 @@ private fun RecipeContent(
                     }
                 }
             }
+        } else if (recipe.thumbnail_generating) {
+            item {
+                Card(Modifier.fillMaxWidth().padding(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
+                    Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                        Text("Génération de l'image… (quelques secondes à quelques minutes)", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            }
+        } else if (!recipe.thumbnail_error.isNullOrBlank()) {
+            item {
+                Card(Modifier.fillMaxWidth().padding(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
+                    Text("Image non générée : ${recipe.thumbnail_error}", Modifier.padding(12.dp),
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onErrorContainer)
+                }
+            }
         } else if (!recipe.error_msg.isNullOrBlank()) {
             item {
                 Card(Modifier.fillMaxWidth().padding(16.dp),
@@ -421,11 +446,12 @@ private fun RecipeContent(
         val image = imageUrl(recipe.thumbnail_url, server)
         if (image != null) {
             item {
-                AsyncImage(
+                SubcomposeAsyncImage(
                     model = image,
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f),
+                    error = { RecipePlaceholder(recipe.category) },
                 )
             }
         }

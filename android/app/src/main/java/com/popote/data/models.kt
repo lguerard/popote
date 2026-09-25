@@ -33,6 +33,8 @@ data class Recipe(
     val last_cooked_at: String? = null,
     val share_token: String? = null,
     val reextracting: Boolean = false,
+    val thumbnail_generating: Boolean = false,
+    val thumbnail_error: String? = null,
 ) {
     val totalTime get() = (prep_time ?: 0) + (cook_time ?: 0)
 }

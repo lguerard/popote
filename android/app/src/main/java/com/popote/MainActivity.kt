@@ -6,6 +6,8 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
@@ -95,7 +97,11 @@ class MainActivity : ComponentActivity() {
         )
 
         CompositionLocalProvider(LocalServerUrl provides serverUrl) {
+        // Pas de marge système ici : chaque écran a son propre Scaffold, qui
+        // gère déjà la barre d'état. L'ajouter aussi ici doublait l'espace vide
+        // en haut de chaque écran.
         Scaffold(
+            contentWindowInsets = WindowInsets(0, 0, 0, 0),
             bottomBar = {
                 if (currentRoute in tabs.map { it.first }) {
                     NavigationBar {
@@ -112,7 +118,9 @@ class MainActivity : ComponentActivity() {
             }
         ) { innerPadding ->
             NavHost(navController, startDestination = "home",
-                modifier = androidx.compose.ui.Modifier.padding(innerPadding)) {
+                // consumeWindowInsets : la barre du bas couvre déjà la barre de
+                // navigation système, les écrans ne la rajoutent pas en dessous.
+                modifier = Modifier.padding(innerPadding).consumeWindowInsets(innerPadding)) {
                 composable("home") {
                     HomeScreen(
                         onRecipeClick = { id -> navController.navigate("recipe/$id") },

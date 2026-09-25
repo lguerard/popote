@@ -110,6 +110,7 @@ class RecipeRepository(private val context: Context) {
     suspend fun shareRecipe(id: String): Recipe = api().shareRecipe(id)
     suspend fun unshareRecipe(id: String): Recipe = api().unshareRecipe(id)
     suspend fun reextract(id: String, replaceImage: Boolean): Recipe = api().reextract(id, replaceImage)
+    suspend fun generateImage(id: String): Recipe = api().generateImage(id)
 
     // Frigo
     suspend fun whatToCook(ingredients: List<String>, assumeStaples: Boolean): List<PantryMatch> =

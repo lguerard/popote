@@ -4,6 +4,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.EmojiEvents
@@ -76,12 +77,13 @@ fun HomeScreen(
     val sort by vm.sort.collectAsState()
     val refreshing by vm.refreshing.collectAsState()
     var sortMenu by remember { mutableStateOf(false) }
-    val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+    val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior()
 
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
-            LargeTopAppBar(
+            // Barre compacte, masquée en défilant : l'écran est pour les recettes.
+            TopAppBar(
                 title = { Text("🍳 Popote") },
                 actions = {
                     Box {
@@ -117,108 +119,99 @@ fun HomeScreen(
             )
         },
     ) { padding ->
-        Column(Modifier.padding(padding)) {
-            // Search
-            SearchBar(
-                inputField = {
-                    SearchBarDefaults.InputField(
-                        query = search,
-                        onQueryChange = vm::onSearchChange,
-                        onSearch = {},
-                        expanded = false,
-                        onExpandedChange = {},
-                        placeholder = { Text("Rechercher une recette…") },
-                        leadingIcon = { Icon(Icons.Default.Search, null) },
-                    )
-                },
-                expanded = false,
-                onExpandedChange = {},
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-            ) {}
-
-            // Category chips
-            Row(
-                modifier = Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                CATEGORIES.forEach { cat ->
-                    FilterChip(
-                        selected = selectedCategory == cat.value,
-                        onClick = { vm.setCategory(cat.value) },
-                        label = { Text("${cat.emoji} ${cat.label}") },
-                    )
-                }
-            }
-
-            // Favoris / historique
-            Row(
-                modifier = Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 2.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                HISTORY_FILTERS.forEach { (value, label) ->
-                    FilterChip(
-                        selected = history == value,
-                        onClick = { vm.setHistory(if (history == value) null else value) },
-                        label = { Text(label, style = MaterialTheme.typography.labelSmall) },
-                    )
-                }
-            }
-
-            // Time filter chips
-            Row(
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Text("⏱", style = MaterialTheme.typography.labelMedium, modifier = Modifier.align(Alignment.CenterVertically))
-                TIME_FILTERS.forEach { t ->
-                    FilterChip(
-                        selected = selectedMaxTime == t.value,
-                        onClick = { vm.setMaxTime(t.value) },
-                        label = { Text(t.label, style = MaterialTheme.typography.labelSmall) },
-                    )
-                }
-                if (selectedCategory != null || selectedMaxTime != null || history != null) {
-                    TextButton(onClick = vm::resetFilters, contentPadding = PaddingValues(horizontal = 8.dp)) {
-                        Text("Réinitialiser", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
-                    }
-                }
-            }
-
-            PullToRefreshBox(
-                isRefreshing = refreshing,
-                onRefresh = { vm.load(pullToRefresh = true) },
+        PullToRefreshBox(
+            isRefreshing = refreshing,
+            onRefresh = { vm.load(pullToRefresh = true) },
+            modifier = Modifier.padding(padding).fillMaxSize(),
+        ) {
+            // Recherche et filtres défilent avec la grille au lieu de rester
+            // figés en haut : ils ne mangent plus la moitié de l'écran.
+            LazyVerticalGrid(
+                columns = GridCells.Adaptive(160.dp),
+                contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 88.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
                 modifier = Modifier.fillMaxSize(),
             ) {
-            when {
-                isLoading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    OutlinedTextField(
+                        value = search,
+                        onValueChange = vm::onSearchChange,
+                        placeholder = { Text("Rechercher une recette…") },
+                        leadingIcon = { Icon(Icons.Default.Search, null) },
+                        singleLine = true,
+                        shape = RoundedCornerShape(28.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
                 }
-                error != null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Text(error!!, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.error)
-                        Button(onClick = { vm.load() }) { Text("Réessayer") }
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Row(
+                            modifier = Modifier.horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            CATEGORIES.forEach { cat ->
+                                FilterChip(
+                                    selected = selectedCategory == cat.value,
+                                    onClick = { vm.setCategory(cat.value) },
+                                    label = { Text("${cat.emoji} ${cat.label}") },
+                                )
+                            }
+                        }
+                        Row(
+                            modifier = Modifier.horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            HISTORY_FILTERS.forEach { (value, label) ->
+                                FilterChip(
+                                    selected = history == value,
+                                    onClick = { vm.setHistory(if (history == value) null else value) },
+                                    label = { Text(label, style = MaterialTheme.typography.labelSmall) },
+                                )
+                            }
+                            TIME_FILTERS.filter { it.value != null }.forEach { t ->
+                                FilterChip(
+                                    selected = selectedMaxTime == t.value,
+                                    onClick = { vm.setMaxTime(if (selectedMaxTime == t.value) null else t.value) },
+                                    label = { Text("⏱ ${t.label}", style = MaterialTheme.typography.labelSmall) },
+                                )
+                            }
+                            if (selectedCategory != null || selectedMaxTime != null || history != null) {
+                                TextButton(onClick = vm::resetFilters, contentPadding = PaddingValues(horizontal = 8.dp)) {
+                                    Text("Réinitialiser", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
+                                }
+                            }
+                        }
                     }
                 }
-                recipes.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("🍽️", style = MaterialTheme.typography.displayLarge)
-                        Spacer(Modifier.height(16.dp))
-                        Text("Aucune recette", style = MaterialTheme.typography.titleLarge)
-                        Text("Appuyez sur Ajouter pour commencer", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+                when {
+                    isLoading -> item(span = { GridItemSpan(maxLineSpan) }) {
+                        Box(Modifier.fillMaxWidth().padding(48.dp), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                        }
                     }
-                }
-                else -> LazyVerticalGrid(
-                    columns = GridCells.Adaptive(180.dp),
-                    contentPadding = PaddingValues(16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    items(recipes, key = { it.id }) { recipe ->
+                    error != null -> item(span = { GridItemSpan(maxLineSpan) }) {
+                        Column(Modifier.fillMaxWidth().padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Text(error!!, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.error)
+                            Button(onClick = { vm.load() }) { Text("Réessayer") }
+                        }
+                    }
+                    recipes.isEmpty() -> item(span = { GridItemSpan(maxLineSpan) }) {
+                        Column(Modifier.fillMaxWidth().padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text("🍽️", style = MaterialTheme.typography.displayLarge)
+                            Spacer(Modifier.height(16.dp))
+                            Text("Aucune recette", style = MaterialTheme.typography.titleLarge)
+                            Text("Appuyez sur Ajouter pour commencer", style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                    else -> items(recipes, key = { it.id }) { recipe ->
                         RecipeCard(recipe = recipe, onClick = { onRecipeClick(recipe.id) })
                     }
-                    item { Spacer(Modifier.height(80.dp)) }
                 }
-            }
             }
         }
     }
