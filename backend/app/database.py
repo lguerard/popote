@@ -43,6 +43,18 @@ _MIGRATIONS = (
     "ALTER TABLE recipes ADD COLUMN IF NOT EXISTS thumbnail_generating BOOLEAN"
     " NOT NULL DEFAULT false",
     "ALTER TABLE recipes ADD COLUMN IF NOT EXISTS thumbnail_error TEXT",
+    "ALTER TABLE recipes ADD COLUMN IF NOT EXISTS reextracting BOOLEAN"
+    " NOT NULL DEFAULT false",
+    "ALTER TABLE recipes ADD COLUMN IF NOT EXISTS rating INTEGER",
+    "ALTER TABLE recipes ADD COLUMN IF NOT EXISTS cook_again BOOLEAN",
+    "ALTER TABLE recipes ADD COLUMN IF NOT EXISTS cooked_count INTEGER"
+    " NOT NULL DEFAULT 0",
+    "ALTER TABLE recipes ADD COLUMN IF NOT EXISTS last_cooked_at DATE",
+    "ALTER TABLE recipes ADD COLUMN IF NOT EXISTS share_token VARCHAR(64)",
+    "CREATE UNIQUE INDEX IF NOT EXISTS ix_recipes_share_token ON recipes (share_token)",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS shopping_share_token VARCHAR(64)",
+    "CREATE UNIQUE INDEX IF NOT EXISTS ix_users_shopping_share_token"
+    " ON users (shopping_share_token)",
     # Un serveur sans aucun administrateur ne peut plus valider personne :
     # le compte le plus ancien le devient. Sans effet des qu'il en existe un.
     "UPDATE users SET is_admin = true WHERE id = ("

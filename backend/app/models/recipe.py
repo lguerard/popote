@@ -1,6 +1,6 @@
 import uuid
-from datetime import datetime, timezone
-from sqlalchemy import String, Text, Integer, DateTime, ForeignKey, Enum as SAEnum
+from datetime import date, datetime, timezone
+from sqlalchemy import Boolean, Date, String, Text, Integer, DateTime, ForeignKey, Enum as SAEnum
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 from ..database import Base
@@ -56,5 +56,16 @@ class Recipe(Base):
     # regenerer juste l'image d'une recette deja terminee.
     thumbnail_generating: Mapped[bool] = mapped_column(default=False)
     thumbnail_error: Mapped[str | None] = mapped_column(Text)
+    # Réextraction depuis la source : la recette reste "done" (donc visible)
+    # pendant qu'elle tourne, progress_message et error_msg servent au suivi.
+    reextracting: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Avis personnel. cooked_count/last_cooked_at sont dérivés du journal
+    # (cook_logs) mais gardés ici pour trier et filtrer la liste sans jointure.
+    rating: Mapped[int | None] = mapped_column(Integer)
+    cook_again: Mapped[bool | None] = mapped_column(Boolean)
+    cooked_count: Mapped[int] = mapped_column(Integer, default=0)
+    last_cooked_at: Mapped[date | None] = mapped_column(Date)
+    # Lien public en lecture seule (/partage/r/<jeton>) ; None = non partagée.
+    share_token: Mapped[str | None] = mapped_column(String(64), unique=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))

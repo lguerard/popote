@@ -2,7 +2,10 @@ import asyncio
 import gc
 import logging
 import os
+import re
+import subprocess
 import tempfile
+from concurrent.futures import ThreadPoolExecutor
 from typing import Awaitable, Callable
 
 import yt_dlp
@@ -83,12 +86,14 @@ def _transcribe(audio_file: str) -> str:
             gc.collect()
 
 
-def _combine_sources(title: str, transcript: str, description: str) -> str:
+def _combine_sources(
+    title: str, transcript: str, description: str, on_screen: str = "",
+) -> str:
     """Titre, transcription et légende du post en un seul texte pour le LLM.
 
     Beaucoup de reels recette (Instagram, TikTok) n'ont pas de narration :
     la recette est dans la légende, ou affichée à l'écran (texte incrusté,
-    non extrait ici).
+    lu par OCR, voir _ocr_video_text).
     """
     parts = []
     if title.strip():
@@ -97,7 +102,116 @@ def _combine_sources(title: str, transcript: str, description: str) -> str:
         parts.append(f"Transcription de la vidéo :\n{transcript.strip()}")
     if description.strip():
         parts.append(f"Légende de la publication :\n{description.strip()}")
+    if on_screen.strip():
+        parts.append(f"Texte affiché à l'écran pendant la vidéo :\n{on_screen.strip()}")
     return "\n\n".join(parts)
+
+
+# ── Texte incrusté (OCR des images de la vidéo) ─────────────────────────────
+# Une image toutes les 2 s suffit : un texte incrusté reste affiché le temps
+# d'être lu. Plafonné pour qu'un long reel ne coûte pas plusieurs minutes.
+_OCR_FRAME_INTERVAL_SECONDS = 2
+_OCR_MAX_FRAMES = 45
+_OCR_MAX_DURATION_SECONDS = 600
+# En dessous, Tesseract lit surtout des motifs du décor comme des lettres.
+_OCR_MIN_WORD_CONFIDENCE = 60
+
+
+def _fold_line(line: str) -> str:
+    folded = recipe_parsing._fold(line).replace("œ", "oe").replace("æ", "ae")
+    return re.sub(r"[^a-z0-9]+", " ", folded).strip()
+
+
+def merge_ocr_lines(frame_texts: list[str]) -> str:
+    """Fusionne le texte lu sur chaque image en supprimant les répétitions.
+
+    Un même texte reste affiché sur plusieurs images consécutives : sans
+    dédoublonnage, chaque ingrédient apparaîtrait cinq ou six fois. Les
+    lignes trop courtes ou sans lettres (bruit d'OCR sur le décor) sont
+    écartées ; une ligne déjà vue, ou contenue dans une ligne déjà vue
+    (texte qui apparaît mot à mot), n'est pas répétée.
+    """
+    kept: list[str] = []
+    seen: list[str] = []
+    for text in frame_texts:
+        for raw in text.splitlines():
+            line = " ".join(raw.split())
+            folded = _fold_line(line)
+            letters = sum(c.isalpha() for c in folded)
+            if len(folded) < 3 or letters < 3 or letters < len(folded.replace(" ", "")) * 0.5:
+                continue
+            if any(folded in other for other in seen):
+                continue
+            # Version plus complète d'une ligne gardée (texte animé qui
+            # s'écrit progressivement) : elle remplace l'ancienne.
+            for i, other in enumerate(seen):
+                if other in folded:
+                    seen[i], kept[i] = folded, line
+                    break
+            else:
+                seen.append(folded)
+                kept.append(line)
+    return "\n".join(kept)
+
+
+def _ocr_frame(path: str) -> str:
+    import pytesseract
+    from PIL import Image, ImageOps
+
+    with Image.open(path) as img:
+        gray = ImageOps.grayscale(img)
+        data = pytesseract.image_to_data(
+            gray, lang="fra+eng", output_type=pytesseract.Output.DICT,
+        )
+    lines: dict[tuple, list[str]] = {}
+    for i, word in enumerate(data["text"]):
+        word = word.strip()
+        try:
+            conf = float(data["conf"][i])
+        except (TypeError, ValueError):
+            conf = -1
+        if not word or conf < _OCR_MIN_WORD_CONFIDENCE:
+            continue
+        key = (data["block_num"][i], data["par_num"][i], data["line_num"][i])
+        lines.setdefault(key, []).append(word)
+    return "\n".join(" ".join(words) for words in lines.values())
+
+
+def _ocr_video_text(url: str) -> str:
+    """Texte incrusté dans la vidéo : images extraites par ffmpeg, lues par Tesseract."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        opts = {
+            **_YDL_BASE,
+            # Basse définition : le texte incrusté est gros, et une vidéo
+            # 480p se télécharge et se décode bien plus vite.
+            "format": "bv*[height<=720][ext=mp4]/b[height<=720]/bv*/b/worst",
+            "outtmpl": os.path.join(tmpdir, "video.%(ext)s"),
+        }
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            ydl.extract_info(url, download=True)
+        videos = [
+            os.path.join(tmpdir, f) for f in os.listdir(tmpdir)
+            if f.startswith("video.") and not f.endswith(".part")
+        ]
+        if not videos:
+            return ""
+        frames_dir = os.path.join(tmpdir, "frames")
+        os.makedirs(frames_dir)
+        subprocess.run(
+            [
+                "ffmpeg", "-loglevel", "error", "-i", videos[0],
+                "-vf", f"fps=1/{_OCR_FRAME_INTERVAL_SECONDS},scale=720:-2",
+                "-frames:v", str(_OCR_MAX_FRAMES),
+                os.path.join(frames_dir, "f%03d.png"),
+            ],
+            check=True, timeout=120,
+        )
+        frames = sorted(os.path.join(frames_dir, f) for f in os.listdir(frames_dir))
+        # Tesseract tourne en sous-processus : quelques threads suffisent à
+        # occuper plusieurs cœurs.
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            texts = list(pool.map(_ocr_frame, frames))
+    return merge_ocr_lines(texts)
 
 
 _YDL_BASE = {"quiet": True, "no_warnings": True, "noplaylist": True}
@@ -215,4 +329,20 @@ async def video_to_text(
         await progress("Transcription de l'audio de la vidéo…")
         transcript = await asyncio.to_thread(_download_audio_and_transcribe, url)
         logger.info("vidéo %s : audio transcrit par Whisper", url)
-    return _combine_sources(title, transcript, description), thumbnail
+
+    combined = _combine_sources(title, transcript, description)
+    duration = info.get("duration") or 0
+    if recipe_parsing.has_full_recipe(combined) or duration > _OCR_MAX_DURATION_SECONDS:
+        return combined, thumbnail
+
+    # Reel sans narration ni légende détaillée : la recette est souvent
+    # écrite à l'écran. Un échec ici ne doit pas faire perdre ce qu'on a déjà.
+    await progress("Lecture du texte affiché dans la vidéo…")
+    try:
+        on_screen = await asyncio.to_thread(_ocr_video_text, url)
+    except Exception:
+        logger.warning("OCR de la vidéo %s impossible", url, exc_info=True)
+        on_screen = ""
+    if on_screen:
+        logger.info("vidéo %s : %d lignes de texte incrusté lues", url, on_screen.count("\n") + 1)
+    return _combine_sources(title, transcript, description, on_screen), thumbnail

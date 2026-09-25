@@ -1,14 +1,20 @@
 import asyncio
+import secrets
+from datetime import date
 from uuid import UUID
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, UploadFile, File
 from sqlalchemy import func, select, or_, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from ..database import get_db
 from ..deps import current_user
+from ..models.cook_log import CookLog
 from ..models.user import User
 from ..models.recipe import Recipe, ExtractionStatus
-from ..schemas.recipe import RecipeCreate, RecipeUpdate, RecipeOut, NutritionOut
-from ..services import achievement_service, image_service
+from ..schemas.recipe import (
+    CookedIn, CookLogOut, NutritionOut, PantryMatch, PantryRequest, RecipeCreate,
+    RecipeOut, RecipeUpdate,
+)
+from ..services import achievement_service, grocery, image_service
 
 router = APIRouter(prefix="/recipes", tags=["recipes"])
 
@@ -77,23 +83,37 @@ async def list_recipes(
     source_type: str | None = Query(None),
     max_time: int | None = Query(None, description="Temps total max en minutes"),
     favorites_only: bool = Query(False),
+    never_cooked: bool = Query(False, description="Seulement les recettes jamais cuisinées"),
+    cook_again: bool = Query(False, description="Seulement celles marquées « à refaire »"),
+    sort: str = Query("recent", pattern="^(recent|rating|last_cooked|most_cooked|title)$"),
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=1000),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(current_user),
 ):
     # Extractions en cours/échouées suivies via /tasks/{id}, pas la collection
+    order = {
+        "recent": (Recipe.created_at.desc(),),
+        "rating": (Recipe.rating.desc().nulls_last(), Recipe.created_at.desc()),
+        "last_cooked": (Recipe.last_cooked_at.desc().nulls_last(), Recipe.created_at.desc()),
+        "most_cooked": (Recipe.cooked_count.desc(), Recipe.created_at.desc()),
+        "title": (func.lower(Recipe.title),),
+    }[sort]
     q = (
         select(Recipe)
         .where(Recipe.owner_id == user.id)
         .where(Recipe.status == ExtractionStatus.done)
-        .order_by(Recipe.created_at.desc())
+        .order_by(*order)
     )
     if search:
         pattern = f"%{search}%"
         q = q.where(or_(Recipe.title.ilike(pattern), Recipe.description.ilike(pattern)))
     if favorites_only:
         q = q.where(Recipe.is_favorite.is_(True))
+    if never_cooked:
+        q = q.where(Recipe.cooked_count == 0)
+    if cook_again:
+        q = q.where(Recipe.cook_again.is_(True))
     if tag:
         q = q.where(Recipe.tags.contains([tag]))
     if category:
@@ -110,6 +130,34 @@ async def list_recipes(
     q = q.offset((page - 1) * limit).limit(limit)
     result = await db.execute(q)
     return result.scalars().all()
+
+
+@router.post("/what-to-cook", response_model=list[PantryMatch])
+async def what_to_cook(
+    req: PantryRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(current_user),
+):
+    """« Qu'est-ce que je cuisine ? » : ses recettes classées selon le frigo."""
+    rows = (await db.execute(
+        select(Recipe)
+        .where(Recipe.owner_id == user.id, Recipe.status == ExtractionStatus.done)
+    )).scalars().all()
+    by_id = {str(r.id): r for r in rows}
+    ranked = grocery.rank_by_pantry(
+        [{"id": str(r.id), "ingredients": r.ingredients or []} for r in rows],
+        req.ingredients,
+        assume_staples=req.assume_staples,
+    )
+    if req.max_missing is not None:
+        ranked = [r for r in ranked if len(r["missing"]) <= req.max_missing]
+    return [
+        PantryMatch(
+            recipe=RecipeOut.model_validate(by_id[r["recipe"]["id"]]),
+            matched=r["matched"], missing=r["missing"], coverage=r["coverage"],
+        )
+        for r in ranked[:60]
+    ]
 
 
 @router.post("", response_model=RecipeOut, status_code=201)
@@ -313,3 +361,196 @@ async def analyze_nutrition(
     await db.commit()
     await achievement_service.on_nutrition_analyzed(db)
     return nutrition
+
+
+# ---------------------------------------------------------------------------
+# Historique « cuisinée le… »
+# ---------------------------------------------------------------------------
+
+async def _refresh_cook_stats(db: AsyncSession, recipe: Recipe) -> None:
+    count, last = (await db.execute(
+        select(func.count(), func.max(CookLog.cooked_on)).where(CookLog.recipe_id == recipe.id)
+    )).one()
+    recipe.cooked_count = count
+    recipe.last_cooked_at = last
+
+
+@router.post("/{recipe_id}/cooked", response_model=RecipeOut, status_code=201)
+async def mark_cooked(
+    recipe_id: UUID,
+    data: CookedIn,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(current_user),
+):
+    recipe = await _owned_recipe(db, recipe_id, user)
+    db.add(CookLog(
+        owner_id=user.id, recipe_id=recipe.id, cooked_on=data.cooked_on or date.today(),
+        rating=data.rating, comment=(data.comment or "").strip() or None,
+    ))
+    await db.flush()
+    await _refresh_cook_stats(db, recipe)
+    if data.rating:
+        recipe.rating = data.rating
+    await db.commit()
+    await db.refresh(recipe)
+    return recipe
+
+
+@router.get("/{recipe_id}/history", response_model=list[CookLogOut])
+async def cook_history(
+    recipe_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(current_user),
+):
+    recipe = await _owned_recipe(db, recipe_id, user)
+    return (await db.execute(
+        select(CookLog).where(CookLog.recipe_id == recipe.id)
+        .order_by(CookLog.cooked_on.desc(), CookLog.created_at.desc())
+    )).scalars().all()
+
+
+@router.delete("/{recipe_id}/history/{log_id}", response_model=RecipeOut)
+async def delete_cook_log(
+    recipe_id: UUID,
+    log_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(current_user),
+):
+    recipe = await _owned_recipe(db, recipe_id, user)
+    log = await db.get(CookLog, log_id)
+    if not log or log.recipe_id != recipe.id:
+        raise HTTPException(404, "Entrée introuvable")
+    await db.delete(log)
+    await db.flush()
+    await _refresh_cook_stats(db, recipe)
+    await db.commit()
+    await db.refresh(recipe)
+    return recipe
+
+
+# ---------------------------------------------------------------------------
+# Partage par lien public
+# ---------------------------------------------------------------------------
+
+@router.post("/{recipe_id}/share", response_model=RecipeOut)
+async def share_recipe(
+    recipe_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(current_user),
+):
+    recipe = await _owned_recipe(db, recipe_id, user)
+    if not recipe.share_token:
+        recipe.share_token = secrets.token_urlsafe(16)
+        await db.commit()
+        await db.refresh(recipe)
+    return recipe
+
+
+@router.delete("/{recipe_id}/share", response_model=RecipeOut)
+async def unshare_recipe(
+    recipe_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(current_user),
+):
+    """Révoque le lien : l'ancien jeton cesse aussitôt de fonctionner."""
+    recipe = await _owned_recipe(db, recipe_id, user)
+    recipe.share_token = None
+    await db.commit()
+    await db.refresh(recipe)
+    return recipe
+
+
+# ---------------------------------------------------------------------------
+# Réextraction depuis la source
+# ---------------------------------------------------------------------------
+
+# Ce qu'une réextraction remplace. Jamais les notes, favoris, avis ni
+# historique : ils sont à l'utilisateur, pas à la source. Ni
+# similar_recipe_id : la recherche de doublons trouverait la recette
+# elle-même.
+_REEXTRACTED_FIELDS = (
+    "title", "description", "language", "servings", "prep_time", "cook_time",
+    "ingredients", "steps", "tags", "category",
+)
+
+
+@router.post("/{recipe_id}/reextract", response_model=RecipeOut, status_code=202)
+async def reextract_recipe(
+    recipe_id: UUID,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(current_user),
+):
+    """Relance l'extraction sur l'URL d'origine et met la recette à jour sur place.
+
+    La recette reste visible pendant ce temps (statut inchangé) ; le client
+    suit ``reextracting`` / ``progress_message`` via GET /recipes/{id}.
+    """
+    recipe = await _owned_recipe(db, recipe_id, user)
+    if not recipe.source_url:
+        raise HTTPException(400, "Cette recette n'a pas de source à réextraire")
+    if recipe.reextracting:
+        return recipe
+    recipe.reextracting = True
+    recipe.error_msg = None
+    recipe.progress_message = "En attente…"
+    await db.commit()
+    await db.refresh(recipe)
+    background_tasks.add_task(_run_reextraction, recipe.id)
+    return recipe
+
+
+async def _run_reextraction(recipe_id: UUID):
+    from ..database import AsyncSessionLocal
+    from ..services.extractor import extract
+    from .extract import EXTRACTION_TIMEOUT_SECONDS
+
+    async with AsyncSessionLocal() as db:
+        recipe = await db.get(Recipe, recipe_id)
+        if not recipe:
+            return
+
+        async def report_progress(message: str) -> None:
+            recipe.progress_message = message
+            await db.commit()
+
+        try:
+            data = await asyncio.wait_for(
+                extract(recipe.source_url, on_progress=report_progress),
+                timeout=EXTRACTION_TIMEOUT_SECONDS,
+            )
+            for field in _REEXTRACTED_FIELDS:
+                if data.get(field) not in (None, "", []):
+                    setattr(recipe, field, data[field])
+            # Une image importée ou générée par l'utilisateur (/media/…)
+            # prime sur celle de la source.
+            if data.get("thumbnail_url") and not (recipe.thumbnail_url or "").startswith("/media/"):
+                recipe.thumbnail_url = data["thumbnail_url"]
+            recipe.error_msg = None
+        except TimeoutError:
+            await db.rollback()
+            recipe.error_msg = (
+                f"Réextraction trop longue (plus de {EXTRACTION_TIMEOUT_SECONDS // 60} minutes) : "
+                "la recette n'a pas été modifiée."
+            )
+        except Exception as e:
+            await db.rollback()
+            recipe.error_msg = f"Réextraction échouée, la recette n'a pas été modifiée : {e}"
+        recipe.reextracting = False
+        recipe.progress_message = None
+        await db.commit()
+
+
+async def sweep_stuck_reextractions(db: AsyncSession) -> int:
+    """Même principe que sweep_stuck_thumbnails, pour les réextractions."""
+    result = await db.execute(
+        update(Recipe)
+        .where(Recipe.reextracting.is_(True))
+        .values(
+            reextracting=False,
+            progress_message=None,
+            error_msg="Réextraction interrompue par un redémarrage du serveur.",
+        )
+    )
+    await db.commit()
+    return result.rowcount
