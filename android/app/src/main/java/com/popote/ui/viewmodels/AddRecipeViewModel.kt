@@ -29,10 +29,10 @@ class AddRecipeViewModel(app: Application) : AndroidViewModel(app) {
             try {
                 val response = repo.extract(input.trim())
                 _state.value = AddState.Polling(response.recipe_id, "En attente…")
-                val recipe = repo.pollTask(response.recipe_id) { status ->
+                val recipe = repo.pollTask(response.recipe_id) { status, progress ->
                     val label = when (status) {
                         "pending" -> "En attente…"
-                        "processing" -> "Extraction en cours…"
+                        "processing" -> progress ?: "Extraction en cours…"
                         else -> status
                     }
                     _state.value = AddState.Polling(response.recipe_id, label)

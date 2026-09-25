@@ -21,6 +21,7 @@ fun SettingsScreen(
 ) {
     val currentUrl by vm.serverUrl.collectAsState(initial = "")
     val testResult by vm.testResult.collectAsState()
+    val userName by vm.userName.collectAsState(initial = null)
     var urlInput by remember(currentUrl) { mutableStateOf(currentUrl) }
 
     Scaffold(
@@ -80,6 +81,17 @@ fun SettingsScreen(
                         color = if (isOk) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onErrorContainer,
                     )
                 }
+            }
+
+            HorizontalDivider()
+            Text("Compte", style = MaterialTheme.typography.titleLarge)
+            Text(
+                if (userName != null) "Connecté en tant que $userName" else "Connecté",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            OutlinedButton(onClick = { vm.logout() }, modifier = Modifier.fillMaxWidth()) {
+                Text("Se déconnecter")
             }
         }
     }

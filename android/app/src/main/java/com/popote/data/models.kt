@@ -17,6 +17,7 @@ data class Recipe(
     val thumbnail_url: String?,
     val status: String,
     val error_msg: String?,
+    val progress_message: String? = null,
     val is_favorite: Boolean = false,
     val notes: String? = null,
     val nutrition: Nutrition? = null,
@@ -74,3 +75,7 @@ data class ExtractionResponse(
     val status: String,
     val message: String,
 )
+
+data class LoginRequest(val email: String, val password: String)
+data class AuthUser(val id: String, val email: String, val display_name: String)
+data class LoginResponse(val access_token: String, val user: AuthUser)

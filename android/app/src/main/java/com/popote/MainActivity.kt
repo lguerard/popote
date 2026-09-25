@@ -5,106 +5,147 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import androidx.navigation.NavType
 import androidx.navigation.compose.*
 import androidx.navigation.navArgument
+import com.popote.data.RecipeRepository
 import com.popote.ui.screens.*
 import com.popote.ui.theme.PopoteTheme
 
 class MainActivity : ComponentActivity() {
+    // Texte reçu via « Partager → Popote » (lien Instagram, TikTok, page web…)
+    // en attente d'import. État Compose : un partage reçu alors que l'appli
+    // est déjà ouverte (onNewIntent) déclenche aussi l'import.
+    private var sharedText by mutableStateOf<String?>(null)
+
+    private fun readShare(intent: Intent?): String? {
+        if (intent?.action != Intent.ACTION_SEND) return null
+        if (intent.type?.startsWith("text/") != true) return null
+        return (intent.getStringExtra(Intent.EXTRA_TEXT) ?: intent.getStringExtra(Intent.EXTRA_SUBJECT))
+            ?.takeIf { it.isNotBlank() }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        readShare(intent)?.let { sharedText = it }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-
-        val sharedText = if (intent?.action == Intent.ACTION_SEND && intent.type == "text/plain") {
-            intent.getStringExtra(Intent.EXTRA_TEXT)
-        } else null
+        // Pas relu après une rotation : l'import aurait été relancé.
+        if (savedInstanceState == null) sharedText = readShare(intent)
+        val repo = RecipeRepository(applicationContext)
 
         setContent {
             PopoteTheme {
-                val navController = rememberNavController()
-                val currentBackStack by navController.currentBackStackEntryAsState()
-                val currentRoute = currentBackStack?.destination?.route
-
-                val topLevelRoutes = setOf("home", "shopping", "planning", "achievements")
-
-                Scaffold(
-                    bottomBar = {
-                        if (currentRoute in topLevelRoutes) {
-                            NavigationBar {
-                                NavigationBarItem(
-                                    selected = currentRoute == "home",
-                                    onClick = { navController.navigate("home") { launchSingleTop = true; restoreState = true } },
-                                    icon = { Icon(Icons.Default.MenuBook, null) },
-                                    label = { Text("Recettes") },
-                                )
-                                NavigationBarItem(
-                                    selected = currentRoute == "planning",
-                                    onClick = { navController.navigate("planning") { launchSingleTop = true; restoreState = true } },
-                                    icon = { Icon(Icons.Default.CalendarMonth, null) },
-                                    label = { Text("Planning") },
-                                )
-                                NavigationBarItem(
-                                    selected = currentRoute == "shopping",
-                                    onClick = { navController.navigate("shopping") { launchSingleTop = true; restoreState = true } },
-                                    icon = { Icon(Icons.Default.ShoppingCart, null) },
-                                    label = { Text("Courses") },
-                                )
-                                NavigationBarItem(
-                                    selected = currentRoute == "achievements",
-                                    onClick = { navController.navigate("achievements") { launchSingleTop = true; restoreState = true } },
-                                    icon = { Icon(Icons.Default.EmojiEvents, null) },
-                                    label = { Text("Succès") },
-                                )
-                            }
-                        }
+                val loggedIn by repo.isLoggedIn.collectAsState(initial = null)
+                when (loggedIn) {
+                    null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator()
                     }
-                ) { innerPadding ->
-                    NavHost(navController, startDestination = if (sharedText != null) "add" else "home",
-                        modifier = androidx.compose.ui.Modifier.padding(innerPadding)) {
-                        composable("home") {
-                            HomeScreen(
-                                onRecipeClick = { id -> navController.navigate("recipe/$id") },
-                                onAddClick = { navController.navigate("add") },
-                                onSettingsClick = { navController.navigate("settings") },
-                            )
-                        }
-                        composable("planning") {
-                            MealPlannerScreen(onBack = { navController.popBackStack() })
-                        }
-                        composable("shopping") {
-                            ShoppingListScreen(onBack = { navController.popBackStack() })
-                        }
-                        composable(
-                            "recipe/{id}",
-                            arguments = listOf(navArgument("id") { type = NavType.StringType }),
-                        ) { backStack ->
-                            RecipeDetailScreen(
-                                recipeId = backStack.arguments!!.getString("id")!!,
-                                onBack = { navController.popBackStack() },
-                            )
-                        }
-                        composable("add") {
-                            AddRecipeScreen(
-                                sharedText = sharedText,
-                                onBack = { navController.popBackStack() },
-                                onSuccess = { id ->
-                                    navController.navigate("recipe/$id") { popUpTo("home") }
-                                },
-                            )
-                        }
-                        composable("achievements") {
-                            AchievementsScreen(onBack = { navController.popBackStack() })
-                        }
-                        composable("settings") {
-                            SettingsScreen(onBack = { navController.popBackStack() })
-                        }
+                    false -> LoginScreen(pendingShare = sharedText != null)
+                    true -> PopoteApp()
+                }
+            }
+        }
+    }
+
+    @Composable
+    private fun PopoteApp() {
+        val navController = rememberNavController()
+        val currentBackStack by navController.currentBackStackEntryAsState()
+        val currentRoute = currentBackStack?.destination?.route
+
+        val topLevelRoutes = setOf("home", "shopping", "planning", "achievements")
+
+        LaunchedEffect(sharedText) {
+            if (sharedText != null && currentRoute != "add") {
+                navController.navigate("add") { launchSingleTop = true }
+            }
+        }
+
+        Scaffold(
+            bottomBar = {
+                if (currentRoute in topLevelRoutes) {
+                    NavigationBar {
+                        NavigationBarItem(
+                            selected = currentRoute == "home",
+                            onClick = { navController.navigate("home") { launchSingleTop = true; restoreState = true } },
+                            icon = { Icon(Icons.Default.MenuBook, null) },
+                            label = { Text("Recettes") },
+                        )
+                        NavigationBarItem(
+                            selected = currentRoute == "planning",
+                            onClick = { navController.navigate("planning") { launchSingleTop = true; restoreState = true } },
+                            icon = { Icon(Icons.Default.CalendarMonth, null) },
+                            label = { Text("Planning") },
+                        )
+                        NavigationBarItem(
+                            selected = currentRoute == "shopping",
+                            onClick = { navController.navigate("shopping") { launchSingleTop = true; restoreState = true } },
+                            icon = { Icon(Icons.Default.ShoppingCart, null) },
+                            label = { Text("Courses") },
+                        )
+                        NavigationBarItem(
+                            selected = currentRoute == "achievements",
+                            onClick = { navController.navigate("achievements") { launchSingleTop = true; restoreState = true } },
+                            icon = { Icon(Icons.Default.EmojiEvents, null) },
+                            label = { Text("Succès") },
+                        )
                     }
+                }
+            }
+        ) { innerPadding ->
+            NavHost(navController, startDestination = "home",
+                modifier = androidx.compose.ui.Modifier.padding(innerPadding)) {
+                composable("home") {
+                    HomeScreen(
+                        onRecipeClick = { id -> navController.navigate("recipe/$id") },
+                        onAddClick = { navController.navigate("add") },
+                        onSettingsClick = { navController.navigate("settings") },
+                    )
+                }
+                composable("planning") {
+                    MealPlannerScreen(onBack = { navController.popBackStack() })
+                }
+                composable("shopping") {
+                    ShoppingListScreen(onBack = { navController.popBackStack() })
+                }
+                composable(
+                    "recipe/{id}",
+                    arguments = listOf(navArgument("id") { type = NavType.StringType }),
+                ) { backStack ->
+                    RecipeDetailScreen(
+                        recipeId = backStack.arguments!!.getString("id")!!,
+                        onBack = { navController.popBackStack() },
+                    )
+                }
+                composable("add") {
+                    AddRecipeScreen(
+                        sharedText = sharedText,
+                        onSharedConsumed = { sharedText = null },
+                        onBack = { navController.popBackStack() },
+                        onSuccess = { id ->
+                            navController.navigate("recipe/$id") { popUpTo("home") }
+                        },
+                    )
+                }
+                composable("achievements") {
+                    AchievementsScreen(onBack = { navController.popBackStack() })
+                }
+                composable("settings") {
+                    SettingsScreen(onBack = { navController.popBackStack() })
                 }
             }
         }
