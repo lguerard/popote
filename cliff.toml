@@ -30,9 +30,18 @@ trim = true
 
 [git]
 conventional_commits = true
-filter_unconventional = true
+# Filet de sécurité : un message qui échapperait encore aux conversions
+# ci-dessous finit dans « Nouveautés » au lieu de disparaître.
+filter_unconventional = false
 split_commits = false
 commit_preprocessors = [
+  # Messages non conventionnels (« Add … », « Fix … ») convertis en
+  # « feat: » / « fix: » : sinon ils ne font pas monter la version, et
+  # git-cliff reproposait un tag déjà existant (échec de la release).
+  # Les merges de PR passent en « chore: », ignoré plus bas.
+  { pattern = "^Merge ", replace = "chore: Merge " },
+  { pattern = "^((?:Fix|Corrige|Répare)\\b)", replace = "fix: ${1}" },
+  { pattern = "^([A-Z][\\w'-]*) ", replace = "feat: ${1} " },
   { pattern = "(\\w+(?:\\([^)]*\\))?!?:\\s+)[^\\w\\s]+\\s*", replace = "$1" },
 ]
 commit_parsers = [
@@ -52,6 +61,7 @@ commit_parsers = [
   { message = "^chore",    skip = true },
   { message = "^style",    skip = true },
   { message = "^wip",      skip = true },
+  { message = ".*",        group = "✨ Nouveautés" },
 ]
 protect_breaking_commits = false
 filter_commits = true
