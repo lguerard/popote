@@ -29,12 +29,19 @@ _cuda_unavailable = False
 def _load_cpu_whisper() -> WhisperModel:
     global _cpu_whisper_model
     if _cpu_whisper_model is None:
+        # Modèle plus petit sur CPU : large-v3 y transcrit à peine plus vite
+        # que le temps réel, un reel de 2 minutes suffisait à faire dépasser
+        # le délai de 5 minutes de l'extraction.
         _cpu_whisper_model = WhisperModel(
-            settings.whisper_model,
+            settings.whisper_cpu_model,
             device="cpu",
             compute_type="int8",
         )
     return _cpu_whisper_model
+
+
+def _is_out_of_memory(exc: Exception) -> bool:
+    return "out of memory" in str(exc).lower()
 
 
 def _load_whisper() -> tuple[WhisperModel, bool]:
@@ -59,11 +66,15 @@ def _load_whisper() -> tuple[WhisperModel, bool]:
         # Missing libcublas/libcudnn in the image, driver too old, VRAM
         # already taken by Ollama... None of it should turn a video
         # import into a hard failure: fall back to CPU, slower but
-        # working, and say so loudly enough to be fixed.
-        _cuda_unavailable = True
+        # working, and say so loudly enough to be fixed. A full GPU is
+        # temporary (Ollama is unloaded before each transcription, see
+        # video_to_text): only a real CUDA problem disables it for good.
+        if not _is_out_of_memory(exc):
+            _cuda_unavailable = True
         logger.warning(
-            "Whisper could not start on GPU (%s) — falling back to CPU "
-            "for this run. Transcription will be much slower.", exc,
+            "Whisper could not start on GPU (%s) — falling back to CPU (%s)%s.",
+            exc, settings.whisper_cpu_model,
+            "" if _is_out_of_memory(exc) else " until the next restart",
         )
         return _load_cpu_whisper(), False
 
@@ -299,6 +310,23 @@ async def _noop_progress(_message: str) -> None:
     pass
 
 
+async def _free_gpu_for_whisper() -> None:
+    """Décharge le modèle Ollama pour que Whisper tienne sur le GPU.
+
+    Ollama (OLLAMA_KEEP_ALIVE=24h) occupe presque toute la VRAM : Whisper
+    ne pouvait jamais y charger et transcrivait sur CPU, plusieurs fois
+    plus lentement. Ollama recharge son modèle tout seul à l'étape suivante
+    (analyse de la recette), en quelques secondes.
+    """
+    if settings.whisper_device != "cuda" or _cuda_unavailable or not settings.whisper_free_gpu:
+        return
+    from .llm_service import unload_ollama_model
+    try:
+        await unload_ollama_model()
+    except Exception:
+        logger.warning("Impossible de libérer le GPU d'Ollama avant Whisper", exc_info=True)
+
+
 async def video_to_text(
     url: str, progress: Callable[[str], Awaitable[None]] | None = None
 ) -> tuple[str, str | None]:
@@ -327,6 +355,7 @@ async def video_to_text(
         logger.info("vidéo %s : sous-titres utilisés", url)
     else:
         await progress("Transcription de l'audio de la vidéo…")
+        await _free_gpu_for_whisper()
         transcript = await asyncio.to_thread(_download_audio_and_transcribe, url)
         logger.info("vidéo %s : audio transcrit par Whisper", url)
 

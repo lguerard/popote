@@ -9,14 +9,10 @@ from ..models.user import User
 from ..models.recipe import Recipe, ExtractionStatus
 from ..schemas.recipe import ExtractionRequest, ExtractionResponse, RecipeOut
 from ..services.extractor import extract
+from ..services.extraction_steps import EXTRACTION_TIMEOUT_SECONDS, StepTracker
 
 router = APIRouter(tags=["extraction"])
 
-# Une extraction qui n'a pas fini au bout de ce delai est abandonnee plutot
-# que laissee "processing" indefiniment : un scrape ou un appel LLM qui
-# reste bloque (page qui ne finit jamais de charger, modele local surcharge)
-# ne doit pas transformer la recette en zombie que rien ne relance jamais.
-EXTRACTION_TIMEOUT_SECONDS = 300
 
 # Champs qu'une extraction a le droit d'ecrire sur la recette. Le modele ne
 # suit pas toujours le schema du prompt a la lettre (ex: un champ "notes"
@@ -130,8 +126,10 @@ async def _run_extraction(recipe_id: UUID, input_text: str):
 
         recipe.status = ExtractionStatus.processing
         await db.commit()
+        steps = StepTracker(f"extraction {input_text.strip()[:80]}")
 
         async def report_progress(message: str) -> None:
+            steps.record(message)
             recipe.progress_message = message
             await db.commit()
 
@@ -140,6 +138,7 @@ async def _run_extraction(recipe_id: UUID, input_text: str):
                 extract(input_text, db=db, on_progress=report_progress, owner_id=recipe.owner_id),
                 timeout=EXTRACTION_TIMEOUT_SECONDS,
             )
+            steps.record("terminé")
             _apply_extracted_fields(recipe, data)
             recipe.status = ExtractionStatus.done
             recipe.error_msg = None
@@ -154,10 +153,7 @@ async def _run_extraction(recipe_id: UUID, input_text: str):
             # s'en resservir pour ecrire l'echec.
             await db.rollback()
             recipe.status = ExtractionStatus.failed
-            recipe.error_msg = (
-                f"Extraction trop longue (plus de {EXTRACTION_TIMEOUT_SECONDS // 60} "
-                "minutes) : abandonnée."
-            )
+            recipe.error_msg = steps.timeout_message()
             recipe.progress_message = None
             recipe.title = "Extraction échouée"
             await db.commit()
