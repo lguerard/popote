@@ -6,6 +6,8 @@ import com.google.gson.JsonParser
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.RequestBody.Companion.toRequestBody
 import retrofit2.HttpException
 
 class RecipeRepository(private val context: Context) {
@@ -73,6 +75,13 @@ class RecipeRepository(private val context: Context) {
     suspend fun deleteRecipe(id: String) = api().deleteRecipe(id)
 
     suspend fun extract(input: String): ExtractionResponse = api().extract(ExtractionRequest(input))
+
+    /** Recette photographiée (livre, fiche manuscrite…) : lue par OCR côté serveur. */
+    suspend fun extractImage(bytes: ByteArray, mimeType: String): ExtractionResponse {
+        val body = bytes.toRequestBody(mimeType.toMediaTypeOrNull())
+        val part = okhttp3.MultipartBody.Part.createFormData("file", "photo.jpg", body)
+        return api().extractImage(part)
+    }
 
     suspend fun pollTask(id: String, onStatus: (String, String?) -> Unit): Recipe {
         while (true) {

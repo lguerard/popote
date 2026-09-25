@@ -30,6 +30,10 @@ interface PopoteApi {
     @POST("api/extract")
     suspend fun extract(@Body body: ExtractionRequest): ExtractionResponse
 
+    @Multipart
+    @POST("api/extract/image")
+    suspend fun extractImage(@Part file: okhttp3.MultipartBody.Part): ExtractionResponse
+
     @GET("api/tasks/{id}")
     suspend fun getTask(@Path("id") id: String): Recipe
 
