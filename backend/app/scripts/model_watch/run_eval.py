@@ -27,7 +27,7 @@ import httpx
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))  # /app, so `app.*` imports work
 
 from app.config import settings  # noqa: E402
-from app.services.llm_service import SYSTEM_PROMPT, _parse_json, _normalize_recipe_shape  # noqa: E402
+from app.services.llm_service import build_ollama_request, parse_llm_content  # noqa: E402
 from app.scripts.model_watch.candidates import build_candidate_list, get_gpu_vram_gb  # noqa: E402
 from app.scripts.model_watch.scoring import score_extraction  # noqa: E402
 
@@ -64,25 +64,16 @@ async def delete_model(client: httpx.AsyncClient, model: str) -> None:
 
 
 async def extract_with_model(client: httpx.AsyncClient, model: str, text: str) -> dict:
+    # Exactement la requête et la normalisation de la prod (schéma JSON,
+    # num_ctx, température…) : on évalue ce que l'app ferait vraiment, et un
+    # num_ctx différent forcerait Ollama à recharger le modèle à chaque appel.
     resp = await client.post(
         f"{settings.ollama_base_url}/api/chat",
-        json={
-            "model": model,
-            "messages": [
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": f"Voici le texte à analyser:\n\n{text[:12000]}"},
-            ],
-            "stream": False,
-            "format": "json",
-        },
+        json=build_ollama_request(text, model),
         timeout=CHAT_TIMEOUT,
     )
     resp.raise_for_status()
-    content = resp.json()["message"]["content"]
-    data = _parse_json(content)
-    if "error" not in data:
-        _normalize_recipe_shape(data)
-    return data
+    return parse_llm_content(resp.json()["message"]["content"])
 
 
 async def evaluate_model(client: httpx.AsyncClient, model: str) -> dict:

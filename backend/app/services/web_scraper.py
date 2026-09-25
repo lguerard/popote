@@ -1,8 +1,32 @@
 import asyncio
-import json
+import logging
 import re
-from playwright.async_api import async_playwright
+from dataclasses import dataclass
+
+import httpx
 from bs4 import BeautifulSoup
+from playwright.async_api import async_playwright
+
+from . import recipe_parsing
+
+logger = logging.getLogger(__name__)
+
+_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+)
+_STATIC_HEADERS = {
+    "User-Agent": _USER_AGENT,
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "fr-FR,fr;q=0.9,en;q=0.8",
+}
+# Pages de contrôle anti-robot renvoyées avec un code 200 : le vrai contenu
+# n'arrive qu'après exécution de JavaScript, il faut alors le navigateur.
+_BOT_WALL = re.compile(
+    r"cf-browser-verification|challenge-platform|Just a moment\.\.\.|"
+    r"Enable JavaScript and cookies to continue|Please enable JavaScript",
+    re.I,
+)
 
 # Ressources qui ralentissent le chargement sans jamais contenir la recette :
 # images, polices, medias et la plupart des scripts tiers (pubs, trackers,
@@ -60,149 +84,86 @@ async def _block_heavy_requests(route):
         await route.continue_()
 
 
-async def scrape_url(url: str) -> tuple[str, str | None]:
-    """Returns (page_text, thumbnail_url)."""
+@dataclass
+class ScrapeResult:
+    text: str
+    thumbnail: str | None
+    # Recette complète lue dans les données structurées du site, prête à
+    # enregistrer sans passer par le LLM (None si absente ou à traduire).
+    structured_recipe: dict | None = None
+
+
+async def scrape_url(url: str) -> ScrapeResult:
+    """Récupère la recette d'une page web, du moyen le plus rapide au plus lourd.
+
+    1. Simple requête HTTP (< 1 s) : la plupart des sites de recettes
+       servent leurs données schema.org directement dans le HTML.
+    2. Chromium (Playwright) seulement si ça ne suffit pas : page rendue en
+       JavaScript, protection anti-robot, contenu sans recette apparente.
+    """
+    static_html = await _fetch_static(url)
+    static = _analyze_html(static_html) if static_html else None
+    if static and (static.structured_recipe or recipe_parsing.looks_like_recipe(static.text)):
+        logger.info("scrape %s : HTML statique suffisant", url)
+        return static
+
+    try:
+        browser_html = await _fetch_with_browser(url)
+    except Exception:
+        if static:
+            logger.warning("scrape %s : échec du navigateur, repli sur le HTML statique", url, exc_info=True)
+            return static
+        raise
+    rendered = _analyze_html(browser_html)
+    logger.info("scrape %s : rendu navigateur utilisé", url)
+    if static and not rendered.structured_recipe and not recipe_parsing.looks_like_recipe(rendered.text):
+        # Ni l'un ni l'autre n'a d'indices de recette : garder le plus fourni.
+        return rendered if len(rendered.text) >= len(static.text) else static
+    return rendered
+
+
+async def _fetch_static(url: str) -> str | None:
+    try:
+        async with httpx.AsyncClient(timeout=10, follow_redirects=True, headers=_STATIC_HEADERS) as client:
+            resp = await client.get(url)
+    except httpx.HTTPError:
+        return None
+    if resp.status_code != 200 or "html" not in resp.headers.get("content-type", ""):
+        return None
+    if _BOT_WALL.search(resp.text[:20000]):
+        return None
+    return resp.text
+
+
+async def _fetch_with_browser(url: str) -> str:
     browser = await _get_browser()
-    context = await browser.new_context(
-        user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-    )
+    context = await browser.new_context(user_agent=_USER_AGENT, locale="fr-FR")
     try:
         page = await context.new_page()
         await page.route("**/*", _block_heavy_requests)
         await page.goto(url, wait_until="domcontentloaded", timeout=20000)
-        html = await page.content()
+        return await page.content()
     finally:
         await context.close()
 
+
+def _analyze_html(html: str) -> ScrapeResult:
     soup = BeautifulSoup(html, "html.parser")
-
-    # Extract thumbnail from og:image
-    thumbnail = None
     og_image = soup.find("meta", property="og:image")
-    if og_image:
-        thumbnail = og_image.get("content")
+    thumbnail = og_image.get("content") if og_image else None
 
-    # La plupart des sites de recettes exposent deja la recette structuree
-    # (schema.org/Recipe) : un texte court et sans bruit, bien plus rapide a
-    # traiter par le LLM qu'une page complete pleine de pubs/commentaires.
-    recipe_text = _extract_recipe_jsonld(soup)
-    if recipe_text:
-        return recipe_text[:15000], thumbnail
+    node = recipe_parsing.find_jsonld_recipe(soup)
+    if node:
+        recipe = recipe_parsing.jsonld_to_recipe(node)
+        image = recipe.pop("thumbnail_url", None) if recipe else None
+        thumbnail = thumbnail or image
+        if recipe and recipe["language"] == "fr":
+            return ScrapeResult(recipe_parsing.jsonld_to_text(node), thumbnail, recipe)
+        # Recette complète mais pas en français : le LLM la traduira à partir
+        # d'un texte compact plutôt que de toute la page. Données incomplètes
+        # (pas d'étapes…) : le texte de la page, plus complet, est préférable.
+        compact = recipe_parsing.jsonld_to_text(node)
+        if compact and recipe:
+            return ScrapeResult(compact, thumbnail)
 
-    # Remove noise
-    for tag in soup(["script", "style", "nav", "footer", "header", "aside", "iframe", "noscript"]):
-        tag.decompose()
-
-    # Prefer article/main content
-    content_el = soup.find("article") or soup.find("main") or soup.body
-    text = content_el.get_text(separator="\n", strip=True) if content_el else ""
-
-    # Collapse whitespace
-    text = re.sub(r"\n{3,}", "\n\n", text)
-
-    return text[:15000], thumbnail
-
-
-def _extract_recipe_jsonld(soup: BeautifulSoup) -> str | None:
-    """Cherche un bloc JSON-LD schema.org/Recipe et le met en texte compact."""
-    for script in soup.find_all("script", type="application/ld+json"):
-        try:
-            data = json.loads(script.string or "")
-        except (ValueError, TypeError):
-            continue
-        for node in _iter_jsonld_nodes(data):
-            if _is_recipe_node(node):
-                text = _recipe_node_to_text(node)
-                if text:
-                    return text
-    return None
-
-
-def _iter_jsonld_nodes(data):
-    if isinstance(data, list):
-        for item in data:
-            yield from _iter_jsonld_nodes(item)
-    elif isinstance(data, dict):
-        yield data
-        if "@graph" in data:
-            yield from _iter_jsonld_nodes(data["@graph"])
-
-
-def _is_recipe_node(node: dict) -> bool:
-    node_type = node.get("@type")
-    if isinstance(node_type, list):
-        return any(isinstance(t, str) and t.lower() == "recipe" for t in node_type)
-    return isinstance(node_type, str) and node_type.lower() == "recipe"
-
-
-def _parse_iso_duration(value) -> str | None:
-    if not isinstance(value, str):
-        return None
-    match = re.match(r"^P(?:\d+D)?T(?:(\d+)H)?(?:(\d+)M)?$", value.strip())
-    if not match:
-        return value
-    hours, minutes = match.groups()
-    total = int(hours or 0) * 60 + int(minutes or 0)
-    return f"{total} minutes" if total else value
-
-
-def _flatten_instructions(instructions) -> list[str]:
-    steps: list[str] = []
-    if isinstance(instructions, str):
-        return [line.strip() for line in instructions.split("\n") if line.strip()]
-    if isinstance(instructions, list):
-        for item in instructions:
-            if isinstance(item, str):
-                steps.append(item.strip())
-            elif isinstance(item, dict):
-                if "itemListElement" in item:
-                    steps.extend(_flatten_instructions(item["itemListElement"]))
-                elif item.get("text"):
-                    steps.append(str(item["text"]).strip())
-                elif item.get("name"):
-                    steps.append(str(item["name"]).strip())
-    return [s for s in steps if s]
-
-
-def _recipe_node_to_text(node: dict) -> str:
-    lines = []
-    name = node.get("name")
-    if name:
-        lines.append(f"Titre: {name}")
-    description = node.get("description")
-    if description:
-        lines.append(f"Description: {description}")
-    yield_ = node.get("recipeYield")
-    if yield_:
-        lines.append(f"Portions: {yield_ if isinstance(yield_, str) else yield_}")
-    prep_time = _parse_iso_duration(node.get("prepTime"))
-    if prep_time:
-        lines.append(f"Temps de preparation: {prep_time}")
-    cook_time = _parse_iso_duration(node.get("cookTime"))
-    if cook_time:
-        lines.append(f"Temps de cuisson: {cook_time}")
-    category = node.get("recipeCategory")
-    if category:
-        lines.append(f"Categorie: {category}")
-    keywords = node.get("keywords")
-    if keywords:
-        lines.append(f"Mots-cles: {keywords}")
-
-    ingredients = node.get("recipeIngredient") or node.get("ingredients")
-    if ingredients:
-        lines.append("Ingredients:")
-        for ing in ingredients:
-            lines.append(f"- {ing}")
-
-    steps = _flatten_instructions(node.get("recipeInstructions"))
-    if steps:
-        lines.append("Instructions:")
-        for i, step in enumerate(steps, 1):
-            lines.append(f"{i}. {step}")
-
-    # Sans ingredients ni etapes, ce n'est pas exploitable : mieux vaut
-    # retomber sur le texte complet de la page.
-    if not ingredients or not steps:
-        return ""
-
-    return "\n".join(lines)
+    return ScrapeResult(recipe_parsing.extract_page_text(soup), thumbnail)
