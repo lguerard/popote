@@ -10,6 +10,7 @@ from ..models.recipe import Recipe, ExtractionStatus
 from ..schemas.recipe import ExtractionRequest, ExtractionResponse, RecipeOut
 from ..services.extractor import extract
 from ..services.extraction_steps import EXTRACTION_TIMEOUT_SECONDS, StepTracker
+from ..services.llm_service import offload_hint
 
 router = APIRouter(tags=["extraction"])
 
@@ -153,7 +154,7 @@ async def _run_extraction(recipe_id: UUID, input_text: str):
             # s'en resservir pour ecrire l'echec.
             await db.rollback()
             recipe.status = ExtractionStatus.failed
-            recipe.error_msg = steps.timeout_message()
+            recipe.error_msg = steps.timeout_message(hint=offload_hint())
             recipe.progress_message = None
             recipe.title = "Extraction échouée"
             await db.commit()

@@ -60,7 +60,7 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://popote:${POSTGRES_PASSWORD:-popote}@db:5432/popote
       OLLAMA_BASE_URL: http://ollama:11434
-      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:14b}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:7b}
       OLLAMA_NUM_CTX: ${OLLAMA_NUM_CTX:-8192}
       IMAGEGEN_BASE_URL: http://imagegen:8001
       IMAGE_GEN_FREE_GPU: ${IMAGE_GEN_FREE_GPU:-true}

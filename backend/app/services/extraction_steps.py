@@ -32,14 +32,17 @@ class StepTracker:
             logger.info("%s : « %s » en %.0fs", self.label, self.step, now - self.step_started)
         self.step, self.step_started = message, now
 
-    def timeout_message(self, what: str = "Extraction", suffix: str = "abandonnée.") -> str:
+    def timeout_message(
+        self, what: str = "Extraction", suffix: str = "abandonnée.", hint: str = "",
+    ) -> str:
         stuck = f", bloquée à l'étape « {self.step.rstrip('…. ')} »" if self.step else ""
         logger.warning(
             "%s : délai dépassé après %.0fs, étape en cours « %s » depuis %.0fs",
             self.label, time.monotonic() - self.started, self.step,
             time.monotonic() - self.step_started,
         )
-        return (
+        message = (
             f"{what} trop longue (plus de {EXTRACTION_TIMEOUT_SECONDS // 60} minutes)"
             f"{stuck} : {suffix}"
         )
+        return f"{message} {hint}" if hint else message
