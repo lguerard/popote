@@ -12,6 +12,17 @@ logger = logging.getLogger(__name__)
 EXTRACTION_TIMEOUT_SECONDS = 300
 
 
+def error_text(exc: BaseException) -> str:
+    """Message d'échec lisible pour l'utilisateur.
+
+    Certaines exceptions n'ont pas de message (str() vide : l'appli
+    affichait un échec sans explication) et celles de la base embarquent
+    toute la requête SQL et ses paramètres.
+    """
+    text = str(exc).split("\n[SQL:")[0].strip() or type(exc).__name__
+    return text[:500]
+
+
 class StepTracker:
     """Journalise chaque étape d'une extraction avec sa durée.
 

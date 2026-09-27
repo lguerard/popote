@@ -172,7 +172,7 @@ def _normalize_recipe_shape(data: dict) -> None:
     enregistrée casse ensuite la liste entière, donc on normalise tout.
     """
     ingredients, seen = [], set()
-    for item in data.get("ingredients") or []:
+    for item in recipe_parsing.as_list(data.get("ingredients")):
         ingredient = _normalize_ingredient(item)
         key = ingredient and (ingredient["name"].lower(), ingredient["quantity"], ingredient["unit"])
         if ingredient and key not in seen:
@@ -181,7 +181,7 @@ def _normalize_recipe_shape(data: dict) -> None:
     data["ingredients"] = ingredients
 
     steps = []
-    for item in data.get("steps") or []:
+    for item in recipe_parsing.as_list(data.get("steps")):
         text = item.get("text") if isinstance(item, dict) else item
         step = recipe_parsing.clean_step(text or "")
         if step:
@@ -193,13 +193,13 @@ def _normalize_recipe_shape(data: dict) -> None:
         data[key] = recipe_parsing.parse_duration_minutes(data.get(key))
     data["servings"] = recipe_parsing.parse_int(data.get("servings"))
 
-    data["title"] = _none_if_blank(data.get("title")) or "Recette sans titre"
+    # Bornes des colonnes en base : un titre trop long ferait échouer l'enregistrement.
+    data["title"] = (_none_if_blank(data.get("title")) or "Recette sans titre")[:500]
     data["description"] = _none_if_blank(data.get("description"))
     language = _none_if_blank(data.get("language"))
     data["language"] = language.lower()[:5] if language else None
     data["category"] = recipe_parsing.normalize_category(data.get("category"), data["title"])
-    tags = data.get("tags")
-    data["tags"] = recipe_parsing.normalize_tags(tags if isinstance(tags, list) else [])
+    data["tags"] = recipe_parsing.normalize_tags(data.get("tags"))
 
 
 # Part du modèle Ollama tournant sur CPU faute de VRAM (None : inconnu).
@@ -359,17 +359,17 @@ def image_description_input(
     """Ce que le LLM voit de la recette : les dernières étapes disent souvent
     comment le plat est dressé (verrines, parsemer de…)."""
     names = [
-        str(i.get("name")).strip() for i in (ingredients or [])
+        str(i.get("name")).strip() for i in recipe_parsing.as_list(ingredients)
         if isinstance(i, dict) and i.get("name")
     ][:15]
     texts = [
-        str(s.get("text") if isinstance(s, dict) else s).strip() for s in (steps or [])
+        str(s.get("text") if isinstance(s, dict) else s).strip() for s in recipe_parsing.as_list(steps)
     ]
     parts = [f"Titre : {title}"]
     if category:
         parts.append(f"Catégorie : {category}")
     if description:
-        parts.append(f"Description : {description[:300]}")
+        parts.append(f"Description : {str(description)[:300]}")
     if names:
         parts.append("Ingrédients : " + ", ".join(names))
     if texts:

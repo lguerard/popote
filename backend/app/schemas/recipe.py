@@ -35,20 +35,30 @@ class RecipeBase(BaseModel):
     nutrition: dict | None = None
 
 
+# Bornes des colonnes en base : au-delà, l'enregistrement échouait en erreur 500.
+_Title = Field(min_length=1, max_length=500)
+_Minutes = Field(None, ge=0, le=100_000)
+
+
 class RecipeCreate(RecipeBase):
-    pass
+    title: str = _Title
+    language: str | None = Field(None, max_length=20)
+    servings: int | None = Field(None, ge=0, le=10_000)
+    prep_time: int | None = _Minutes
+    cook_time: int | None = _Minutes
+    category: str | None = Field(None, max_length=50)
 
 
 class RecipeUpdate(BaseModel):
-    title: str | None = None
+    title: str | None = Field(None, min_length=1, max_length=500)
     description: str | None = None
-    servings: int | None = None
-    prep_time: int | None = None
-    cook_time: int | None = None
+    servings: int | None = Field(None, ge=0, le=10_000)
+    prep_time: int | None = _Minutes
+    cook_time: int | None = _Minutes
     ingredients: list[dict] | None = None
     steps: list[dict] | None = None
     tags: list[str] | None = None
-    category: str | None = None
+    category: str | None = Field(None, max_length=50)
     thumbnail_url: str | None = None
     notes: str | None = None
     nutrition: dict | None = None

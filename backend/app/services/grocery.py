@@ -4,9 +4,10 @@ Logique pure (ni base, ni réseau) pour rester testable seule, comme
 recipe_parsing.
 """
 
+import math
 import re
 
-from .recipe_parsing import _fold, canonical_unit
+from .recipe_parsing import _fold, as_list, canonical_unit
 
 # ---------------------------------------------------------------------------
 # Normalisation des noms d'ingrédients
@@ -170,15 +171,17 @@ def parse_quantity(value) -> float | None:
     if rng:
         return float(rng.group(2))
     mixed = re.match(r"^(\d+)\s+(\d+)\s*/\s*(\d+)$", text)
-    if mixed:
+    if mixed and int(mixed.group(3)):
         return int(mixed.group(1)) + int(mixed.group(2)) / int(mixed.group(3))
     frac = re.match(r"^(\d+)\s*/\s*(\d+)$", text)
     if frac and int(frac.group(2)):
         return int(frac.group(1)) / int(frac.group(2))
     try:
-        return float(text)
+        number = float(text)
     except ValueError:
         return None
+    # « nan », « inf », « 1e999 » passent float() mais cassent les totaux.
+    return number if math.isfinite(number) else None
 
 
 def format_quantity(amount: float, unit: str | None) -> tuple[str, str | None]:
@@ -219,7 +222,7 @@ def merge_ingredients(recipes: list[tuple[str, list[dict]]]) -> list[dict]:
     """
     merged: dict[tuple, dict] = {}
     for title, ingredients in recipes:
-        for ing in ingredients or []:
+        for ing in as_list(ingredients):
             if not isinstance(ing, dict):
                 continue
             name = " ".join(str(ing.get("name") or "").split())
@@ -313,7 +316,7 @@ def rank_by_pantry(
     results = []
     for recipe in recipes:
         matched, missing = [], []
-        for ing in recipe.get("ingredients") or []:
+        for ing in as_list(recipe.get("ingredients")):
             if not isinstance(ing, dict):
                 continue
             name = str(ing.get("name") or "").strip()

@@ -15,6 +15,7 @@ from ..schemas.recipe import (
     RecipeOut, RecipeUpdate,
 )
 from ..services import achievement_service, grocery, image_service
+from ..services.extraction_steps import error_text
 
 router = APIRouter(prefix="/recipes", tags=["recipes"])
 
@@ -325,7 +326,7 @@ async def _run_thumbnail_generation(recipe_id: UUID):
         except Exception as e:
             await db.rollback()
             recipe.thumbnail_generating = False
-            recipe.thumbnail_error = str(e)
+            recipe.thumbnail_error = error_text(e)
             await db.commit()
 
 
@@ -507,7 +508,7 @@ async def reextract_recipe(
 async def _run_reextraction(recipe_id: UUID, replace_image: bool = False):
     from ..database import AsyncSessionLocal
     from ..services.extractor import extract
-    from ..services.extraction_steps import EXTRACTION_TIMEOUT_SECONDS, StepTracker
+    from ..services.extraction_steps import EXTRACTION_TIMEOUT_SECONDS, StepTracker, error_text
 
     async with AsyncSessionLocal() as db:
         recipe = await db.get(Recipe, recipe_id)
@@ -531,6 +532,12 @@ async def _run_reextraction(recipe_id: UUID, replace_image: bool = False):
                     setattr(recipe, field, data[field])
             await image_service.apply_source_image(recipe, data.get("thumbnail_url"), replace_image)
             recipe.error_msg = None
+            recipe.reextracting = False
+            recipe.progress_message = None
+            # Dans le try : si la base refuse une valeur, la recette ne doit
+            # pas rester « en cours de réextraction » jusqu'au redémarrage.
+            await db.commit()
+            return
         except TimeoutError:
             await db.rollback()
             from ..services.llm_service import offload_hint
@@ -539,7 +546,7 @@ async def _run_reextraction(recipe_id: UUID, replace_image: bool = False):
             )
         except Exception as e:
             await db.rollback()
-            recipe.error_msg = f"Réextraction échouée, la recette n'a pas été modifiée : {e}"
+            recipe.error_msg = f"Réextraction échouée, la recette n'a pas été modifiée : {error_text(e)}"
         recipe.reextracting = False
         recipe.progress_message = None
         await db.commit()
