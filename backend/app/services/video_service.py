@@ -86,11 +86,20 @@ def _transcribe(audio_file: str) -> str:
         # d'un reel sans narration — plus rapide, et Whisper n'y invente plus
         # de phrases. beam_size=1 (décodage glouton) : ~2x plus rapide sur
         # CPU, largement assez précis pour que le LLM en tire la recette.
-        segments, _ = model.transcribe(
-            audio_file, beam_size=1, vad_filter=True, condition_on_previous_text=False,
-        )
-        # Materialize the generator before releasing the model
-        return " ".join(seg.text for seg in segments).strip()
+        try:
+            segments, _ = model.transcribe(
+                audio_file, beam_size=1, vad_filter=True, condition_on_previous_text=False,
+            )
+            # Materialize the generator before releasing the model
+            return " ".join(seg.text for seg in segments).strip()
+        except ValueError as exc:
+            # faster-whisper 1.0.3 : quand le filtre VAD ne garde aucune parole
+            # (reel en musique seule), la détection de langue appelle max() sur
+            # une liste vide. Aucune parole = transcription vide, pas une erreur.
+            if "empty sequence" not in str(exc):
+                raise
+            logger.info("Aucune parole détectée dans %s", audio_file)
+            return ""
     finally:
         if on_gpu:
             del model
@@ -356,8 +365,15 @@ async def video_to_text(
     else:
         await progress("Transcription de l'audio de la vidéo…")
         await _free_gpu_for_whisper()
-        transcript = await asyncio.to_thread(_download_audio_and_transcribe, url)
-        logger.info("vidéo %s : audio transcrit par Whisper", url)
+        try:
+            transcript = await asyncio.to_thread(_download_audio_and_transcribe, url)
+            logger.info("vidéo %s : audio transcrit par Whisper", url)
+        except Exception:
+            # L'audio n'est qu'une des sources : la légende et le texte affiché
+            # à l'écran peuvent suffire. Un échec de Whisper ne doit pas faire
+            # échouer toute l'extraction.
+            logger.warning("Transcription impossible pour %s", url, exc_info=True)
+            transcript = ""
 
     combined = _combine_sources(title, transcript, description)
     duration = info.get("duration") or 0

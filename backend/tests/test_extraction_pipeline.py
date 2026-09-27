@@ -338,3 +338,33 @@ def test_merge_ocr_lines_dedupes_frames_and_drops_noise():
     assert merge_ocr_lines(frames).splitlines() == [
         "200 g de farine", "2 oeufs", "Mélanger le tout",
     ]
+
+
+def test_video_survives_a_failed_transcription(monkeypatch):
+    monkeypatch.setattr(video_service, "_fetch_info", lambda url: {"description": "Recette en description ?"})
+    monkeypatch.setattr(video_service, "_fetch_subtitles", lambda url, i: "")
+
+    def boom(url):
+        raise ValueError("max() arg is an empty sequence")
+
+    monkeypatch.setattr(video_service, "_download_audio_and_transcribe", boom)
+    monkeypatch.setattr(video_service, "_ocr_video_text", lambda url: "200 g de farine\n2 œufs")
+    text, _ = asyncio.run(video_service.video_to_text("https://instagram.com/reel/x"))
+    assert "Recette en description ?" in text and "200 g de farine" in text
+
+
+def test_whisper_without_any_speech_returns_empty(monkeypatch):
+    class SilentModel:
+        def transcribe(self, *args, **kwargs):
+            raise ValueError("max() arg is an empty sequence")
+
+    monkeypatch.setattr(video_service, "_load_whisper", lambda: (SilentModel(), False))
+    assert video_service._transcribe("audio.m4a") == ""
+
+    class BrokenModel:
+        def transcribe(self, *args, **kwargs):
+            raise ValueError("autre chose")
+
+    monkeypatch.setattr(video_service, "_load_whisper", lambda: (BrokenModel(), False))
+    with pytest.raises(ValueError):
+        video_service._transcribe("audio.m4a")
