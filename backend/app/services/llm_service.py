@@ -44,6 +44,33 @@ Règles :
 - Si le texte ne contient aucune recette : {"found": false}.
 """
 
+# Dernier recours quand le contenu ne contient pas de recette détaillée :
+# nom de plat seul (« lasagnes »), reel en musique avec juste « Pasta alla
+# vodka 🍝 » en légende, photo d'un plat… Plutôt qu'un échec, l'IA propose
+# une recette classique du plat, signalée comme reconstituée.
+RECONSTRUCT_PROMPT = (
+    "Tu es un chef cuisinier expert chargé de proposer UNE recette à partir d'un texte "
+    "qui évoque un plat sans en donner la recette détaillée.\n"
+    "Réponds UNIQUEMENT avec un objet JSON valide, sans markdown ni commentaire.\n\n"
+    + SYSTEM_PROMPT[SYSTEM_PROMPT.index("Format attendu"):SYSTEM_PROMPT.index("Règles :")]
+) + """Règles :
+- Le texte ne contient PAS de recette détaillée, mais il peut nommer ou décrire un plat (titre, légende, hashtags, ingrédients épars, simple nom de plat tapé par l'utilisateur).
+- Identifie ce plat et rédige une recette classique, réaliste et complète pour le réaliser : ingrédients avec quantités, étapes dans l'ordre.
+- Reprends tout ce que le texte donne (ingrédients cités, portions, temps, technique) et complète le reste de façon plausible.
+- Tout rédiger en français. "language" = langue d'origine du texte.
+- prep_time et cook_time : entiers en minutes ; servings : entier.
+- category : UNE valeur parmi petit-déjeuner, entrée, plat, dessert, snack, boisson, sauce, apéritif, soupe.
+- tags : 2 à 5 mots-clés courts.
+- Si le texte ne permet d'identifier AUCUN plat, boisson ou préparation culinaire : {"found": false}.
+"""
+
+RECONSTRUCTED_NOTICE = "Recette reconstituée par l'IA : quantités et étapes à vérifier."
+
+
+class UnreadableResponse(ValueError):
+    """Réponse du modèle qui n'est pas du JSON exploitable."""
+
+
 # Imposé à Ollama (sorties structurées) : le modèle ne peut plus produire
 # des ingrédients en texte brut, « 15 minutes » au lieu de 15, une catégorie
 # hors liste ou des champs inventés — autant de réponses qui faisaient
@@ -91,19 +118,23 @@ _OLLAMA_TIMEOUT_SECONDS = 280
 _schema_supported = True
 
 
-def build_ollama_request(text: str, model: str | None = None, *, use_schema: bool = True) -> dict:
+def build_ollama_request(
+    text: str, model: str | None = None, *, use_schema: bool = True,
+    system: str = SYSTEM_PROMPT, temperature: float = 0,
+) -> dict:
     """Corps de requête /api/chat, partagé avec l'évaluation mensuelle des modèles."""
     return {
         "model": model or settings.ollama_model,
         "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": system},
             {"role": "user", "content": f"Voici le texte à analyser :\n\n{text[:_MAX_INPUT_CHARS]}"},
         ],
         "stream": False,
         "format": RECIPE_JSON_SCHEMA if use_schema else "json",
         "options": {
-            # Déterministe : la même page donne la même recette.
-            "temperature": 0,
+            # Déterministe : la même page donne la même recette (un peu de
+            # hasard seulement pour réessayer après une réponse illisible).
+            "temperature": temperature,
             # Sans ça, Ollama travaille sur 2048-4096 tokens et TRONQUE en
             # silence une page longue (souvent la partie recette, en bas) :
             # d'où certains « Aucune recette trouvée ».
@@ -121,7 +152,7 @@ def parse_llm_content(content: str) -> dict:
         data = _parse_json(content)
     except ValueError:
         logger.warning("Réponse du modèle illisible : %.300s", content)
-        raise ValueError("Le modèle a renvoyé une réponse illisible, réessaie l'extraction.")
+        raise UnreadableResponse("Le modèle a renvoyé une réponse illisible, réessaie l'extraction.")
     if not isinstance(data, dict) or data.get("found") is False or "error" in data:
         return {"error": "Aucune recette trouvée"}
     data.pop("found", None)
@@ -132,9 +163,32 @@ def parse_llm_content(content: str) -> dict:
 
 
 async def extract_recipe_with_llm(text: str) -> dict:
-    if settings.use_claude:
-        return await _extract_claude(text)
-    return await _extract_ollama(text)
+    return await _ask_model(text, SYSTEM_PROMPT)
+
+
+async def reconstruct_recipe_with_llm(text: str) -> dict:
+    """Recette classique du plat évoqué par un contenu sans recette détaillée."""
+    data = await _ask_model(text, RECONSTRUCT_PROMPT)
+    if "error" not in data:
+        description = data.get("description")
+        data["description"] = f"{RECONSTRUCTED_NOTICE} {description}" if description else RECONSTRUCTED_NOTICE
+        data["tags"] = recipe_parsing.normalize_tags(["à vérifier"] + data.get("tags", []))
+    return data
+
+
+async def _ask_model(text: str, system: str) -> dict:
+    """Une réponse illisible (JSON tronqué, texte libre) est réessayée une
+    fois avec un peu de hasard : à température 0, le même appel redonnerait
+    exactement la même réponse."""
+    for attempt, temperature in enumerate((0, 0.4)):
+        try:
+            if settings.use_claude:
+                return await _extract_claude(text, system)
+            return await _extract_ollama(text, system, temperature)
+        except UnreadableResponse:
+            if attempt:
+                raise
+            logger.info("Réponse illisible, nouvel essai")
 
 
 def _none_if_blank(value):
@@ -172,7 +226,7 @@ def _normalize_recipe_shape(data: dict) -> None:
     enregistrée casse ensuite la liste entière, donc on normalise tout.
     """
     ingredients, seen = [], set()
-    for item in data.get("ingredients") or []:
+    for item in recipe_parsing.as_list(data.get("ingredients")):
         ingredient = _normalize_ingredient(item)
         key = ingredient and (ingredient["name"].lower(), ingredient["quantity"], ingredient["unit"])
         if ingredient and key not in seen:
@@ -181,7 +235,7 @@ def _normalize_recipe_shape(data: dict) -> None:
     data["ingredients"] = ingredients
 
     steps = []
-    for item in data.get("steps") or []:
+    for item in recipe_parsing.as_list(data.get("steps")):
         text = item.get("text") if isinstance(item, dict) else item
         step = recipe_parsing.clean_step(text or "")
         if step:
@@ -193,13 +247,13 @@ def _normalize_recipe_shape(data: dict) -> None:
         data[key] = recipe_parsing.parse_duration_minutes(data.get(key))
     data["servings"] = recipe_parsing.parse_int(data.get("servings"))
 
-    data["title"] = _none_if_blank(data.get("title")) or "Recette sans titre"
+    # Bornes des colonnes en base : un titre trop long ferait échouer l'enregistrement.
+    data["title"] = (_none_if_blank(data.get("title")) or "Recette sans titre")[:500]
     data["description"] = _none_if_blank(data.get("description"))
     language = _none_if_blank(data.get("language"))
     data["language"] = language.lower()[:5] if language else None
     data["category"] = recipe_parsing.normalize_category(data.get("category"), data["title"])
-    tags = data.get("tags")
-    data["tags"] = recipe_parsing.normalize_tags(tags if isinstance(tags, list) else [])
+    data["tags"] = recipe_parsing.normalize_tags(data.get("tags"))
 
 
 # Part du modèle Ollama tournant sur CPU faute de VRAM (None : inconnu).
@@ -256,27 +310,31 @@ async def _check_offload() -> None:
         )
 
 
-async def _extract_ollama(text: str) -> dict:
+async def _extract_ollama(text: str, system: str = SYSTEM_PROMPT, temperature: float = 0) -> dict:
     checker = asyncio.create_task(_check_offload())
     try:
-        return await _chat_ollama(text)
+        return await _chat_ollama(text, system, temperature)
     finally:
         checker.cancel()
 
 
-async def _chat_ollama(text: str) -> dict:
+async def _chat_ollama(text: str, system: str = SYSTEM_PROMPT, temperature: float = 0) -> dict:
     global _schema_supported
     try:
         async with httpx.AsyncClient(timeout=_OLLAMA_TIMEOUT_SECONDS) as client:
             url = f"{settings.ollama_base_url}/api/chat"
-            resp = await client.post(url, json=build_ollama_request(text, use_schema=_schema_supported))
+            resp = await client.post(url, json=build_ollama_request(
+                text, use_schema=_schema_supported, system=system, temperature=temperature,
+            ))
             if resp.status_code == 400 and _schema_supported:
                 logger.warning(
                     "Ollama refuse le schéma JSON (%s) — repli sur format=json. "
                     "Mettre à jour l'image ollama pour les sorties structurées.", resp.text[:200],
                 )
                 _schema_supported = False
-                resp = await client.post(url, json=build_ollama_request(text, use_schema=False))
+                resp = await client.post(url, json=build_ollama_request(
+                    text, use_schema=False, system=system, temperature=temperature,
+                ))
             resp.raise_for_status()
             return parse_llm_content(resp.json()["message"]["content"])
     except httpx.TimeoutException:
@@ -290,13 +348,13 @@ async def _chat_ollama(text: str) -> dict:
         )
 
 
-async def _extract_claude(text: str) -> dict:
+async def _extract_claude(text: str, system: str = SYSTEM_PROMPT) -> dict:
     import anthropic
     client = anthropic.AsyncAnthropic(api_key=settings.claude_api_key)
     message = await client.messages.create(
         model="claude-sonnet-4-6",
         max_tokens=4096,
-        system=SYSTEM_PROMPT,
+        system=system,
         messages=[{"role": "user", "content": f"Voici le texte à analyser :\n\n{text[:30000]}"}],
     )
     return parse_llm_content(message.content[0].text)
@@ -359,17 +417,17 @@ def image_description_input(
     """Ce que le LLM voit de la recette : les dernières étapes disent souvent
     comment le plat est dressé (verrines, parsemer de…)."""
     names = [
-        str(i.get("name")).strip() for i in (ingredients or [])
+        str(i.get("name")).strip() for i in recipe_parsing.as_list(ingredients)
         if isinstance(i, dict) and i.get("name")
     ][:15]
     texts = [
-        str(s.get("text") if isinstance(s, dict) else s).strip() for s in (steps or [])
+        str(s.get("text") if isinstance(s, dict) else s).strip() for s in recipe_parsing.as_list(steps)
     ]
     parts = [f"Titre : {title}"]
     if category:
         parts.append(f"Catégorie : {category}")
     if description:
-        parts.append(f"Description : {description[:300]}")
+        parts.append(f"Description : {str(description)[:300]}")
     if names:
         parts.append("Ingrédients : " + ", ".join(names))
     if texts:

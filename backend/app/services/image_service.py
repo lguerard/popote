@@ -74,11 +74,10 @@ async def apply_source_image(recipe, source_url: str | None, replace: bool) -> N
         return
     try:
         data, ext = await download_image(source_url)
+        recipe.thumbnail_url = save_thumbnail_bytes(recipe.id, data, ext)
     except Exception:
         logger.warning("Image de la source non téléchargeable : %s", source_url, exc_info=True)
         recipe.thumbnail_url = source_url
-    else:
-        recipe.thumbnail_url = save_thumbnail_bytes(recipe.id, data, ext)
     if recipe.thumbnail_url != current:
         delete_local_thumbnail(current)
 

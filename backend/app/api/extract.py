@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from uuid import UUID
 from fastapi import APIRouter, Depends, BackgroundTasks, UploadFile, File, HTTPException
 from sqlalchemy import update
@@ -9,8 +10,10 @@ from ..models.user import User
 from ..models.recipe import Recipe, ExtractionStatus
 from ..schemas.recipe import ExtractionRequest, ExtractionResponse, RecipeOut
 from ..services.extractor import extract
-from ..services.extraction_steps import EXTRACTION_TIMEOUT_SECONDS, StepTracker
+from ..services.extraction_steps import EXTRACTION_TIMEOUT_SECONDS, StepTracker, error_text
 from ..services.llm_service import offload_hint
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["extraction"])
 
@@ -118,6 +121,18 @@ async def get_task_status(
     return recipe
 
 
+async def _record_achievement(db: AsyncSession, source_type) -> None:
+    """Succès débloqués par une recette ajoutée, sans jamais faire échouer
+    l'extraction : la recette est déjà enregistrée à ce stade, un souci ici
+    la faisait pourtant passer en « échec »."""
+    from ..services import achievement_service
+    try:
+        await achievement_service.on_recipe_added(db, source_type)
+    except Exception:
+        await db.rollback()
+        logger.warning("Succès non mis à jour après l'ajout d'une recette", exc_info=True)
+
+
 async def _run_extraction(recipe_id: UUID, input_text: str):
     from ..database import AsyncSessionLocal
     async with AsyncSessionLocal() as db:
@@ -150,8 +165,6 @@ async def _run_extraction(recipe_id: UUID, input_text: str):
             recipe.error_msg = None
             recipe.progress_message = None
             await db.commit()
-            from ..services import achievement_service
-            await achievement_service.on_recipe_added(db, recipe.source_type or "manual")
         except TimeoutError:
             # wait_for a annulé extract() en plein vol, potentiellement au
             # milieu d'une requete sur `db` (report_progress commite depuis
@@ -172,16 +185,18 @@ async def _run_extraction(recipe_id: UUID, input_text: str):
             # pour toujours au lieu de passer a "failed".
             await db.rollback()
             recipe.status = ExtractionStatus.failed
-            recipe.error_msg = str(e)
+            recipe.error_msg = error_text(e)
             recipe.progress_message = None
             recipe.title = "Extraction échouée"
             await db.commit()
+        else:
+            await _record_achievement(db, recipe.source_type or "manual")
 
 
 async def _run_image_extraction(recipe_id: UUID, image_bytes: bytes, mime_type: str):
     from ..database import AsyncSessionLocal
     from ..services.ocr_service import extract_text_from_image
-    from ..services.llm_service import extract_recipe_with_llm
+    from ..services.llm_service import extract_recipe_with_llm, reconstruct_recipe_with_llm
 
     async with AsyncSessionLocal() as db:
         recipe = await db.get(Recipe, recipe_id)
@@ -196,9 +211,20 @@ async def _run_image_extraction(recipe_id: UUID, image_bytes: bytes, mime_type: 
             await db.commit()
             text = await extract_text_from_image(image_bytes, mime_type)
 
+            if not text.strip():
+                raise ValueError("Aucun texte lisible sur cette image.")
             recipe.progress_message = "Analyse de la recette par l'IA…"
             await db.commit()
-            return await extract_recipe_with_llm(text)
+            data = await extract_recipe_with_llm(text)
+            if "error" in data:
+                # Photo d'un plat, d'un menu, recette partielle : l'IA propose
+                # une recette du plat reconnu plutôt qu'un échec.
+                recipe.progress_message = "Pas de recette détaillée : l'IA en propose une…"
+                await db.commit()
+                data = await reconstruct_recipe_with_llm(text)
+                if "error" in data:
+                    data = {"error": "Aucune recette ni aucun plat reconnaissable sur cette image."}
+            return data
 
         try:
             data = await asyncio.wait_for(run_ocr_and_llm(), timeout=EXTRACTION_TIMEOUT_SECONDS)
@@ -211,10 +237,6 @@ async def _run_image_extraction(recipe_id: UUID, image_bytes: bytes, mime_type: 
             recipe.error_msg = None
             recipe.progress_message = None
             await db.commit()
-            from ..services import achievement_service
-            # "image" is not a stored SourceType: it only routes the
-            # achievement so "Photographe" is reachable
-            await achievement_service.on_recipe_added(db, "image")
         except TimeoutError:
             await db.rollback()
             recipe.status = ExtractionStatus.failed
@@ -228,7 +250,11 @@ async def _run_image_extraction(recipe_id: UUID, image_bytes: bytes, mime_type: 
         except Exception as e:
             await db.rollback()
             recipe.status = ExtractionStatus.failed
-            recipe.error_msg = str(e)
+            recipe.error_msg = error_text(e)
             recipe.progress_message = None
             recipe.title = "OCR échoué"
             await db.commit()
+        else:
+            # "image" is not a stored SourceType: it only routes the
+            # achievement so "Photographe" is reachable
+            await _record_achievement(db, "image")

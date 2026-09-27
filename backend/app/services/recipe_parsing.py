@@ -12,6 +12,7 @@ testable sans installer tout le backend (voir backend/tests/).
 
 import html as html_lib
 import json
+import math
 import re
 import unicodedata
 
@@ -35,6 +36,16 @@ def clean_text(value) -> str:
     return re.sub(r"\n{2,}", "\n", text).strip()
 
 
+def as_list(value) -> list:
+    """Liste tolérante : les sites et le LLM renvoient parfois un élément seul
+    (texte, nombre, objet) là où une liste est attendue."""
+    if value is None or value == "":
+        return []
+    if isinstance(value, (list, tuple)):
+        return list(value)
+    return [value]
+
+
 def _fold(text: str) -> str:
     """Minuscules sans accents, pour comparer des mots-clés."""
     decomposed = unicodedata.normalize("NFKD", text.lower())
@@ -50,14 +61,23 @@ _ISO_DURATION = re.compile(
 )
 
 
+# Au-delà, la valeur est absurde (et déborderait la colonne entière en base).
+MAX_MINUTES = 7 * 24 * 60
+MAX_SERVINGS = 1000
+
+
 def parse_duration_minutes(value) -> int | None:
     """« PT1H30M » → 90. Accepte aussi un entier ou « 20 min ». 0 → None."""
     if value is None or isinstance(value, bool):
         return None
+    if isinstance(value, (list, tuple)):
+        return next((m for m in map(parse_duration_minutes, value) if m), None)
     if isinstance(value, (int, float)):
+        if not math.isfinite(value):
+            return None
         minutes = int(value)
     else:
-        text = str(value).strip()
+        text = str(value).strip()[:100]
         match = _ISO_DURATION.match(text)
         if match:
             parts = {k: float(v) if v else 0.0 for k, v in match.groupdict().items()}
@@ -75,7 +95,7 @@ def parse_duration_minutes(value) -> int | None:
             else:
                 digits = re.search(r"\d+", text)
                 minutes = int(digits.group()) if digits else 0
-    return minutes if minutes > 0 else None
+    return minutes if 0 < minutes <= MAX_MINUTES else None
 
 
 def parse_int(value) -> int | None:
@@ -89,11 +109,13 @@ def parse_int(value) -> int | None:
                 return parsed
         return None
     if isinstance(value, (int, float)):
+        if not math.isfinite(value):
+            return None
         number = int(value)
     else:
-        match = re.search(r"\d+", str(value))
+        match = re.search(r"\d+", str(value)[:100])
         number = int(match.group()) if match else 0
-    return number if number > 0 else None
+    return number if 0 < number <= MAX_SERVINGS else None
 
 
 # ---------------------------------------------------------------------------
@@ -350,7 +372,11 @@ _DIET_TAGS = {
 
 def normalize_tags(tags, limit: int = 5) -> list[str]:
     out: list[str] = []
-    for tag in tags or []:
+    if isinstance(tags, str):
+        tags = tags.split(",")
+    for tag in as_list(tags):
+        if isinstance(tag, (dict, list)):
+            continue
         text = clean_text(tag).lower().strip(" #.,;")
         if text and len(text) <= 30 and len(text.split()) <= 3 and text not in out:
             out.append(text)
@@ -364,9 +390,8 @@ def build_tags(node: dict, title: str, category: str, total_minutes: int | None)
         key = str(diet).rsplit("/", 1)[-1].lower()
         if key in _DIET_TAGS:
             candidates.append(_DIET_TAGS[key])
-    keywords = node.get("keywords") or []
-    if isinstance(keywords, str):
-        keywords = keywords.split(",")
+    keywords = node.get("keywords")
+    keywords = keywords.split(",") if isinstance(keywords, str) else as_list(keywords)
     folded_title = _fold(title)
     for keyword in keywords:
         folded = _fold(clean_text(keyword))
@@ -461,11 +486,12 @@ def _short_description(text: str) -> str | None:
 
 def jsonld_to_recipe(node: dict) -> dict | None:
     """Recette prête à enregistrer, ou None si les données sont trop incomplètes."""
-    title = clean_text(node.get("name"))
-    raw_ingredients = node.get("recipeIngredient") or node.get("ingredients") or []
-    if isinstance(raw_ingredients, str):
-        raw_ingredients = [raw_ingredients]
-    ingredients = [parse_ingredient_line(line) for line in raw_ingredients if clean_text(line)]
+    title = clean_text(node.get("name"))[:500]
+    raw_ingredients = as_list(node.get("recipeIngredient") or node.get("ingredients"))
+    ingredients = [
+        parse_ingredient_line(line) for line in raw_ingredients
+        if isinstance(line, (str, int, float)) and clean_text(line)
+    ]
     steps = flatten_instructions(node.get("recipeInstructions"))
     if not title or len(ingredients) < 2 or not steps:
         return None
@@ -510,9 +536,10 @@ def jsonld_to_text(node: dict) -> str:
             lines.append(f"{label} : {minutes} minutes")
     if node.get("recipeCategory"):
         lines.append(f"Catégorie : {node['recipeCategory']}")
-    ingredients = node.get("recipeIngredient") or node.get("ingredients") or []
-    if isinstance(ingredients, str):
-        ingredients = [ingredients]
+    ingredients = [
+        i for i in as_list(node.get("recipeIngredient") or node.get("ingredients"))
+        if isinstance(i, (str, int, float)) and clean_text(i)
+    ]
     if ingredients:
         lines.append("Ingrédients :")
         lines.extend(f"- {clean_text(i)}" for i in ingredients)
