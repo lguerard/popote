@@ -20,6 +20,14 @@ _STATIC_HEADERS = {
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     "Accept-Language": "fr-FR,fr;q=0.9,en;q=0.8",
 }
+# Instagram, Facebook, Threads ne montrent qu'un mur de connexion à un
+# navigateur anonyme, mais servent la légende (og:description) aux robots
+# d'aperçu de liens : c'est elle qui contient la recette d'un post photo.
+_LINK_PREVIEW_HOSTS = re.compile(r"(^|\.)(instagram\.com|facebook\.com|fb\.watch|threads\.net)$", re.I)
+_LINK_PREVIEW_HEADERS = {
+    **_STATIC_HEADERS,
+    "User-Agent": "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)",
+}
 # Pages de contrôle anti-robot renvoyées avec un code 200 : le vrai contenu
 # n'arrive qu'après exécution de JavaScript, il faut alors le navigateur.
 _BOT_WALL = re.compile(
@@ -93,6 +101,37 @@ class ScrapeResult:
     structured_recipe: dict | None = None
 
 
+@dataclass
+class Document:
+    """Lien vers un fichier (photo d'une recette, PDF) plutôt qu'une page."""
+    content: bytes
+    content_type: str
+
+
+# Au-delà, ce n'est plus une fiche recette (et ça ne tient pas en mémoire).
+_MAX_DOCUMENT_BYTES = 25 * 1024 * 1024
+
+
+async def _read_document(url: str, doc: Document) -> ScrapeResult:
+    if doc.content_type.startswith("image/"):
+        from .ocr_service import extract_text_from_image
+        text = await extract_text_from_image(doc.content, doc.content_type.split(";")[0])
+        return ScrapeResult(text or "", url)
+    text = await asyncio.to_thread(pdf_to_text, doc.content)
+    return ScrapeResult(text, None)
+
+
+def pdf_to_text(data: bytes, max_pages: int = 20) -> str:
+    """Texte d'un PDF (fiche recette, livre numérisé avec couche texte)."""
+    import io
+
+    from pypdf import PdfReader
+
+    reader = PdfReader(io.BytesIO(data))
+    pages = [page.extract_text() or "" for page in reader.pages[:max_pages]]
+    return "\n".join(pages).strip()
+
+
 async def scrape_url(url: str) -> ScrapeResult:
     """Récupère la recette d'une page web, du moyen le plus rapide au plus lourd.
 
@@ -102,6 +141,9 @@ async def scrape_url(url: str) -> ScrapeResult:
        JavaScript, protection anti-robot, contenu sans recette apparente.
     """
     static_html = await _fetch_static(url)
+    if isinstance(static_html, Document):
+        logger.info("scrape %s : fichier %s", url, static_html.content_type)
+        return await _read_document(url, static_html)
     static = _analyze_html(static_html) if static_html else None
     if static and (static.structured_recipe or recipe_parsing.looks_like_recipe(static.text)):
         logger.info("scrape %s : HTML statique suffisant", url)
@@ -122,13 +164,20 @@ async def scrape_url(url: str) -> ScrapeResult:
     return rendered
 
 
-async def _fetch_static(url: str) -> str | None:
+async def _fetch_static(url: str) -> str | Document | None:
+    host = httpx.URL(url).host if url.startswith("http") else ""
+    headers = _LINK_PREVIEW_HEADERS if _LINK_PREVIEW_HOSTS.search(host) else _STATIC_HEADERS
     try:
-        async with httpx.AsyncClient(timeout=10, follow_redirects=True, headers=_STATIC_HEADERS) as client:
+        async with httpx.AsyncClient(timeout=15, follow_redirects=True, headers=headers) as client:
             resp = await client.get(url)
     except httpx.HTTPError:
         return None
-    if resp.status_code != 200 or "html" not in resp.headers.get("content-type", ""):
+    content_type = resp.headers.get("content-type", "").lower()
+    if resp.status_code == 200 and (content_type.startswith("image/") or "pdf" in content_type):
+        if len(resp.content) > _MAX_DOCUMENT_BYTES:
+            raise ValueError("Fichier trop volumineux pour en extraire une recette.")
+        return Document(resp.content, content_type)
+    if resp.status_code != 200 or "html" not in content_type:
         return None
     if _BOT_WALL.search(resp.text[:20000]):
         return None
@@ -166,4 +215,25 @@ def _analyze_html(html: str) -> ScrapeResult:
         if compact and recipe:
             return ScrapeResult(compact, thumbnail)
 
-    return ScrapeResult(recipe_parsing.extract_page_text(soup), thumbnail)
+    summary = _page_summary(soup)
+    text = recipe_parsing.extract_page_text(soup)
+    if summary and summary[:200] not in text:
+        # Instagram, Pinterest, Facebook… : sans connexion, la page n'affiche
+        # qu'un mur de connexion, mais la légende est dans ses métadonnées.
+        text = f"{summary}\n\n{text}"
+    return ScrapeResult(text, thumbnail)
+
+
+def _page_summary(soup) -> str:
+    """Titre et description annoncés par la page (balises og: / meta)."""
+    def meta(*names):
+        for name in names:
+            tag = soup.find("meta", property=name) or soup.find("meta", attrs={"name": name})
+            content = recipe_parsing.clean_text(tag.get("content")) if tag else ""
+            if content:
+                return content
+        return ""
+
+    title = meta("og:title", "twitter:title")
+    description = meta("og:description", "description", "twitter:description")
+    return "\n".join(part for part in (title, description) if part)

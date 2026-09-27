@@ -258,20 +258,27 @@ def test_video_falls_back_to_whisper(monkeypatch):
 # Orchestration
 # ---------------------------------------------------------------------------
 
-def _run_extract(monkeypatch, source, scrape_result=None, llm_result=None):
+def _run_extract(monkeypatch, source, scrape_result=None, llm_result=None, rebuilt=None):
     from app.services import extractor
 
     llm_calls = []
 
     async def fake_scrape(url):
+        if isinstance(scrape_result, Exception):
+            raise scrape_result
         return scrape_result
 
     async def fake_llm(text):
         llm_calls.append(text)
         return dict(llm_result or {})
 
+    async def fake_reconstruct(text):
+        llm_calls.append(("reconstruction", text))
+        return dict(rebuilt or {"error": "Aucune recette trouvée"})
+
     monkeypatch.setattr(extractor, "scrape_url", fake_scrape)
     monkeypatch.setattr(extractor, "extract_recipe_with_llm", fake_llm)
+    monkeypatch.setattr(extractor, "reconstruct_recipe_with_llm", fake_reconstruct)
     return asyncio.run(extractor.extract(source)), llm_calls
 
 
@@ -292,7 +299,7 @@ def test_extract_web_page_without_structured_data_uses_llm(monkeypatch):
 def test_extract_text_and_errors(monkeypatch):
     data, llm_calls = _run_extract(monkeypatch, "200 g de farine, 2 œufs…", llm_result={"title": "T"})
     assert llm_calls and data["source_url"] is None
-    with pytest.raises(ValueError, match="Aucune recette"):
+    with pytest.raises(ValueError, match="Aucune recette ni aucun plat"):
         _run_extract(monkeypatch, "bonjour", llm_result={"error": "Aucune recette trouvée"})
     with pytest.raises(ValueError, match="Aucun contenu"):
         _run_extract(monkeypatch, "https://example.com/vide", web_scraper.ScrapeResult("  ", None))
@@ -368,3 +375,135 @@ def test_whisper_without_any_speech_returns_empty(monkeypatch):
     monkeypatch.setattr(video_service, "_load_whisper", lambda: (BrokenModel(), False))
     with pytest.raises(ValueError):
         video_service._transcribe("audio.m4a")
+
+
+# ---------------------------------------------------------------------------
+# « Peu importe l'entrée » : replis quand la voie normale échoue
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("typed, expected", [
+    ("marmiton.org/recettes/recette_x.aspx", "https://marmiton.org/recettes/recette_x.aspx"),
+    ("www.cuisineaz.com", "https://www.cuisineaz.com"),
+    ("Regarde www.instagram.com/reel/abc/ !", "https://www.instagram.com/reel/abc/"),
+    ("youtu.be/abc?si=1", "https://youtu.be/abc?si=1"),
+    ("lasagnes", "lasagnes"),
+    ("tarte.tatin", "tarte.tatin"),
+    ("1.5", "1.5"),
+])
+def test_resolve_input_accepts_links_without_https(typed, expected):
+    assert resolve_input(typed) == expected
+
+
+def test_dish_name_alone_gets_a_reconstructed_recipe(monkeypatch):
+    rebuilt = {"title": "Lasagnes", "ingredients": [{"name": "pâtes"}], "steps": [{"order": 1, "text": "Cuire."}]}
+    data, calls = _run_extract(
+        monkeypatch, "lasagnes", llm_result={"error": "Aucune recette trouvée"}, rebuilt=rebuilt,
+    )
+    assert calls == ["lasagnes", ("reconstruction", "lasagnes")]
+    assert data["title"] == "Lasagnes" and data["source_type"].value == "text"
+
+
+def test_unreadable_video_falls_back_to_the_page(monkeypatch):
+    from app.services import extractor
+
+    async def no_video(url, progress):
+        raise RuntimeError("ERROR: [Instagram] abc: There is no video in this post")
+
+    monkeypatch.setattr(extractor, "video_to_text", no_video)
+    page = web_scraper.ScrapeResult("Tarte : 200 g de farine…", "https://img/x.jpg")
+    data, calls = _run_extract(monkeypatch, "https://www.instagram.com/p/abc/", page, {"title": "Tarte"})
+    assert calls == ["Tarte : 200 g de farine…"]
+    assert data["source_type"].value == "video" and data["thumbnail_url"] == "https://img/x.jpg"
+
+
+def test_unreachable_page_gives_a_readable_error(monkeypatch):
+    from app.services import extractor
+
+    async def no_video(url, progress):
+        raise RuntimeError("ERROR: Sign in to confirm you're not a bot")
+
+    monkeypatch.setattr(extractor, "video_to_text", no_video)
+    with pytest.raises(ValueError, match="Impossible de lire ce lien .*not a bot"):
+        _run_extract(monkeypatch, "https://youtu.be/x", RuntimeError("Page.goto: net::ERR\nCall log: …"))
+    with pytest.raises(ValueError, match=r"Impossible de lire ce lien \(Page.goto: net::ERR\)"):
+        _run_extract(monkeypatch, "https://exemple.fr/x", RuntimeError("Page.goto: net::ERR\nCall log: …"))
+
+
+def test_page_metadata_is_kept_behind_a_login_wall():
+    html = (
+        '<html><head><meta property="og:title" content="Chef sur Instagram">'
+        '<meta property="og:description" content="Tiramisu : 250 g de mascarpone, 3 œufs…"></head>'
+        "<body><main>Connectez-vous pour voir cette publication.</main></body></html>"
+    )
+    text = web_scraper._analyze_html(html).text
+    assert text.startswith("Chef sur Instagram\nTiramisu : 250 g de mascarpone")
+    assert "Connectez-vous" in text
+
+
+def test_image_link_is_read_by_ocr(monkeypatch):
+    from app.services import ocr_service
+
+    async def fake_static(url):
+        return web_scraper.Document(b"\x89PNG...", "image/png")
+
+    async def fake_ocr(data, mime):
+        assert mime == "image/png"
+        return "Crêpes\n250 g de farine"
+
+    monkeypatch.setattr(web_scraper, "_fetch_static", fake_static)
+    monkeypatch.setattr(ocr_service, "extract_text_from_image", fake_ocr)
+    result = asyncio.run(web_scraper.scrape_url("https://exemple.fr/recette.png"))
+    assert result.text == "Crêpes\n250 g de farine" and result.thumbnail == "https://exemple.fr/recette.png"
+
+
+def test_fetch_static_returns_files_as_documents(monkeypatch):
+    real_client = httpx.AsyncClient
+    response = httpx.Response(200, headers={"content-type": "application/pdf"}, content=b"%PDF-1.4")
+    monkeypatch.setattr(
+        web_scraper.httpx, "AsyncClient",
+        lambda *a, **kw: real_client(*a, transport=httpx.MockTransport(lambda r: response), **kw),
+    )
+    doc = asyncio.run(web_scraper._fetch_static("https://exemple.fr/fiche.pdf"))
+    assert isinstance(doc, web_scraper.Document) and doc.content_type == "application/pdf"
+
+
+def test_pdf_to_text():
+    pypdf = pytest.importorskip("pypdf")
+    import io
+
+    writer = pypdf.PdfWriter()
+    writer.add_blank_page(100, 100)
+    buffer = io.BytesIO()
+    writer.write(buffer)
+    assert web_scraper.pdf_to_text(buffer.getvalue()) == ""
+
+
+def test_unreadable_llm_answer_is_retried_once(monkeypatch):
+    answers = iter(["pas du json", json.dumps({"found": True, "title": "Soupe", "ingredients": [{"name": "eau"}], "steps": ["Chauffer."]})])
+    temperatures = []
+
+    def handler(request):
+        temperatures.append(json.loads(request.content)["options"]["temperature"])
+        return httpx.Response(200, json={"message": {"content": next(answers)}})
+
+    _patch_ollama(monkeypatch, handler)
+    monkeypatch.setattr(llm_service.settings, "claude_api_key", "", raising=False)
+    data = asyncio.run(llm_service.extract_recipe_with_llm("soupe"))
+    assert data["title"] == "Soupe" and temperatures == [0, 0.4]
+
+
+def test_reconstructed_recipe_is_flagged(monkeypatch):
+    content = json.dumps({"found": True, "title": "Lasagnes", "description": "Un classique.",
+                          "ingredients": [{"name": "pâtes"}], "steps": ["Cuire."], "tags": ["italien"]})
+    prompts = []
+
+    def handler(request):
+        prompts.append(json.loads(request.content)["messages"][0]["content"])
+        return httpx.Response(200, json={"message": {"content": content}})
+
+    _patch_ollama(monkeypatch, handler)
+    monkeypatch.setattr(llm_service.settings, "claude_api_key", "", raising=False)
+    data = asyncio.run(llm_service.reconstruct_recipe_with_llm("lasagnes"))
+    assert prompts == [llm_service.RECONSTRUCT_PROMPT]
+    assert data["description"].startswith(llm_service.RECONSTRUCTED_NOTICE)
+    assert data["tags"][0] == "à vérifier"

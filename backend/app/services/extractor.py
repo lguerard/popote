@@ -5,7 +5,8 @@ from typing import Awaitable, Callable
 
 from .video_service import video_to_text
 from .web_scraper import scrape_url
-from .llm_service import extract_recipe_with_llm
+from .llm_service import extract_recipe_with_llm, reconstruct_recipe_with_llm
+from .extraction_steps import error_text
 from . import recipe_parsing
 from ..models.recipe import SourceType
 
@@ -25,6 +26,15 @@ VIDEO_DOMAINS = re.compile(
 
 URL_PATTERN = re.compile(r"^https?://\S+$", re.IGNORECASE)
 _URL_IN_TEXT = re.compile(r"https?://[^\s<>\"']+", re.IGNORECASE)
+# « marmiton.org/recettes/… », « www.x.fr » : une adresse tapée ou copiée
+# sans https:// partait au LLM comme du texte (aucune recette trouvée).
+_TLDS = r"(?:com|fr|org|net|be|ch|ca|it|es|de|uk|eu|io|co|tv|me|lu|nl|pt|us|info|blog|app|gl|ly)"
+_BARE_URL = re.compile(
+    rf"^(?:www\.)?(?:[a-z0-9-]+\.)+{_TLDS}(?::\d+)?(?:[/?#]\S*)?$", re.IGNORECASE,
+)
+_BARE_URL_IN_TEXT = re.compile(
+    rf"(?<![@\w.])(?:www\.)?(?:[a-z0-9-]+\.)+{_TLDS}/[^\s<>\"']*", re.IGNORECASE,
+)
 # Au-delà, le texte partagé est probablement la recette elle-même (copiée
 # depuis une page) et l'URL qu'il contient n'est qu'une mention de source.
 _SHARED_TEXT_MAX_CHARS = 400
@@ -41,12 +51,15 @@ def resolve_input(input_text: str) -> str:
     text = input_text.strip()
     if URL_PATTERN.match(text):
         return text
-    match = _URL_IN_TEXT.search(text)
-    if not match:
+    if len(text) > _SHARED_TEXT_MAX_CHARS:
         return text
-    if len(text) > _SHARED_TEXT_MAX_CHARS or recipe_parsing.has_full_recipe(text):
+    if _BARE_URL.match(text):
+        return "https://" + text
+    match = _URL_IN_TEXT.search(text) or _BARE_URL_IN_TEXT.search(text)
+    if not match or recipe_parsing.has_full_recipe(text):
         return text
-    return match.group(0).rstrip(".,;:!?)]}»")
+    url = match.group(0).rstrip(".,;:!?)]}»")
+    return url if URL_PATTERN.match(url) else "https://" + url
 
 
 def detect_source_type(input_text: str) -> SourceType:
@@ -75,21 +88,30 @@ async def extract(
     raw_text = source
     started = time.monotonic()
 
+    page = None
     if source_type == SourceType.video:
         await progress("Lecture des informations de la vidéo…")
-        raw_text, thumbnail_url = await video_to_text(source, progress)
+        try:
+            raw_text, thumbnail_url = await video_to_text(source, progress)
+        except Exception as exc:
+            # Post photo Instagram, tweet ou post Reddit sans vidéo, vérification
+            # anti-robot de YouTube… : la page elle-même (légende, description)
+            # contient souvent la recette.
+            logger.warning("Vidéo illisible (%s), repli sur la page : %s", error_text(exc), source)
+            await progress("Vidéo illisible, lecture de la page…")
+            page = await _scrape(source, video_error=exc)
     elif source_type == SourceType.web:
         await progress("Chargement de la page web…")
-        page = await scrape_url(source)
-        thumbnail_url = page.thumbnail
+        page = await _scrape(source)
+    if page is not None:
+        thumbnail_url = page.thumbnail or thumbnail_url
+        raw_text = page.text
         if page.structured_recipe:
             # Recette publiée en données structurées par le site : lue telle
             # quelle, sans LLM — quelques secondes au lieu d'une ou deux
             # minutes, et rien d'inventé ni de mal recopié.
             await progress("Lecture de la recette publiée par le site…")
             recipe_data = page.structured_recipe
-        else:
-            raw_text = page.text
     fetched = time.monotonic()
 
     used_llm = recipe_data is None
@@ -99,7 +121,14 @@ async def extract(
         await progress("Analyse de la recette par l'IA…")
         recipe_data = await extract_recipe_with_llm(raw_text)
         if "error" in recipe_data:
-            raise ValueError(recipe_data["error"])
+            # Pas de recette détaillée (nom de plat seul, reel sans légende…) :
+            # l'IA propose une recette du plat plutôt qu'un échec.
+            await progress("Pas de recette détaillée : l'IA en propose une…")
+            recipe_data = await reconstruct_recipe_with_llm(raw_text)
+            if "error" in recipe_data:
+                raise ValueError(
+                    "Aucune recette ni aucun plat reconnaissable dans ce contenu."
+                )
     logger.info(
         "extraction %s (%s) : récupération %.1fs, analyse %.1fs%s",
         source[:80], source_type.value, fetched - started, time.monotonic() - fetched,
@@ -117,6 +146,16 @@ async def extract(
             recipe_data["similar_recipe_id"] = similar
 
     return recipe_data
+
+
+async def _scrape(url: str, video_error: Exception | None = None):
+    """La page, ou une erreur compréhensible (pas la trace de Chromium)."""
+    try:
+        return await scrape_url(url)
+    except Exception as exc:
+        logger.warning("Page inaccessible : %s", url, exc_info=True)
+        reason = error_text(video_error or exc).splitlines()[0][:200]
+        raise ValueError(f"Impossible de lire ce lien ({reason}).") from exc
 
 
 async def _find_similar(title: str, db, owner_id=None) -> str | None:
