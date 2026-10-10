@@ -144,14 +144,20 @@ async def extract(
         await progress("Analyse de la recette par l'IA…")
         recipe_data = await extract_recipe_with_llm(raw_text)
         if "error" in recipe_data:
-            # Pas de recette détaillée (nom de plat seul, reel sans légende…) :
-            # une vraie recette du plat plutôt qu'un échec.
-            recipe_data, image = await recipe_for_dish(raw_text, progress)
+            if source_type != SourceType.text:
+                # Un lien donne SA recette, jamais une autre : rien n'est
+                # inventé ni cherché ailleurs quand il n'en contient pas.
+                raise ValueError(
+                    "Ce lien ne contient pas de recette détaillée (ni dans la vidéo, ni dans sa "
+                    "légende ou sa page). Si elle est ailleurs (commentaire, lien en bio…), "
+                    "copiez-la et collez-la dans Popote."
+                )
+            # Texte sans recette (nom de plat tapé seul…) : l'IA en propose une.
+            recipe_data, _ = await recipe_for_dish(raw_text, progress)
             if "error" in recipe_data:
                 raise ValueError(
                     "Aucune recette ni aucun plat reconnaissable dans ce contenu."
                 )
-            thumbnail_url = thumbnail_url or image
     logger.info(
         "extraction %s (%s) : récupération %.1fs, analyse %.1fs%s",
         source[:80], source_type.value, fetched - started, time.monotonic() - fetched,
@@ -182,24 +188,14 @@ def _add_note(recipe: dict, note: str) -> None:
 
 
 async def recipe_for_dish(text: str, progress: ProgressCallback | None = None) -> tuple[dict, str | None]:
-    """(recette, image) pour un contenu qui évoque un plat sans en donner la recette.
-
-    L'IA identifie le plat, puis on cherche une vraie recette publiée sur le
-    web ; la recette reconstituée par l'IA ne sert qu'en dernier recours.
+    """(recette, image) pour une entrée SANS lien qui évoque un plat sans en
+    donner la recette (nom de plat tapé, photo d'un plat) : l'IA en propose
+    une, marquée « à vérifier ». Jamais utilisé pour un lien.
     {"error": …} si aucun plat n'est reconnaissable.
     """
     progress = progress or _noop_progress
-    await progress("Pas de recette détaillée : identification du plat…")
-    rebuilt = await reconstruct_recipe_with_llm(text)
-    if "error" in rebuilt:
-        return rebuilt, None
-    await progress(f"Recherche d'une recette de « {rebuilt['title']} » sur le web…")
-    found = await recipe_finder.search_recipe(rebuilt["title"])
-    if not found:
-        return rebuilt, None
-    recipe, link, image = found
-    _add_note(recipe, f"Recette trouvée sur {_domain(link)} : la source ne donnait pas la recette détaillée.")
-    return recipe, image
+    await progress("Pas de recette détaillée : l'IA en propose une…")
+    return await reconstruct_recipe_with_llm(text), None
 
 
 async def _scrape(url: str, video_error: Exception | None = None):

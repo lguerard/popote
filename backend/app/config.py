@@ -21,9 +21,6 @@ class Settings(BaseSettings):
     # Cookies d'un compte (format Netscape, exportés du navigateur) pour les
     # vidéos qui exigent une connexion, Instagram surtout. Ignoré si absent.
     ytdlp_cookies_file: str = "/app/cookies/cookies.txt"
-    # Contenu sans recette détaillée : chercher une vraie recette du plat sur
-    # le web (DuckDuckGo) avant de laisser l'IA en reconstituer une.
-    recipe_web_search: bool = True
     imagegen_base_url: str = "http://imagegen:8001"
     # Décharge le modèle Ollama du GPU avant chaque génération d'image : sans
     # ça, il n'y a pas la place de générer sur le GPU (repli CPU très lent).

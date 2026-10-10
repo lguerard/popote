@@ -84,8 +84,6 @@ services:
       WHISPER_FREE_GPU: ${WHISPER_FREE_GPU:-true}
       # Met yt-dlp à jour à chaque démarrage (sites vidéo qui changent).
       YTDLP_AUTO_UPDATE: ${YTDLP_AUTO_UPDATE:-true}
-      # Sans recette détaillée : chercher une vraie recette du plat sur le web.
-      RECIPE_WEB_SEARCH: ${RECIPE_WEB_SEARCH:-true}
     volumes:
       - media_data:/app/media
       # Optionnel : cookies d'un compte Instagram (cookies/cookies.txt) pour
