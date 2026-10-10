@@ -42,6 +42,23 @@ fun RecipeCard(recipe: Recipe, onClick: () -> Unit) {
                 } else {
                     RecipePlaceholder(recipe.category)
                 }
+                // Recette reçue d'un autre compte
+                if (recipe.shared_by_name != null) {
+                    Surface(
+                        modifier = Modifier.align(Alignment.TopStart).padding(6.dp),
+                        shape = MaterialTheme.shapes.small,
+                        color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.92f),
+                    ) {
+                        Text(
+                            "👥 ${recipe.shared_by_name}",
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onTertiaryContainer,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
                 // Source icon badge
                 Surface(
                     modifier = Modifier.align(Alignment.TopEnd).padding(6.dp),

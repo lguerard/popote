@@ -16,6 +16,7 @@ interface PopoteApi {
         @Query("favorites_only") favoritesOnly: Boolean? = null,
         @Query("never_cooked") neverCooked: Boolean? = null,
         @Query("cook_again") cookAgain: Boolean? = null,
+        @Query("shared") shared: Boolean? = null,
         @Query("sort") sort: String? = null,
         @Query("page") page: Int = 1,
         @Query("limit") limit: Int = 1000,
@@ -143,6 +144,22 @@ interface PopoteApi {
 
     @POST("api/achievements/cooking-mode")
     suspend fun trackCookingMode(): Map<String, Boolean>
+
+    // Partage avec d'autres comptes
+    @GET("api/sharing/users")
+    suspend fun getShareableUsers(): List<Account>
+
+    @POST("api/sharing/send")
+    suspend fun sendRecipes(@Body body: SendRecipesRequest): SendRecipesResponse
+
+    @GET("api/sharing/automatic")
+    suspend fun getAutomaticShares(): AutomaticShares
+
+    @DELETE("api/sharing/automatic/{userId}")
+    suspend fun stopSending(@Path("userId") userId: String)
+
+    @DELETE("api/sharing/automatic/from/{userId}")
+    suspend fun stopReceiving(@Path("userId") userId: String)
 
     @GET("api/health")
     suspend fun health(): Map<String, String>

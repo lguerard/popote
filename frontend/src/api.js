@@ -93,3 +93,13 @@ export const checkPublicShoppingItem = (token, id, checked) =>
   publicApi.patch(`/shopping/${token}/items/${id}`, { checked }).then(r => r.data)
 
 export const publicLink = (path) => `${window.location.origin}${path}`
+
+// Partage avec d'autres comptes (copies, avec un badge « de … »)
+export const getShareableUsers = () => api.get('/sharing/users').then(r => r.data)
+export const sendRecipes = (data) => api.post('/sharing/send', data).then(r => r.data)
+export const getAutomaticShares = () => api.get('/sharing/automatic').then(r => r.data)
+export const stopSending = (userId) => api.delete(`/sharing/automatic/${userId}`)
+export const stopReceiving = (userId) => api.delete(`/sharing/automatic/from/${userId}`)
+
+// Page HTML avec données schema.org/Recipe, pour l'import de MyFitnessPal
+export const importPageLink = (token) => publicLink(`/api/public/recipes/${token}/page`)

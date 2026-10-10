@@ -67,5 +67,13 @@ class Recipe(Base):
     last_cooked_at: Mapped[date | None] = mapped_column(Date)
     # Lien public en lecture seule (/partage/r/<jeton>) ; None = non partagée.
     share_token: Mapped[str | None] = mapped_column(String(64), unique=True, index=True)
+    # Recette reçue d'un autre compte (copie, voir services/sharing.py) :
+    # qui l'a envoyée (nom gardé si son compte disparaît, pour le badge), et
+    # la recette d'origine, pour ne jamais envoyer deux fois la même.
+    shared_by_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
+    )
+    shared_by_name: Mapped[str | None] = mapped_column(String(100))
+    origin_recipe_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))

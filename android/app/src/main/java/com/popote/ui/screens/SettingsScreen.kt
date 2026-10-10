@@ -1,6 +1,8 @@
 package com.popote.ui.screens
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -32,7 +34,10 @@ fun SettingsScreen(
             )
         }
     ) { padding ->
-        Column(Modifier.padding(padding).padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        Column(
+            Modifier.padding(padding).verticalScroll(rememberScrollState()).padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
             Text("Serveur Popote", style = MaterialTheme.typography.titleLarge)
             Text(
                 "Entrez l'adresse IP ou le nom de domaine de votre serveur.\nPar exemple : http://192.168.1.100",
@@ -93,6 +98,9 @@ fun SettingsScreen(
             OutlinedButton(onClick = { vm.logout() }, modifier = Modifier.fillMaxWidth()) {
                 Text("Se déconnecter")
             }
+
+            HorizontalDivider()
+            SharingSection()
         }
     }
 }

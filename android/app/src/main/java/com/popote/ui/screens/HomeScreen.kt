@@ -42,6 +42,7 @@ val HISTORY_FILTERS = listOf(
     "favorites" to "❤️ Favoris",
     "never_cooked" to "🆕 Jamais faites",
     "cook_again" to "🔁 À refaire",
+    "shared" to "👥 Reçues",
 )
 
 val SORTS = listOf(

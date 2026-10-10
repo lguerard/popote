@@ -7,6 +7,7 @@ const NAV = [
   { to: '/carnets', label: 'Carnets', emoji: '📚' },
   { to: '/planning', label: 'Planning', emoji: '📅' },
   { to: '/courses', label: 'Courses', emoji: '🛒' },
+  { to: '/partager', label: 'Partager', emoji: '👥', title: 'Partager mes recettes avec un autre compte' },
   { to: '/succes', label: 'Succès', emoji: '🏆' },
 ]
 

@@ -64,6 +64,7 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
                     favoritesOnly = h == "favorites",
                     neverCooked = h == "never_cooked",
                     cookAgain = h == "cook_again",
+                    shared = h == "shared",
                     sort = _sort.value.takeIf { it != "recent" },
                 )
             } catch (e: Exception) {

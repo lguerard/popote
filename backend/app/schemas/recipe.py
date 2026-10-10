@@ -80,6 +80,8 @@ class RecipeOut(RecipeBase):
     cooked_count: int = 0
     last_cooked_at: date | None = None
     share_token: str | None = None
+    # Renseigné quand la recette a été envoyée par un autre compte (badge).
+    shared_by_name: str | None = None
     created_at: datetime
     updated_at: datetime
 

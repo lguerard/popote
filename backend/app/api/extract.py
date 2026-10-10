@@ -11,6 +11,7 @@ from ..models.recipe import Recipe, ExtractionStatus
 from ..schemas.recipe import ExtractionRequest, ExtractionResponse, RecipeOut
 from ..services.extractor import extract
 from ..services.extraction_steps import EXTRACTION_TIMEOUT_SECONDS, StepTracker, error_text
+from ..services import sharing
 from ..services.llm_service import offload_hint
 
 logger = logging.getLogger(__name__)
@@ -191,6 +192,7 @@ async def _run_extraction(recipe_id: UUID, input_text: str):
             await db.commit()
         else:
             await _record_achievement(db, recipe.source_type or "manual")
+            await sharing.auto_share(db, recipe)
 
 
 async def _run_image_extraction(recipe_id: UUID, image_bytes: bytes, mime_type: str):
@@ -258,3 +260,4 @@ async def _run_image_extraction(recipe_id: UUID, image_bytes: bytes, mime_type: 
             # "image" is not a stored SourceType: it only routes the
             # achievement so "Photographe" is reachable
             await _record_achievement(db, "image")
+            await sharing.auto_share(db, recipe)

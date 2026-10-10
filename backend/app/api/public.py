@@ -7,7 +7,8 @@ ressource non partagée (ou révoquée) répond 404, comme un jeton inventé.
 
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,7 +19,7 @@ from ..models.recipe import ExtractionStatus, Recipe
 from ..models.shopping import ShoppingItem as ShoppingItemRow
 from ..models.user import User, UserStatus
 from ..schemas.recipe import PublicRecipeOut
-from ..services import grocery
+from ..services import grocery, recipe_export
 from .collections import collection_recipes
 from .shopping import ShoppingItemOut, list_items
 
@@ -60,6 +61,26 @@ async def public_recipe(token: str, db: AsyncSession = Depends(get_db)):
         raise HTTPException(404, "Lien invalide ou révoqué")
     await _active_owner(db, recipe.owner_id)
     return recipe
+
+
+def _public_base_url(request: Request) -> str:
+    """Adresse publique du serveur, derrière nginx (et Cloudflare…)."""
+    proto = request.headers.get("x-forwarded-proto", request.url.scheme).split(",")[0].strip()
+    host = request.headers.get("x-forwarded-host") or request.headers.get("host") or request.url.netloc
+    return f"{proto}://{host.split(',')[0].strip()}"
+
+
+@router.get("/recipes/{token}/page", response_class=HTMLResponse)
+async def public_recipe_page(token: str, request: Request, db: AsyncSession = Depends(get_db)):
+    """Même recette, en page HTML avec données schema.org/Recipe : c'est le
+    lien à donner à l'import « depuis le web » de MyFitnessPal (et des
+    autres applis de recettes), qui n'exécutent pas le JavaScript."""
+    recipe = await public_recipe(token, db)
+    base = _public_base_url(request)
+    return HTMLResponse(recipe_export.render_recipe_page(
+        recipe, base, page_url=f"{base}/api/public/recipes/{token}/page",
+        app_url=f"{base}/partage/r/{token}",
+    ))
 
 
 async def _shared_collection(db: AsyncSession, token: str) -> tuple[Collection, User]:
