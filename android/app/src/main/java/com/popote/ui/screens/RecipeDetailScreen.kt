@@ -1,5 +1,8 @@
 package com.popote.ui.screens
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.view.WindowManager
@@ -28,7 +31,9 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.SubcomposeAsyncImage
 import com.popote.ui.components.RecipePlaceholder
+import com.popote.data.Account
 import com.popote.data.CookLog
+import com.popote.data.Ingredient
 import com.popote.data.Nutrition
 import com.popote.data.Recipe
 import com.popote.data.RecipeCollection
@@ -37,6 +42,8 @@ import com.popote.ui.components.Stars
 import com.popote.ui.components.formatIsoDate
 import com.popote.ui.components.formatSeconds
 import com.popote.ui.components.imageUrl
+import com.popote.ui.components.isLocalServer
+import com.popote.ui.components.openMyFitnessPal
 import com.popote.ui.components.parseStepSeconds
 import com.popote.ui.components.shareText
 import com.popote.ui.viewmodels.RecipeDetailViewModel
@@ -91,6 +98,10 @@ fun RecipeDetailScreen(
     val notesSaving by vm.notesSaving.collectAsState()
     val history by vm.history.collectAsState()
     val collections by vm.collections.collectAsState()
+    val accounts by vm.accounts.collectAsState()
+    val sendResult by vm.sendResult.collectAsState()
+    var showSend by remember { mutableStateOf(false) }
+    var showMfp by remember { mutableStateOf(false) }
     var showDeleteDialog by remember { mutableStateOf(false) }
     var showCookedDialog by remember { mutableStateOf(false) }
     var showReextractDialog by remember { mutableStateOf(false) }
@@ -166,6 +177,23 @@ fun RecipeDetailScreen(
         )
     }
 
+    if (showSend) {
+        SendToAccountSheet(
+            accounts = accounts,
+            result = sendResult,
+            onSend = vm::sendTo,
+            onDismiss = { showSend = false },
+        )
+    }
+
+    if (showMfp && recipe != null) {
+        MyFitnessPalDialog(
+            recipe = recipe!!,
+            onCopyLinkAndOpen = { vm.importLink { link -> copyText(context, link); openMyFitnessPal(context) } },
+            onDismiss = { showMfp = false },
+        )
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -193,6 +221,16 @@ fun RecipeDetailScreen(
                                     text = { Text("Ajouter à un carnet") },
                                     leadingIcon = { Icon(Icons.Default.CollectionsBookmark, null) },
                                     onClick = { menuOpen = false; vm.loadCollections(); showCollections = true },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Envoyer à un autre compte") },
+                                    leadingIcon = { Icon(Icons.Default.Group, null) },
+                                    onClick = { menuOpen = false; vm.loadAccounts(); showSend = true },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Ajouter à MyFitnessPal") },
+                                    leadingIcon = { Icon(Icons.Default.FitnessCenter, null) },
+                                    onClick = { menuOpen = false; showMfp = true },
                                 )
                                 if (r.source_url != null) {
                                     DropdownMenuItem(
@@ -348,6 +386,86 @@ private fun CollectionsSheet(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SendToAccountSheet(
+    accounts: List<Account>?,
+    result: String?,
+    onSend: (Account) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(Modifier.padding(horizontal = 20.dp).padding(bottom = 32.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("👥 Envoyer à un autre compte", style = MaterialTheme.typography.titleLarge)
+            Text("La personne reçoit une copie de la recette, marquée « Partagée par vous ». Vos notes, avis et historique restent privés.",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            when {
+                accounts == null -> CircularProgressIndicator(Modifier.padding(16.dp))
+                accounts.isEmpty() -> Text("Aucun autre compte sur ce serveur.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                else -> accounts.forEach { a ->
+                    OutlinedButton(onClick = { onSend(a) }, modifier = Modifier.fillMaxWidth()) { Text("👤 ${a.display_name}") }
+                }
+            }
+            if (result != null) Text(result, color = MaterialTheme.colorScheme.primary)
+        }
+    }
+}
+
+/** « 200 g farine, tamisée » : le format qu'attend la saisie d'ingrédients. */
+private fun ingredientLine(i: Ingredient): String {
+    val main = listOfNotNull(i.quantity, i.unit, i.name).filter { it.isNotBlank() }.joinToString(" ")
+    return if (main.isNotBlank() && !i.notes.isNullOrBlank()) "$main, ${i.notes}" else main
+}
+
+private fun copyText(context: Context, text: String) {
+    context.getSystemService(ClipboardManager::class.java)
+        ?.setPrimaryClip(ClipData.newPlainText("Popote", text))
+}
+
+@Composable
+private fun MyFitnessPalDialog(
+    recipe: Recipe,
+    onCopyLinkAndOpen: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val context = LocalContext.current
+    val localServer = isLocalServer(LocalServerUrl.current)
+    val lines = recipe.ingredients.map(::ingredientLine).filter { it.isNotBlank() }.joinToString("\n")
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Ajouter à MyFitnessPal") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("Popote copie la recette puis ouvre MyFitnessPal : il ne reste qu'à coller (appui long → Coller).",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+                Text("Recette complète (lien)", fontWeight = FontWeight.SemiBold)
+                Text("Dans MyFitnessPal : ••• Plus → Recettes, repas et aliments → Recettes → Créer une recette → Importer depuis le Web, collez le lien.",
+                    style = MaterialTheme.typography.bodySmall)
+                if (localServer) {
+                    Text("Votre serveur Popote n'est joignable que depuis votre réseau local : MyFitnessPal ne pourra pas lire ce lien. Utilisez plutôt les ingrédients ci-dessous.",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                }
+                Button(onClick = onCopyLinkAndOpen, enabled = !localServer, modifier = Modifier.fillMaxWidth()) {
+                    Text("Copier le lien et ouvrir MyFitnessPal")
+                }
+
+                HorizontalDivider()
+                Text("Ingrédients seulement", fontWeight = FontWeight.SemiBold)
+                Text("Créer une recette → Saisir manuellement : collez la liste" +
+                    (recipe.servings?.let { ", indiquez $it portions" } ?: "") +
+                    ", puis vérifiez les aliments proposés.",
+                    style = MaterialTheme.typography.bodySmall)
+                FilledTonalButton(
+                    onClick = { copyText(context, lines); openMyFitnessPal(context) },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("Copier les ingrédients et ouvrir MyFitnessPal") }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Fermer") } },
+    )
+}
+
 // ── Content ───────────────────────────────────────────────────────────────────
 
 @Composable
@@ -459,6 +577,14 @@ private fun RecipeContent(
         // Avis : étoiles, « à refaire », historique résumé
         item {
             Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                if (recipe.shared_by_name != null) {
+                    Surface(shape = MaterialTheme.shapes.small, color = MaterialTheme.colorScheme.tertiaryContainer) {
+                        Text("👥 Partagée par ${recipe.shared_by_name}",
+                            Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onTertiaryContainer)
+                    }
+                }
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Stars(recipe.rating, onChange = onRate)
                     FilterChip(

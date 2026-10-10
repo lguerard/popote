@@ -55,6 +55,12 @@ _MIGRATIONS = (
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS shopping_share_token VARCHAR(64)",
     "CREATE UNIQUE INDEX IF NOT EXISTS ix_users_shopping_share_token"
     " ON users (shopping_share_token)",
+    # Partage de recettes entre comptes (services/sharing.py).
+    "ALTER TABLE recipes ADD COLUMN IF NOT EXISTS shared_by_id UUID"
+    " REFERENCES users(id) ON DELETE SET NULL",
+    "ALTER TABLE recipes ADD COLUMN IF NOT EXISTS shared_by_name VARCHAR(100)",
+    "ALTER TABLE recipes ADD COLUMN IF NOT EXISTS origin_recipe_id UUID",
+    "CREATE INDEX IF NOT EXISTS ix_recipes_owner_origin ON recipes (owner_id, origin_recipe_id)",
     # Un serveur sans aucun administrateur ne peut plus valider personne :
     # le compte le plus ancien le devient. Sans effet des qu'il en existe un.
     "UPDATE users SET is_admin = true WHERE id = ("

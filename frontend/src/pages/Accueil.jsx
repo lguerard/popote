@@ -36,6 +36,7 @@ const HISTORY_FILTERS = [
   { value: null, label: 'Toutes' },
   { value: 'never_cooked', label: '🆕 Jamais faites' },
   { value: 'cook_again', label: '🔁 À refaire' },
+  { value: 'shared', label: '👥 Reçues' },
 ]
 
 const SORTS = [

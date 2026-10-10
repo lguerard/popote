@@ -10,6 +10,8 @@ import Etoiles from '../components/Etoiles'
 import LienPartage from '../components/LienPartage'
 import Historique from '../components/Historique'
 import ChoixCarnets from '../components/ChoixCarnets'
+import EnvoiCompte from '../components/EnvoiCompte'
+import ExportMfp from '../components/ExportMfp'
 
 const SOURCE_ICONS = { video: '🎬', web: '🌐', text: '📝', manual: '✏️' }
 const SOURCE_LABELS = { video: 'Vidéo', web: 'Site web', text: 'Texte', manual: 'Manuel' }
@@ -51,7 +53,7 @@ export default function DetailRecette() {
   const [customScale, setCustomScale] = useState('')
   const [notes, setNotes] = useState(null) // null = not editing
   const [savingNotes, setSavingNotes] = useState(false)
-  const [panneau, setPanneau] = useState(null) // 'carnets' | 'partage' | null
+  const [panneau, setPanneau] = useState(null) // 'carnets' | 'partage' | 'compte' | 'mfp' | null
 
   const { data: recipe, isLoading, error } = useQuery({
     queryKey: ['recipe', id],
@@ -112,6 +114,11 @@ export default function DetailRecette() {
               {recipe.is_favorite ? '❤️' : '🤍'}
             </button>
           </h1>
+          {recipe.shared_by_name && (
+            <p className="mt-2 inline-flex items-center gap-1.5 px-3 py-1 bg-sky-50 text-sky-700 border border-sky-200 rounded-full text-xs font-medium">
+              👥 Partagée par {recipe.shared_by_name}
+            </p>
+          )}
           {recipe.description && <p className="text-gray-500 mt-2">{recipe.description}</p>}
           <div className="flex items-center gap-3 mt-3 flex-wrap">
             <Etoiles value={recipe.rating} onChange={(rating) => avisMut.mutate({ rating })} />
@@ -137,6 +144,10 @@ export default function DetailRecette() {
             className={`px-3 py-2 text-sm rounded-lg transition-colors ${panneau === 'carnets' ? 'bg-orange-100 text-orange-700' : 'bg-gray-100 hover:bg-gray-200'}`}>📚</button>
           <button onClick={() => setPanneau(p => p === 'partage' ? null : 'partage')} title="Partager par lien"
             className={`px-3 py-2 text-sm rounded-lg transition-colors ${panneau === 'partage' ? 'bg-orange-100 text-orange-700' : 'bg-gray-100 hover:bg-gray-200'}`}>🔗</button>
+          <button onClick={() => setPanneau(p => p === 'compte' ? null : 'compte')} title="Envoyer à un autre compte"
+            className={`px-3 py-2 text-sm rounded-lg transition-colors ${panneau === 'compte' ? 'bg-orange-100 text-orange-700' : 'bg-gray-100 hover:bg-gray-200'}`}>👥</button>
+          <button onClick={() => setPanneau(p => p === 'mfp' ? null : 'mfp')} title="Exporter vers MyFitnessPal"
+            className={`px-3 py-2 text-sm rounded-lg transition-colors ${panneau === 'mfp' ? 'bg-orange-100 text-orange-700' : 'bg-gray-100 hover:bg-gray-200'}`}>🥗 MFP</button>
           {confirmDelete ? (
             <div className="flex gap-2">
               <button onClick={() => deleteMut.mutate()} className="px-3 py-2 text-sm bg-red-600 text-white rounded-lg">Confirmer</button>
@@ -155,6 +166,22 @@ export default function DetailRecette() {
           <LienPartage token={recipe.share_token} path={`/partage/r/${recipe.share_token}`}
             onShare={() => shareMut.mutate()} onUnshare={() => unshareMut.mutate()}
             busy={shareMut.isPending || unshareMut.isPending} />
+        </div>
+      )}
+
+      {panneau === 'compte' && (
+        <div className="mb-5 p-4 bg-white rounded-xl border border-gray-100">
+          <p className="text-sm text-gray-600 mb-3">
+            La personne reçoit une copie de la recette dans son compte, marquée « Partagée par vous ».
+            Vos notes, avis et historique restent privés.
+          </p>
+          <EnvoiCompte recipeIds={[id]} />
+        </div>
+      )}
+      {panneau === 'mfp' && (
+        <div className="mb-5 p-4 bg-white rounded-xl border border-gray-100">
+          <h3 className="font-semibold text-gray-800 mb-3">Exporter vers MyFitnessPal</h3>
+          <ExportMfp recipe={recipe} onShare={() => shareMut.mutate()} busy={shareMut.isPending} />
         </div>
       )}
 

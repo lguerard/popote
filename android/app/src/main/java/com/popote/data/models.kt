@@ -35,9 +35,23 @@ data class Recipe(
     val reextracting: Boolean = false,
     val thumbnail_generating: Boolean = false,
     val thumbnail_error: String? = null,
+    // Recette reçue d'un autre compte : son nom, pour le badge.
+    val shared_by_name: String? = null,
 ) {
     val totalTime get() = (prep_time ?: 0) + (cook_time ?: 0)
 }
+
+// ── Partage avec d'autres comptes ────────────────────────────────────────────
+
+data class Account(val id: String, val display_name: String)
+data class SendRecipesRequest(
+    val user_id: String,
+    val recipe_ids: List<String> = emptyList(),
+    val all: Boolean = false,
+    val automatic: Boolean = false,
+)
+data class SendRecipesResponse(val copied: Int, val skipped: Int, val automatic: Boolean)
+data class AutomaticShares(val outgoing: List<Account>?, val incoming: List<Account>?)
 
 // ── Historique ────────────────────────────────────────────────────────────────
 

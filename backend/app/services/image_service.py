@@ -82,6 +82,24 @@ async def apply_source_image(recipe, source_url: str | None, replace: bool) -> N
         delete_local_thumbnail(current)
 
 
+def copy_local_thumbnail(thumbnail_url: str | None, new_recipe_id) -> str | None:
+    """Image d'une recette copiée vers un autre compte.
+
+    Un fichier local est dupliqué : partagé, il serait supprimé chez l'un
+    dès que l'autre change son image ou supprime sa recette. Une URL
+    externe est simplement reprise.
+    """
+    if not thumbnail_url or not thumbnail_url.startswith(f"/media/{THUMBNAIL_SUBDIR}/"):
+        return thumbnail_url
+    source = Path(settings.media_dir) / thumbnail_url.removeprefix("/media/")
+    try:
+        data = source.read_bytes()
+    except OSError:
+        logger.warning("Image introuvable, copie sans image : %s", source)
+        return None
+    return save_thumbnail_bytes(new_recipe_id, data, source.suffix.lstrip(".") or "jpg")
+
+
 def delete_local_thumbnail(thumbnail_url: str | None) -> None:
     """Supprime l'ancien fichier local, sans jamais toucher une URL externe.
 

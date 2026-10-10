@@ -14,7 +14,7 @@ from ..schemas.recipe import (
     CookedIn, CookLogOut, NutritionOut, PantryMatch, PantryRequest, RecipeCreate,
     RecipeOut, RecipeUpdate,
 )
-from ..services import achievement_service, grocery, image_service
+from ..services import achievement_service, grocery, image_service, sharing
 from ..services.extraction_steps import error_text
 
 router = APIRouter(prefix="/recipes", tags=["recipes"])
@@ -86,6 +86,7 @@ async def list_recipes(
     favorites_only: bool = Query(False),
     never_cooked: bool = Query(False, description="Seulement les recettes jamais cuisinées"),
     cook_again: bool = Query(False, description="Seulement celles marquées « à refaire »"),
+    shared: bool = Query(False, description="Seulement celles reçues d'un autre compte"),
     sort: str = Query("recent", pattern="^(recent|rating|last_cooked|most_cooked|title)$"),
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=1000),
@@ -115,6 +116,8 @@ async def list_recipes(
         q = q.where(Recipe.cooked_count == 0)
     if cook_again:
         q = q.where(Recipe.cook_again.is_(True))
+    if shared:
+        q = q.where(Recipe.shared_by_name.is_not(None))
     if tag:
         q = q.where(Recipe.tags.contains([tag]))
     if category:
@@ -172,6 +175,7 @@ async def create_recipe(
     await db.commit()
     await db.refresh(recipe)
     await achievement_service.on_recipe_added(db, recipe.source_type or "manual")
+    await sharing.auto_share(db, recipe)
     return recipe
 
 

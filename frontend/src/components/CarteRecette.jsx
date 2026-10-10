@@ -20,6 +20,12 @@ export default function CarteRecette({ recipe }) {
         ) : (
           <div className="w-full h-full flex items-center justify-center text-5xl">🍽️</div>
         )}
+        {recipe.shared_by_name && (
+          <span className="absolute top-2 left-2 px-2 py-0.5 bg-white/90 text-sky-700 text-xs font-medium rounded-full shadow-sm max-w-[70%] truncate"
+            title={`Partagée par ${recipe.shared_by_name}`}>
+            👥 {recipe.shared_by_name}
+          </span>
+        )}
         <span className="absolute top-2 right-2 text-lg" title={recipe.source_type}>
           {ICONS[recipe.source_type] || '📄'}
         </span>

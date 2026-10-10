@@ -35,6 +35,15 @@ brut, ou photo — accompagnée d'une application Android native.
 - **Planning des repas** : calendrier hebdomadaire (matin/midi/soir/snack)
 - Export PDF via l'impression du navigateur
 
+### Partage
+
+- **Entre comptes** : envoyer une recette, ou toute sa bibliothèque, à un autre
+  compte du serveur (copie marquée « Partagée par … », filtre « Reçues ») ;
+  option pour envoyer aussi automatiquement les prochaines recettes
+- **Par lien public** : une recette, un carnet ou la liste de courses, sans compte
+- **Vers MyFitnessPal** : lien importable par « Importer depuis le Web »
+  (page avec données schema.org/Recipe), ou liste d'ingrédients à coller
+
 ### Succès (achievements)
 
 16 badges débloquables — collection, cuisine, organisation, découverte,

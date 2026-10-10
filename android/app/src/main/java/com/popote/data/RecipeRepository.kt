@@ -63,11 +63,12 @@ class RecipeRepository(private val context: Context) {
         favoritesOnly: Boolean = false,
         neverCooked: Boolean = false,
         cookAgain: Boolean = false,
+        shared: Boolean = false,
         sort: String? = null,
     ): List<Recipe> = api().getRecipes(
         search = search, category = category, sourceType = sourceType, maxTime = maxTime,
         favoritesOnly = favoritesOnly.takeIf { it }, neverCooked = neverCooked.takeIf { it },
-        cookAgain = cookAgain.takeIf { it }, sort = sort,
+        cookAgain = cookAgain.takeIf { it }, shared = shared.takeIf { it }, sort = sort,
     )
 
     suspend fun getRecipe(id: String): Recipe = api().getRecipe(id)
@@ -138,6 +139,13 @@ class RecipeRepository(private val context: Context) {
     suspend fun clearShopping(onlyChecked: Boolean) = api().clearShoppingItems(onlyChecked)
     suspend fun shareShoppingList(): ShoppingListResponse = api().shareShoppingList()
     suspend fun unshareShoppingList(): ShoppingListResponse = api().unshareShoppingList()
+
+    // Partage avec d'autres comptes
+    suspend fun getShareableUsers(): List<Account> = api().getShareableUsers()
+    suspend fun sendRecipes(request: SendRecipesRequest): SendRecipesResponse = api().sendRecipes(request)
+    suspend fun getAutomaticShares(): AutomaticShares = api().getAutomaticShares()
+    suspend fun stopSending(userId: String) = api().stopSending(userId)
+    suspend fun stopReceiving(userId: String) = api().stopReceiving(userId)
 
     /** Lien public (partage) complet, à envoyer via la feuille de partage Android. */
     suspend fun publicLink(path: String): String = apiClient.serverUrl.first().trimEnd('/') + path

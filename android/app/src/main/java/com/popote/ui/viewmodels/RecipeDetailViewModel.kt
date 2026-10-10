@@ -3,10 +3,12 @@ package com.popote.ui.viewmodels
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.popote.data.Account
 import com.popote.data.CookLog
 import com.popote.data.Recipe
 import com.popote.data.RecipeCollection
 import com.popote.data.RecipeRepository
+import com.popote.data.SendRecipesRequest
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -32,6 +34,11 @@ class RecipeDetailViewModel(app: Application) : AndroidViewModel(app) {
     val history: StateFlow<List<CookLog>> = _history.asStateFlow()
     private val _collections = MutableStateFlow<List<RecipeCollection>?>(null)
     val collections: StateFlow<List<RecipeCollection>?> = _collections.asStateFlow()
+
+    private val _accounts = MutableStateFlow<List<Account>?>(null)
+    val accounts: StateFlow<List<Account>?> = _accounts.asStateFlow()
+    private val _sendResult = MutableStateFlow<String?>(null)
+    val sendResult: StateFlow<String?> = _sendResult.asStateFlow()
 
     private var polling: Job? = null
 
@@ -146,6 +153,30 @@ class RecipeDetailViewModel(app: Application) : AndroidViewModel(app) {
             val r = repo.shareRecipe(id)
             setRecipe(r)
             r.share_token?.let { onLink(repo.publicLink("/partage/r/$it")) }
+        }
+    }
+
+    /** Lien de la page importable par MyFitnessPal (crée le lien public si besoin). */
+    fun importLink(onLink: (String) -> Unit) {
+        val id = _recipe.value?.id ?: return
+        act("Lien impossible") {
+            val r = _recipe.value?.takeIf { it.share_token != null } ?: repo.shareRecipe(id).also { setRecipe(it) }
+            r.share_token?.let { onLink(repo.publicLink("/api/public/recipes/$it/page")) }
+        }
+    }
+
+    fun loadAccounts() {
+        _sendResult.value = null
+        act("Comptes indisponibles") { _accounts.value = repo.getShareableUsers() }
+    }
+
+    /** Envoie une copie de la recette au compte choisi. */
+    fun sendTo(account: Account) {
+        val id = _recipe.value?.id ?: return
+        act("Envoi impossible") {
+            val result = repo.sendRecipes(SendRecipesRequest(user_id = account.id, recipe_ids = listOf(id)))
+            _sendResult.value = if (result.copied > 0) "✓ Recette envoyée à ${account.display_name}."
+                else "✓ ${account.display_name} a déjà cette recette."
         }
     }
 
