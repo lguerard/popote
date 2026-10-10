@@ -198,7 +198,8 @@ async def _run_extraction(recipe_id: UUID, input_text: str):
 async def _run_image_extraction(recipe_id: UUID, image_bytes: bytes, mime_type: str):
     from ..database import AsyncSessionLocal
     from ..services.ocr_service import extract_text_from_image
-    from ..services.llm_service import extract_recipe_with_llm, reconstruct_recipe_with_llm
+    from ..services.extractor import recipe_for_dish
+    from ..services.llm_service import extract_recipe_with_llm
 
     async with AsyncSessionLocal() as db:
         recipe = await db.get(Recipe, recipe_id)
@@ -219,13 +220,17 @@ async def _run_image_extraction(recipe_id: UUID, image_bytes: bytes, mime_type: 
             await db.commit()
             data = await extract_recipe_with_llm(text)
             if "error" in data:
-                # Photo d'un plat, d'un menu, recette partielle : l'IA propose
-                # une recette du plat reconnu plutôt qu'un échec.
-                recipe.progress_message = "Pas de recette détaillée : l'IA en propose une…"
-                await db.commit()
-                data = await reconstruct_recipe_with_llm(text)
+                # Photo d'un plat, d'un menu, recette partielle : une vraie
+                # recette du plat reconnu (web, sinon IA) plutôt qu'un échec.
+                async def report(message: str) -> None:
+                    recipe.progress_message = message
+                    await db.commit()
+
+                data, image = await recipe_for_dish(text, report)
                 if "error" in data:
                     data = {"error": "Aucune recette ni aucun plat reconnaissable sur cette image."}
+                elif image:
+                    data["thumbnail_url"] = image
             return data
 
         try:

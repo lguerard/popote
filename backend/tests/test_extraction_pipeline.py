@@ -258,7 +258,10 @@ def test_video_falls_back_to_whisper(monkeypatch):
 # Orchestration
 # ---------------------------------------------------------------------------
 
-def _run_extract(monkeypatch, source, scrape_result=None, llm_result=None, rebuilt=None, caption=("", None)):
+def _run_extract(
+    monkeypatch, source, scrape_result=None, llm_result=None, rebuilt=None, caption=("", None),
+    linked=None, searched=None,
+):
     from app.services import extractor
 
     llm_calls = []
@@ -266,7 +269,17 @@ def _run_extract(monkeypatch, source, scrape_result=None, llm_result=None, rebui
     async def fake_caption(url):
         return caption
 
+    async def fake_linked(text, exclude=None):
+        llm_calls.append(("lien", text))
+        return linked
+
+    async def fake_search(dish):
+        llm_calls.append(("recherche", dish))
+        return searched
+
     monkeypatch.setattr(extractor.social, "post_caption", fake_caption)
+    monkeypatch.setattr(extractor.recipe_finder, "linked_recipe", fake_linked)
+    monkeypatch.setattr(extractor.recipe_finder, "search_recipe", fake_search)
 
     async def fake_scrape(url):
         if isinstance(scrape_result, Exception):
@@ -404,7 +417,7 @@ def test_dish_name_alone_gets_a_reconstructed_recipe(monkeypatch):
     data, calls = _run_extract(
         monkeypatch, "lasagnes", llm_result={"error": "Aucune recette trouvée"}, rebuilt=rebuilt,
     )
-    assert calls == ["lasagnes", ("reconstruction", "lasagnes")]
+    assert calls == ["lasagnes", ("reconstruction", "lasagnes"), ("recherche", "Lasagnes")]
     assert data["title"] == "Lasagnes" and data["source_type"].value == "text"
 
 
@@ -634,3 +647,130 @@ def test_ydl_options_use_a_copy_of_the_cookies(tmp_path, monkeypatch):
     assert opts["cookiefile"] != str(cookies)
     assert open(opts["cookiefile"]).read() == "# Netscape HTTP Cookie File\n"
     assert opts["retries"] >= 1
+
+
+# ---------------------------------------------------------------------------
+# Trouver la vraie recette : lien de la description, recherche web
+# ---------------------------------------------------------------------------
+
+from app.services import recipe_finder  # noqa: E402
+
+PUBLISHED = {
+    "title": "Tiramisu", "description": "Le classique.", "ingredients": [{"name": "mascarpone"}],
+    "steps": [{"order": 1, "text": "Monter."}], "language": "fr",
+}
+
+
+def test_candidate_links_prefer_the_announced_recipe():
+    text = (
+        "Mon matériel : https://amzn.to/xyz\n"
+        "Suivez-moi https://www.instagram.com/chef\n"
+        "Mon livre https://editions.fr/livre\n"
+        "👉 Recette complète : https://www.chef-martin.fr/tiramisu/.\n"
+        "Aussi sur www.chef-martin.fr/blog\n"
+        "Doublon https://www.chef-martin.fr/tiramisu/"
+    )
+    assert recipe_finder.candidate_links(text) == [
+        "https://www.chef-martin.fr/tiramisu/",
+        "https://www.chef-martin.fr/blog",
+        "https://editions.fr/livre",
+    ]
+    assert recipe_finder.candidate_links("https://youtu.be/x et https://t.co/a") == []
+    assert recipe_finder.candidate_links("https://site.fr/r", exclude="https://site.fr/r") == []
+
+
+def test_video_with_recipe_link_uses_the_published_recipe(monkeypatch):
+    from app.services import extractor
+
+    async def video(url, progress):
+        return "Titre : Tiramisu\nLa recette : https://www.chef-martin.fr/tiramisu", "https://thumb/video.jpg"
+
+    monkeypatch.setattr(extractor, "video_to_text", video)
+    data, calls = _run_extract(
+        monkeypatch, "https://youtu.be/abc", linked=(dict(PUBLISHED), "https://www.chef-martin.fr/tiramisu", "https://img"),
+    )
+    assert [c for c in calls if not isinstance(c, tuple)] == []  # aucun appel au LLM
+    assert data["title"] == "Tiramisu" and data["source_url"] == "https://youtu.be/abc"
+    assert data["description"] == "Recette complète publiée sur chef-martin.fr. Le classique."
+    assert data["thumbnail_url"] == "https://thumb/video.jpg"
+
+
+def test_dish_name_gets_a_real_recipe_from_the_web(monkeypatch):
+    rebuilt = {"title": "Lasagnes", "ingredients": [{"name": "pâtes"}], "steps": [{"order": 1, "text": "Cuire."}]}
+    found = {**PUBLISHED, "title": "Lasagnes à la bolognaise", "description": None}
+    data, calls = _run_extract(
+        monkeypatch, "lasagnes", llm_result={"error": "Aucune recette trouvée"}, rebuilt=rebuilt,
+        searched=(found, "https://www.marmiton.org/lasagnes", "https://img/lasagnes.jpg"),
+    )
+    assert calls[-1] == ("recherche", "Lasagnes")
+    assert data["title"] == "Lasagnes à la bolognaise"
+    assert data["description"].startswith("Recette trouvée sur marmiton.org")
+    assert data["thumbnail_url"] == "https://img/lasagnes.jpg"
+
+
+DDG_HTML = """<html><body>
+<div class="result results_links result--ad"><a class="result__a" href="https://duckduckgo.com/y.js?ad=1">Pub</a></div>
+<div class="result"><a rel="nofollow" class="result__a"
+  href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.marmiton.org%2Frecettes%2Ftiramisu.aspx&amp;rut=abc">Tiramisu</a></div>
+<div class="result"><a class="result__a" href="https://www.750g.com/tiramisu-r1.htm">Tiramisu facile</a></div>
+<div class="result"><a class="result__a" href="https://www.youtube.com/watch?v=1">Vidéo</a></div>
+</body></html>"""
+
+
+def test_parse_search_results():
+    assert recipe_finder.parse_search_results(DDG_HTML) == [
+        "https://www.marmiton.org/recettes/tiramisu.aspx",
+        "https://www.750g.com/tiramisu-r1.htm",
+        "https://www.youtube.com/watch?v=1",
+    ]
+
+
+@pytest.mark.parametrize("dish, title, same", [
+    ("Pasta alla vodka", "Pâtes à la vodka", True),
+    ("Lasagnes", "Lasagnes à la bolognaise", True),
+    ("Tiramisu", "Gâteau au chocolat", False),
+])
+def test_same_dish(dish, title, same):
+    assert recipe_finder.same_dish(dish, title) is same
+
+
+def _patch_search(monkeypatch, pages):
+    real_client = httpx.AsyncClient
+    monkeypatch.setattr(
+        recipe_finder.httpx, "AsyncClient",
+        lambda *a, **kw: real_client(*a, transport=httpx.MockTransport(lambda r: httpx.Response(200, text=DDG_HTML)), **kw),
+    )
+
+    async def fake_page(url):
+        return pages.get(url)
+
+    monkeypatch.setattr(recipe_finder, "structured_recipe_at", fake_page)
+
+
+def test_search_recipe_takes_the_first_published_recipe(monkeypatch):
+    _patch_search(monkeypatch, {
+        "https://www.750g.com/tiramisu-r1.htm": ({**PUBLISHED, "title": "Tiramisu facile"}, "https://img/750g.jpg"),
+    })
+    recipe, link, image = asyncio.run(recipe_finder.search_recipe("Tiramisu"))
+    assert recipe["title"] == "Tiramisu facile" and link == "https://www.750g.com/tiramisu-r1.htm"
+
+
+def test_search_recipe_rejects_an_unrelated_page(monkeypatch):
+    _patch_search(monkeypatch, {
+        "https://www.marmiton.org/recettes/tiramisu.aspx": ({**PUBLISHED, "title": "Gâteau au chocolat"}, None),
+    })
+    assert asyncio.run(recipe_finder.search_recipe("Tiramisu")) is None
+
+
+def test_search_recipe_can_be_disabled(monkeypatch):
+    monkeypatch.setattr(recipe_finder.settings, "recipe_web_search", False)
+    assert asyncio.run(recipe_finder.search_recipe("Tiramisu")) is None
+
+
+def test_structured_recipe_at_reads_json_ld(monkeypatch):
+    async def fake_static(url):
+        return _html(RECIPE)
+
+    monkeypatch.setattr(web_scraper, "_fetch_static", fake_static)
+    recipe, image = asyncio.run(recipe_finder.structured_recipe_at("https://exemple.fr/crepes"))
+    assert recipe["title"] == "Crêpes" and recipe["ingredients"]

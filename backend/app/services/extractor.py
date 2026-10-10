@@ -7,7 +7,7 @@ from .video_service import video_to_text
 from .web_scraper import scrape_url
 from .llm_service import extract_recipe_with_llm, reconstruct_recipe_with_llm
 from .extraction_steps import error_text
-from . import recipe_parsing, social
+from . import recipe_finder, recipe_parsing, social
 from ..models.recipe import SourceType
 
 logger = logging.getLogger(__name__)
@@ -126,6 +126,15 @@ async def extract(
             # minutes, et rien d'inventé ni de mal recopié.
             await progress("Lecture de la recette publiée par le site…")
             recipe_data = page.structured_recipe
+    if recipe_data is None and source_type != SourceType.web and recipe_finder.candidate_links(raw_text, source):
+        # La description renvoie souvent à la recette complète sur le blog
+        # de l'auteur : quantités exactes publiées, plutôt que devinées.
+        await progress("Lecture de la recette complète liée dans la description…")
+        linked = await recipe_finder.linked_recipe(raw_text, exclude=source)
+        if linked:
+            recipe_data, link, image = linked
+            _add_note(recipe_data, f"Recette complète publiée sur {_domain(link)}.")
+            thumbnail_url = thumbnail_url or image
     fetched = time.monotonic()
 
     used_llm = recipe_data is None
@@ -136,13 +145,13 @@ async def extract(
         recipe_data = await extract_recipe_with_llm(raw_text)
         if "error" in recipe_data:
             # Pas de recette détaillée (nom de plat seul, reel sans légende…) :
-            # l'IA propose une recette du plat plutôt qu'un échec.
-            await progress("Pas de recette détaillée : l'IA en propose une…")
-            recipe_data = await reconstruct_recipe_with_llm(raw_text)
+            # une vraie recette du plat plutôt qu'un échec.
+            recipe_data, image = await recipe_for_dish(raw_text, progress)
             if "error" in recipe_data:
                 raise ValueError(
                     "Aucune recette ni aucun plat reconnaissable dans ce contenu."
                 )
+            thumbnail_url = thumbnail_url or image
     logger.info(
         "extraction %s (%s) : récupération %.1fs, analyse %.1fs%s",
         source[:80], source_type.value, fetched - started, time.monotonic() - fetched,
@@ -160,6 +169,37 @@ async def extract(
             recipe_data["similar_recipe_id"] = similar
 
     return recipe_data
+
+
+def _domain(url: str) -> str:
+    host = recipe_finder._host(url)
+    return host[4:] if host.startswith("www.") else host
+
+
+def _add_note(recipe: dict, note: str) -> None:
+    description = recipe.get("description")
+    recipe["description"] = f"{note} {description}" if description else note
+
+
+async def recipe_for_dish(text: str, progress: ProgressCallback | None = None) -> tuple[dict, str | None]:
+    """(recette, image) pour un contenu qui évoque un plat sans en donner la recette.
+
+    L'IA identifie le plat, puis on cherche une vraie recette publiée sur le
+    web ; la recette reconstituée par l'IA ne sert qu'en dernier recours.
+    {"error": …} si aucun plat n'est reconnaissable.
+    """
+    progress = progress or _noop_progress
+    await progress("Pas de recette détaillée : identification du plat…")
+    rebuilt = await reconstruct_recipe_with_llm(text)
+    if "error" in rebuilt:
+        return rebuilt, None
+    await progress(f"Recherche d'une recette de « {rebuilt['title']} » sur le web…")
+    found = await recipe_finder.search_recipe(rebuilt["title"])
+    if not found:
+        return rebuilt, None
+    recipe, link, image = found
+    _add_note(recipe, f"Recette trouvée sur {_domain(link)} : la source ne donnait pas la recette détaillée.")
+    return recipe, image
 
 
 async def _scrape(url: str, video_error: Exception | None = None):

@@ -273,10 +273,17 @@ docker compose exec ollama ollama pull qwen2.5:7b
 
 ### Extraction échoue sur une vidéo
 
-Popote essaie, dans l'ordre : la vidéo (légende, sous-titres, audio, texte à
-l'écran), puis la **légende du post lue sans compte** (page d'intégration
-Instagram, oEmbed TikTok), puis la page web. En dernier recours l'IA
-reconstitue la recette à partir du nom du plat.
+Popote essaie, dans l'ordre :
+1. la vidéo : légende, sous-titres, audio, texte affiché à l'écran ;
+2. la **légende du post lue sans compte** (page d'intégration Instagram,
+   oEmbed TikTok), puis la page web ;
+3. le **lien de la recette** cité dans la description (« recette complète :
+   https://… ») : la recette publiée par le blog est reprise telle quelle,
+   quantités exactes ;
+4. s'il n'y a pas de recette détaillée, l'IA identifie le plat et Popote
+   **cherche une vraie recette publiée sur le web** (DuckDuckGo → Marmiton,
+   750g…). `RECIPE_WEB_SEARCH=false` dans `.env` désactive cette recherche ;
+5. en dernier recours, l'IA reconstitue la recette (marquée « à vérifier »).
 
 - **yt-dlp trop ancien** (la plateforme a changé) : il se met à jour à chaque
   démarrage, `docker compose restart backend` suffit.
