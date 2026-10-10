@@ -3,6 +3,7 @@ import gc
 import logging
 import os
 import re
+import shutil
 import subprocess
 import tempfile
 from concurrent.futures import ThreadPoolExecutor
@@ -201,7 +202,7 @@ def _ocr_video_text(url: str) -> str:
     """Texte incrusté dans la vidéo : images extraites par ffmpeg, lues par Tesseract."""
     with tempfile.TemporaryDirectory() as tmpdir:
         opts = {
-            **_YDL_BASE,
+            **_ydl_base(),
             # Basse définition : le texte incrusté est gros, et une vidéo
             # 480p se télécharge et se décode bien plus vite.
             "format": "bv*[height<=720][ext=mp4]/b[height<=720]/bv*/b/worst",
@@ -234,11 +235,26 @@ def _ocr_video_text(url: str) -> str:
     return merge_ocr_lines(texts)
 
 
-_YDL_BASE = {"quiet": True, "no_warnings": True, "noplaylist": True}
+def _ydl_base() -> dict:
+    """Options yt-dlp communes : quelques nouvelles tentatives sur les
+    erreurs réseau, et les cookies d'un compte s'ils sont fournis (Instagram
+    exige de plus en plus souvent une connexion, voir DEPLOIEMENT.md)."""
+    opts = {
+        "quiet": True, "no_warnings": True, "noplaylist": True,
+        "retries": 3, "extractor_retries": 2, "socket_timeout": 20,
+    }
+    cookies = settings.ytdlp_cookies_file
+    if cookies and os.path.isfile(cookies):
+        # Copie : yt-dlp réécrit son fichier de cookies en sortant, alors que
+        # celui fourni est monté en lecture seule.
+        copy = os.path.join(tempfile.gettempdir(), "popote-ytdlp-cookies.txt")
+        shutil.copyfile(cookies, copy)
+        opts["cookiefile"] = copy
+    return opts
 
 
 def _fetch_info(url: str) -> dict:
-    with yt_dlp.YoutubeDL({**_YDL_BASE, "skip_download": True}) as ydl:
+    with yt_dlp.YoutubeDL({**_ydl_base(), "skip_download": True}) as ydl:
         return ydl.extract_info(url, download=False) or {}
 
 
@@ -276,7 +292,7 @@ def _fetch_subtitles(url: str, info: dict) -> str:
     lang, automatic = track
     with tempfile.TemporaryDirectory() as tmpdir:
         opts = {
-            **_YDL_BASE,
+            **_ydl_base(),
             "skip_download": True,
             "writesubtitles": not automatic,
             "writeautomaticsub": automatic,
@@ -303,7 +319,7 @@ def _download_audio_and_transcribe(url: str) -> str:
         # Pas de conversion WAV via ffmpeg : faster-whisper décode directement
         # m4a/webm/mp4, la conversion ne faisait que coûter du temps.
         opts = {
-            **_YDL_BASE,
+            **_ydl_base(),
             "format": "bestaudio[ext=m4a]/bestaudio/best",
             "outtmpl": os.path.join(tmpdir, "audio.%(ext)s"),
         }

@@ -29,7 +29,10 @@ ENV LD_LIBRARY_PATH=/usr/local/lib/python3.11/site-packages/nvidia/cublas/lib:/u
 RUN playwright install chromium --with-deps
 
 COPY app/ ./app/
+COPY entrypoint.sh ./entrypoint.sh
+RUN chmod +x ./entrypoint.sh
 
 EXPOSE 8000
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Met yt-dlp à jour puis lance l'API (voir entrypoint.sh).
+CMD ["./entrypoint.sh"]

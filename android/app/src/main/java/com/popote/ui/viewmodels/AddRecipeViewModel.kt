@@ -2,6 +2,7 @@ package com.popote.ui.viewmodels
 
 import android.app.Application
 import android.net.Uri
+import com.popote.data.ExtractionFailedException
 import com.popote.data.ExtractionResponse
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -27,7 +28,14 @@ class AddRecipeViewModel(app: Application) : AndroidViewModel(app) {
     private val _state = MutableStateFlow<AddState>(AddState.Idle)
     val state: StateFlow<AddState> = _state.asStateFlow()
 
-    fun submit(input: String) = startExtraction { repo.extract(input.trim()) }
+    fun submit(input: String) {
+        val text = input.trim()
+        // Lien qui n'a rien donné : on peut toujours coller la légende ou le texte.
+        val isLink = text.contains("://") || Regex("""^\S+\.[a-z]{2,}/\S*$""", RegexOption.IGNORE_CASE).matches(text)
+        startExtraction(
+            failureHint = if (isLink) "Astuce : copiez la légende du post (ou le texte de la recette) et collez-la ici." else null,
+        ) { repo.extract(text) }
+    }
 
     /** Photo choisie dans la galerie ou prise à l'instant. */
     fun submitImage(uri: Uri) = startExtraction {
@@ -39,7 +47,7 @@ class AddRecipeViewModel(app: Application) : AndroidViewModel(app) {
         repo.extractImage(bytes, mime)
     }
 
-    private fun startExtraction(start: suspend () -> ExtractionResponse) {
+    private fun startExtraction(failureHint: String? = null, start: suspend () -> ExtractionResponse) {
         viewModelScope.launch {
             _state.value = AddState.Submitting
             try {
@@ -47,6 +55,7 @@ class AddRecipeViewModel(app: Application) : AndroidViewModel(app) {
                 _state.value = AddState.Polling(response.recipe_id, "En attente…")
                 val recipe = repo.pollTask(response.recipe_id) { status, progress ->
                     val label = when (status) {
+                        "reconnecting" -> "Connexion perdue, nouvelle tentative…"
                         "pending" -> "En attente…"
                         "processing" -> progress ?: "Extraction en cours…"
                         else -> status
@@ -54,6 +63,8 @@ class AddRecipeViewModel(app: Application) : AndroidViewModel(app) {
                     _state.value = AddState.Polling(response.recipe_id, label)
                 }
                 _state.value = AddState.Success(recipe.id)
+            } catch (e: ExtractionFailedException) {
+                _state.value = AddState.Error(listOfNotNull(e.message, failureHint).joinToString("\n\n"))
             } catch (e: Exception) {
                 _state.value = AddState.Error(repo.describe(e))
             }

@@ -1,0 +1,23 @@
+# Mode de secours sans GPU : Popote reste utilisable (plus lentement) quand
+# le pilote NVIDIA ou le NVIDIA Container Toolkit est en panne — par exemple
+# « failed to fulfil mount request: /run/nvidia-persistenced/socket » après
+# une mise à jour du pilote. Utilisé automatiquement par scripts/demarrer.sh ;
+# à la main :
+#   docker compose -f docker-compose.yml -f docker-compose.cpu.yml up -d
+# Revenir au GPU une fois réparé : docker compose up -d
+#
+# `!reset` (Docker Compose ≥ 2.24) retire la réservation du GPU héritée de
+# docker-compose.yml, qui empêche sinon les conteneurs de démarrer.
+services:
+  ollama:
+    deploy: !reset {}
+
+  imagegen:
+    deploy: !reset {}
+    environment:
+      IMAGE_GEN_DEVICE: cpu
+
+  backend:
+    deploy: !reset {}
+    environment:
+      WHISPER_DEVICE: cpu

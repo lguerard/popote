@@ -18,6 +18,9 @@ class Settings(BaseSettings):
     # Décharge le modèle Ollama du GPU avant une transcription Whisper.
     whisper_free_gpu: bool = True
     media_dir: str = "/app/media"
+    # Cookies d'un compte (format Netscape, exportés du navigateur) pour les
+    # vidéos qui exigent une connexion, Instagram surtout. Ignoré si absent.
+    ytdlp_cookies_file: str = "/app/cookies/cookies.txt"
     imagegen_base_url: str = "http://imagegen:8001"
     # Décharge le modèle Ollama du GPU avant chaque génération d'image : sans
     # ça, il n'y a pas la place de générer sur le GPU (repli CPU très lent).

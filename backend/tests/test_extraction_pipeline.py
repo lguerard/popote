@@ -258,10 +258,15 @@ def test_video_falls_back_to_whisper(monkeypatch):
 # Orchestration
 # ---------------------------------------------------------------------------
 
-def _run_extract(monkeypatch, source, scrape_result=None, llm_result=None, rebuilt=None):
+def _run_extract(monkeypatch, source, scrape_result=None, llm_result=None, rebuilt=None, caption=("", None)):
     from app.services import extractor
 
     llm_calls = []
+
+    async def fake_caption(url):
+        return caption
+
+    monkeypatch.setattr(extractor.social, "post_caption", fake_caption)
 
     async def fake_scrape(url):
         if isinstance(scrape_result, Exception):
@@ -507,3 +512,125 @@ def test_reconstructed_recipe_is_flagged(monkeypatch):
     assert prompts == [llm_service.RECONSTRUCT_PROMPT]
     assert data["description"].startswith(llm_service.RECONSTRUCTED_NOTICE)
     assert data["tags"][0] == "à vérifier"
+
+
+# ---------------------------------------------------------------------------
+# Légende des posts Instagram / TikTok, sans compte
+# ---------------------------------------------------------------------------
+
+from app.services import social  # noqa: E402
+
+
+@pytest.mark.parametrize("url, code", [
+    ("https://www.instagram.com/reel/DeT4q4AtgNE/", "DeT4q4AtgNE"),
+    ("https://instagram.com/p/AbC_-1/?igsh=xyz", "AbC_-1"),
+    ("https://www.instagram.com/chef.martin/reel/Xyz123/", "Xyz123"),
+    ("https://www.instagram.com/reels/Q1w2/", "Q1w2"),
+    ("https://www.instagram.com/chef.martin/", None),
+    ("https://www.tiktok.com/@a/video/1", None),
+])
+def test_instagram_shortcode(url, code):
+    assert social.instagram_shortcode(url) == code
+
+
+EMBED_HTML = """<html><body><div class="Embed">
+<img class="EmbeddedMediaImage" src="https://cdn.ig/x.jpg">
+<div class="Caption"><a class="CaptionUsername" href="#">chef.martin</a><br><br>
+Tiramisu express 😍<br>Ingrédients :<br>- 250 g de mascarpone<br>- 3 œufs<br>
+Battre les jaunes avec le sucre.
+<div class="CaptionComments"><a>Voir les 120 commentaires</a></div></div>
+</div></body></html>"""
+
+
+def test_parse_instagram_embed():
+    caption, thumbnail = social.parse_instagram_embed(EMBED_HTML)
+    assert caption.startswith("Tiramisu express")
+    assert "250 g de mascarpone" in caption and "\n- 3 œufs" in caption
+    assert "chef.martin" not in caption and "commentaires" not in caption
+    assert thumbnail == "https://cdn.ig/x.jpg"
+
+
+def test_parse_instagram_embed_from_json_data():
+    html = (
+        '<html><body><script>window.__additionalDataLoaded("extra", {"shortcode_media":'
+        '{"edge_media_to_caption":{"edges":[{"node":{"text":"Cr\\u00eapes\\n250 g de farine"}}]}}});'
+        "</script></body></html>"
+    )
+    caption, _ = social.parse_instagram_embed(html)
+    assert caption == "Crêpes\n250 g de farine"
+
+
+def test_parse_instagram_embed_without_caption():
+    assert social.parse_instagram_embed("<html><body>Connectez-vous</body></html>") == ("", None)
+
+
+def test_blocked_instagram_video_uses_the_caption(monkeypatch):
+    from app.services import extractor
+
+    async def login_required(url, progress):
+        raise RuntimeError("ERROR: [Instagram] DeT4q4AtgNE: Requested content is not available, login required")
+
+    monkeypatch.setattr(extractor, "video_to_text", login_required)
+    data, calls = _run_extract(
+        monkeypatch, "https://www.instagram.com/reel/DeT4q4AtgNE/",
+        scrape_result=RuntimeError("ne doit pas être appelé"),
+        llm_result={"title": "Tiramisu"}, caption=("Tiramisu : 250 g de mascarpone…", "https://cdn.ig/x.jpg"),
+    )
+    assert calls == ["Légende de la publication :\nTiramisu : 250 g de mascarpone…"]
+    assert data["thumbnail_url"] == "https://cdn.ig/x.jpg" and data["source_type"].value == "video"
+
+
+def test_video_without_recipe_gets_the_full_caption(monkeypatch):
+    from app.services import extractor
+
+    async def music_only(url, progress):
+        return "Titre de la vidéo : Video by chef", "https://thumb"
+
+    monkeypatch.setattr(extractor, "video_to_text", music_only)
+    data, calls = _run_extract(
+        monkeypatch, "https://www.instagram.com/reel/Abc/", llm_result={"title": "T"},
+        caption=("Gâteau : 200 g de farine, 3 œufs…", None),
+    )
+    assert calls == ["Titre de la vidéo : Video by chef\n\nLégende de la publication :\nGâteau : 200 g de farine, 3 œufs…"]
+    assert data["thumbnail_url"] == "https://thumb"
+
+
+def test_tiktok_caption_from_oembed(monkeypatch):
+    real_client = httpx.AsyncClient
+
+    def handler(request):
+        assert request.url.host == "www.tiktok.com" and request.url.path == "/oembed"
+        return httpx.Response(200, json={"title": "Pâtes <b>crémeuses</b> #recette", "thumbnail_url": "https://t/x.jpg"})
+
+    monkeypatch.setattr(
+        social.httpx, "AsyncClient",
+        lambda *a, **kw: real_client(*a, transport=httpx.MockTransport(handler), **kw),
+    )
+    assert asyncio.run(social.post_caption("https://www.tiktok.com/@chef/video/123")) == (
+        "Pâtes crémeuses #recette", "https://t/x.jpg",
+    )
+
+
+def test_post_caption_never_raises(monkeypatch):
+    real_client = httpx.AsyncClient
+
+    def boom(request):
+        raise httpx.ConnectError("réseau coupé")
+
+    monkeypatch.setattr(
+        social.httpx, "AsyncClient",
+        lambda *a, **kw: real_client(*a, transport=httpx.MockTransport(boom), **kw),
+    )
+    assert asyncio.run(social.post_caption("https://www.instagram.com/p/Abc/")) == ("", None)
+    assert asyncio.run(social.post_caption("https://exemple.fr/x")) == ("", None)
+
+
+def test_ydl_options_use_a_copy_of_the_cookies(tmp_path, monkeypatch):
+    cookies = tmp_path / "cookies.txt"
+    monkeypatch.setattr(video_service.settings, "ytdlp_cookies_file", str(cookies))
+    assert "cookiefile" not in video_service._ydl_base()  # absent : ignoré
+    cookies.write_text("# Netscape HTTP Cookie File\n")
+    opts = video_service._ydl_base()
+    assert opts["cookiefile"] != str(cookies)
+    assert open(opts["cookiefile"]).read() == "# Netscape HTTP Cookie File\n"
+    assert opts["retries"] >= 1

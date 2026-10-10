@@ -7,7 +7,7 @@ from .video_service import video_to_text
 from .web_scraper import scrape_url
 from .llm_service import extract_recipe_with_llm, reconstruct_recipe_with_llm
 from .extraction_steps import error_text
-from . import recipe_parsing
+from . import recipe_parsing, social
 from ..models.recipe import SourceType
 
 logger = logging.getLogger(__name__)
@@ -94,12 +94,26 @@ async def extract(
         try:
             raw_text, thumbnail_url = await video_to_text(source, progress)
         except Exception as exc:
-            # Post photo Instagram, tweet ou post Reddit sans vidéo, vérification
-            # anti-robot de YouTube… : la page elle-même (légende, description)
-            # contient souvent la recette.
-            logger.warning("Vidéo illisible (%s), repli sur la page : %s", error_text(exc), source)
-            await progress("Vidéo illisible, lecture de la page…")
-            page = await _scrape(source, video_error=exc)
+            # Instagram qui exige une connexion, post photo, tweet ou post
+            # Reddit sans vidéo, vérification anti-robot de YouTube… : la
+            # légende du post (lue sans compte) ou la page elle-même
+            # contiennent souvent la recette.
+            logger.warning("Vidéo illisible (%s), repli sur la légende/la page : %s", error_text(exc), source)
+            await progress("Vidéo illisible, lecture de la légende du post…")
+            caption, caption_thumb = await social.post_caption(source)
+            if caption:
+                raw_text, thumbnail_url = f"Légende de la publication :\n{caption}", caption_thumb
+            else:
+                await progress("Vidéo illisible, lecture de la page…")
+                page = await _scrape(source, video_error=exc)
+        else:
+            if not recipe_parsing.has_full_recipe(raw_text):
+                # yt-dlp a lu la vidéo mais sans la légende complète (Instagram
+                # la tronque ou la cache sans connexion) : on la complète.
+                caption, caption_thumb = await social.post_caption(source)
+                if caption and caption[:80] not in raw_text:
+                    raw_text = f"{raw_text}\n\nLégende de la publication :\n{caption}".strip()
+                    thumbnail_url = thumbnail_url or caption_thumb
     elif source_type == SourceType.web:
         await progress("Chargement de la page web…")
         page = await _scrape(source)
