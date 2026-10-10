@@ -42,6 +42,8 @@ import com.popote.ui.components.Stars
 import com.popote.ui.components.formatIsoDate
 import com.popote.ui.components.formatSeconds
 import com.popote.ui.components.imageUrl
+import com.popote.ui.components.isLocalServer
+import com.popote.ui.components.openMyFitnessPal
 import com.popote.ui.components.parseStepSeconds
 import com.popote.ui.components.shareText
 import com.popote.ui.viewmodels.RecipeDetailViewModel
@@ -187,8 +189,7 @@ fun RecipeDetailScreen(
     if (showMfp && recipe != null) {
         MyFitnessPalDialog(
             recipe = recipe!!,
-            onShareLink = { vm.importLink { link -> shareText(context, link, "Lien d'import MyFitnessPal") } },
-            onCopyLink = { vm.importLink { link -> copyText(context, link) } },
+            onCopyLinkAndOpen = { vm.importLink { link -> copyText(context, link); openMyFitnessPal(context) } },
             onDismiss = { showMfp = false },
         )
     }
@@ -227,7 +228,7 @@ fun RecipeDetailScreen(
                                     onClick = { menuOpen = false; vm.loadAccounts(); showSend = true },
                                 )
                                 DropdownMenuItem(
-                                    text = { Text("Exporter vers MyFitnessPal") },
+                                    text = { Text("Ajouter à MyFitnessPal") },
                                     leadingIcon = { Icon(Icons.Default.FitnessCenter, null) },
                                     onClick = { menuOpen = false; showMfp = true },
                                 )
@@ -424,35 +425,41 @@ private fun copyText(context: Context, text: String) {
 @Composable
 private fun MyFitnessPalDialog(
     recipe: Recipe,
-    onShareLink: () -> Unit,
-    onCopyLink: () -> Unit,
+    onCopyLinkAndOpen: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     val context = LocalContext.current
+    val localServer = isLocalServer(LocalServerUrl.current)
     val lines = recipe.ingredients.map(::ingredientLine).filter { it.isNotBlank() }.joinToString("\n")
-    var copied by remember { mutableStateOf<String?>(null) }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Exporter vers MyFitnessPal") },
+        title = { Text("Ajouter à MyFitnessPal") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("1. Import depuis le web", fontWeight = FontWeight.SemiBold)
-                Text("Dans MyFitnessPal : Recettes, repas et aliments → Recettes → Créer une recette → Importer depuis le Web, puis collez le lien. Votre serveur Popote doit être accessible depuis Internet.",
+                Text("Popote copie la recette puis ouvre MyFitnessPal : il ne reste qu'à coller (appui long → Coller).",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+                Text("Recette complète (lien)", fontWeight = FontWeight.SemiBold)
+                Text("Dans MyFitnessPal : ••• Plus → Recettes, repas et aliments → Recettes → Créer une recette → Importer depuis le Web, collez le lien.",
                     style = MaterialTheme.typography.bodySmall)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilledTonalButton(onClick = { onCopyLink(); copied = "Lien copié" }) { Text("Copier le lien") }
-                    OutlinedButton(onClick = onShareLink) { Text("Partager") }
+                if (localServer) {
+                    Text("Votre serveur Popote n'est joignable que depuis votre réseau local : MyFitnessPal ne pourra pas lire ce lien. Utilisez plutôt les ingrédients ci-dessous.",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                 }
+                Button(onClick = onCopyLinkAndOpen, enabled = !localServer, modifier = Modifier.fillMaxWidth()) {
+                    Text("Copier le lien et ouvrir MyFitnessPal")
+                }
+
                 HorizontalDivider()
-                Text("2. Ou saisie manuelle", fontWeight = FontWeight.SemiBold)
-                Text("Créer une recette → Saisir manuellement : collez la liste d'ingrédients" +
-                    (recipe.servings?.let { " et indiquez $it portions." } ?: "."),
+                Text("Ingrédients seulement", fontWeight = FontWeight.SemiBold)
+                Text("Créer une recette → Saisir manuellement : collez la liste" +
+                    (recipe.servings?.let { ", indiquez $it portions" } ?: "") +
+                    ", puis vérifiez les aliments proposés.",
                     style = MaterialTheme.typography.bodySmall)
-                FilledTonalButton(onClick = { copyText(context, lines); copied = "Ingrédients copiés" }) {
-                    Text("Copier les ingrédients")
-                }
-                if (copied != null) Text("✓ $copied", color = MaterialTheme.colorScheme.primary,
-                    style = MaterialTheme.typography.bodySmall)
+                FilledTonalButton(
+                    onClick = { copyText(context, lines); openMyFitnessPal(context) },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("Copier les ingrédients et ouvrir MyFitnessPal") }
             }
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text("Fermer") } },
