@@ -721,3 +721,52 @@ def test_structured_recipe_at_reads_json_ld(monkeypatch):
     monkeypatch.setattr(web_scraper, "_fetch_static", fake_static)
     recipe, image = asyncio.run(recipe_finder.structured_recipe_at("https://exemple.fr/crepes"))
     assert recipe["title"] == "Crêpes" and recipe["ingredients"]
+
+
+# ---------------------------------------------------------------------------
+# Recettes publiées par les sites : recipe-scrapers, repli JSON-LD maison
+# ---------------------------------------------------------------------------
+
+from app.services import site_scraper  # noqa: E402
+
+MICRODATA = """<html lang="fr"><body><div itemscope itemtype="https://schema.org/Recipe">
+<h1 itemprop="name">Gratin dauphinois</h1>
+<span itemprop="recipeYield">6</span><meta itemprop="prepTime" content="PT20M"><meta itemprop="cookTime" content="PT1H">
+<ul><li itemprop="recipeIngredient">1 kg de pommes de terre</li><li itemprop="recipeIngredient">50 cl de crème</li>
+<li itemprop="recipeIngredient">1 gousse d'ail</li></ul>
+<div itemprop="recipeInstructions">Éplucher et trancher les pommes de terre. Cuire au four avec la crème.</div>
+</div></body></html>"""
+
+
+def test_microdata_recipe_is_read_without_llm():
+    pytest.importorskip("recipe_scrapers")
+    result = web_scraper._analyze_html(MICRODATA, "https://blog-inconnu.fr/gratin")
+    recipe = result.structured_recipe
+    assert recipe["title"] == "Gratin dauphinois"
+    assert [i["name"] for i in recipe["ingredients"]] == ["pommes de terre", "crème", "ail"]
+    assert (recipe["servings"], recipe["prep_time"], recipe["cook_time"]) == (6, 20, 60)
+    assert "1 kg de pommes de terre" in result.text
+
+
+def test_site_scraper_ignores_pages_without_recipe():
+    assert site_scraper.scrape_recipe("<html><body>Un article.</body></html>", "https://x.fr/a") is None
+    assert site_scraper.scrape_recipe("", None) is None
+
+
+def test_own_jsonld_reader_remains_the_fallback(monkeypatch):
+    monkeypatch.setattr(site_scraper, "scrape_html", None)  # bibliothèque absente
+    result = web_scraper._analyze_html(_html(RECIPE), "https://exemple.fr/crepes")
+    assert result.structured_recipe["title"] == "Crêpes"
+    # …mais il ne lit pas la microdata : la page part au LLM.
+    assert web_scraper._analyze_html(MICRODATA, "https://blog-inconnu.fr/gratin").structured_recipe is None
+
+
+def test_english_published_recipe_goes_to_llm_for_translation():
+    pytest.importorskip("recipe_scrapers")
+    english = {
+        "@type": "Recipe", "name": "Pancakes", "recipeIngredient": ["2 cups flour", "2 eggs", "1 cup milk"],
+        "recipeInstructions": ["Whisk the flour and the eggs.", "Add the milk and stir until smooth.", "Cook in a hot pan."],
+    }
+    result = web_scraper._analyze_html(_html(english), "https://example.com/pancakes")
+    assert result.structured_recipe is None
+    assert result.text.startswith("Titre : Pancakes") and "- 2 cups flour" in result.text

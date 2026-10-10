@@ -276,7 +276,10 @@ docker compose exec ollama ollama pull qwen2.5:7b
 Popote ne garde que la recette du lien donné. Il la cherche, dans l'ordre :
 1. dans la vidéo : légende, sous-titres, audio, texte affiché à l'écran ;
 2. dans la **légende du post lue sans compte** (page d'intégration Instagram,
-   oEmbed TikTok), puis dans la page web ;
+   oEmbed TikTok), puis dans la page web. Une recette publiée par un site est
+   lue par [recipe-scrapers](https://github.com/hhursev/recipe-scrapers)
+   (lecteurs dédiés pour 700+ sites dont Marmiton, 750g, CuisineAZ, Jow ;
+   schema.org en JSON-LD, microdata ou RDFa ailleurs) : telle quelle, sans IA ;
 3. via le **lien de la recette complète** que l'auteur cite dans sa
    description (« recette complète : https://… ») : la même recette, publiée
    avec ses quantités exactes.

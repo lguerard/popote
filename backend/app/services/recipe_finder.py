@@ -62,7 +62,7 @@ async def structured_recipe_at(url: str) -> tuple[dict, str | None] | None:
         html = await web_scraper._fetch_static(url)
         if not isinstance(html, str):
             return None
-        page = web_scraper._analyze_html(html)
+        page = web_scraper._analyze_html(html, url)
     except Exception:
         logger.info("Recette non lue à %s", url, exc_info=True)
         return None
