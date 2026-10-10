@@ -1,9 +1,10 @@
+import asyncio
 import logging
 import re
 import time
 from typing import Awaitable, Callable
 
-from .video_service import video_to_text
+from .video_service import post_images_text, video_to_text
 from .web_scraper import scrape_url
 from .llm_service import extract_recipe_with_llm, reconstruct_recipe_with_llm
 from .extraction_steps import error_text
@@ -89,11 +90,13 @@ async def extract(
     started = time.monotonic()
 
     page = None
+    video_failed = False
     if source_type == SourceType.video:
         await progress("Lecture des informations de la vidéo…")
         try:
             raw_text, thumbnail_url = await video_to_text(source, progress)
         except Exception as exc:
+            video_failed = True
             # Instagram qui exige une connexion, post photo, tweet ou post
             # Reddit sans vidéo, vérification anti-robot de YouTube… : la
             # légende du post (lue sans compte) ou la page elle-même
@@ -126,6 +129,13 @@ async def extract(
             # minutes, et rien d'inventé ni de mal recopié.
             await progress("Lecture de la recette publiée par le site…")
             recipe_data = page.structured_recipe
+    if recipe_data is None and _is_photo_post(source, video_failed) and not recipe_parsing.has_full_recipe(raw_text):
+        # Carrousel Instagram, mode photo TikTok : la recette est souvent
+        # écrite sur les images elles-mêmes.
+        await progress("Lecture du texte écrit sur les images du post…")
+        slides = await asyncio.to_thread(post_images_text, source)
+        if slides:
+            raw_text = f"{raw_text}\n\nTexte écrit sur les images du post :\n{slides}".strip()
     if recipe_data is None and source_type != SourceType.web and recipe_finder.candidate_links(raw_text, source):
         # La description renvoie souvent à la recette complète sur le blog
         # de l'auteur : quantités exactes publiées, plutôt que devinées.
@@ -175,6 +185,14 @@ async def extract(
             recipe_data["similar_recipe_id"] = similar
 
     return recipe_data
+
+
+def _is_photo_post(url: str, video_failed: bool) -> bool:
+    """Post Instagram/TikTok qui peut être fait d'images : post (pas reel)
+    Instagram, mode photo TikTok, ou post dont la vidéo n'a pas pu être lue."""
+    if not (social.instagram_shortcode(url) or social.is_tiktok(url)):
+        return False
+    return video_failed or bool(re.search(r"instagram\.com/(?:[\w.]+/)?p/|tiktok\.com/.*/photo/", url, re.I))
 
 
 def _domain(url: str) -> str:

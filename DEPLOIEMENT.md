@@ -275,6 +275,8 @@ docker compose exec ollama ollama pull qwen2.5:7b
 
 Popote ne garde que la recette du lien donné. Il la cherche, dans l'ordre :
 1. dans la vidéo : légende, sous-titres, audio, texte affiché à l'écran ;
+   pour un **carrousel Instagram ou un post photo TikTok**, le texte écrit sur
+   les images (téléchargées par gallery-dl, lues par OCR) ;
 2. dans la **légende du post lue sans compte** (page d'intégration Instagram,
    oEmbed TikTok), puis dans la page web. Une recette publiée par un site est
    lue par [recipe-scrapers](https://github.com/hhursev/recipe-scrapers)
@@ -289,11 +291,12 @@ pas de recette, l'extraction échoue avec un message clair. (Seul un texte
 sans lien — un nom de plat tapé — ou la photo d'un plat donne une recette
 proposée par l'IA, marquée « à vérifier ».)
 
-- **yt-dlp trop ancien** (la plateforme a changé) : il se met à jour à chaque
-  démarrage, `docker compose restart backend` suffit.
-- **Instagram exige une connexion** (« login required », « rate-limit ») :
-  donner à Popote les cookies d'un compte Instagram (idéalement un compte
-  secondaire) :
+- **yt-dlp / gallery-dl trop anciens** (la plateforme a changé) : ils se
+  mettent à jour à chaque démarrage, `docker compose restart backend` suffit.
+- **Instagram exige une connexion** (« login required », « rate-limit » ;
+  presque toujours pour les carrousels) : donner à Popote les cookies d'un
+  compte Instagram (idéalement un compte secondaire), utilisés par yt-dlp et
+  gallery-dl :
   1. dans Firefox ou Chrome connecté à Instagram, exporter les cookies au
      format Netscape (extension « Get cookies.txt LOCALLY » par exemple) ;
   2. copier le fichier sur le serveur : `~/server_setup/popote/cookies/cookies.txt` ;

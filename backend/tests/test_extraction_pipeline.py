@@ -260,11 +260,12 @@ def test_video_falls_back_to_whisper(monkeypatch):
 
 def _run_extract(
     monkeypatch, source, scrape_result=None, llm_result=None, rebuilt=None, caption=("", None),
-    linked=None,
+    linked=None, slides="",
 ):
     from app.services import extractor
 
     llm_calls = []
+    monkeypatch.setattr(extractor, "post_images_text", lambda url: slides)
 
     async def fake_caption(url):
         return caption
@@ -770,3 +771,72 @@ def test_english_published_recipe_goes_to_llm_for_translation():
     result = web_scraper._analyze_html(_html(english), "https://example.com/pancakes")
     assert result.structured_recipe is None
     assert result.text.startswith("Titre : Pancakes") and "- 2 cups flour" in result.text
+
+
+# ---------------------------------------------------------------------------
+# Posts en images : carrousel Instagram, mode photo TikTok
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("url, failed, expected", [
+    ("https://www.instagram.com/p/Abc/", False, True),
+    ("https://www.instagram.com/chef/p/Abc/", False, True),
+    ("https://www.tiktok.com/@chef/photo/123", False, True),
+    ("https://www.instagram.com/reel/Abc/", False, False),
+    ("https://www.instagram.com/reel/Abc/", True, True),
+    ("https://www.tiktok.com/@chef/video/123", False, False),
+    ("https://www.youtube.com/watch?v=x", True, False),
+])
+def test_is_photo_post(url, failed, expected):
+    from app.services import extractor
+
+    assert extractor._is_photo_post(url, failed) is expected
+
+
+def test_carousel_text_reaches_the_llm(monkeypatch):
+    from app.services import extractor
+
+    async def no_video(url, progress):
+        raise RuntimeError("ERROR: [Instagram] Abc: There is no video in this post")
+
+    monkeypatch.setattr(extractor, "video_to_text", no_video)
+    data, calls = _run_extract(
+        monkeypatch, "https://www.instagram.com/p/Abc/",
+        llm_result={"title": "Cookies"}, caption=("Mes cookies 🍪 (recette en photos)", None),
+        slides="Ingrédients\n200 g de farine\n100 g de chocolat",
+    )
+    assert calls[-1] == (
+        "Légende de la publication :\nMes cookies 🍪 (recette en photos)\n\n"
+        "Texte écrit sur les images du post :\nIngrédients\n200 g de farine\n100 g de chocolat"
+    )
+
+
+FAKE_GALLERY_DL = """#!/bin/sh
+# Simule gallery-dl : écrit 3 images dans le dossier -D, note ses arguments.
+echo "$@" > "$GDL_ARGS"
+while [ "$1" != "-D" ]; do shift; done
+for n in 10 2 1; do printf 'img' > "$2/post_$n.jpg"; done
+printf 'video' > "$2/post_3.mp4"
+"""
+
+
+def test_post_images_text_reads_images_in_order(tmp_path, monkeypatch):
+    exe = tmp_path / "gallery-dl"
+    exe.write_text(FAKE_GALLERY_DL)
+    exe.chmod(0o755)
+    cookies = tmp_path / "cookies.txt"
+    cookies.write_text("# Netscape HTTP Cookie File\n")
+    monkeypatch.setenv("GDL_ARGS", str(tmp_path / "args"))
+    monkeypatch.setattr(video_service.shutil, "which", lambda name: str(exe))
+    monkeypatch.setattr(video_service.settings, "ytdlp_cookies_file", str(cookies))
+    words = {"1": "Ingrédients", "2": "Préparation", "10": "Bon appétit"}
+    monkeypatch.setattr(video_service, "_ocr_frame", lambda path: words[path.rsplit("_", 1)[1].split(".")[0]])
+
+    text = video_service.post_images_text("https://www.instagram.com/p/Abc/")
+    assert text == "Ingrédients\nPréparation\nBon appétit"  # ordre du carrousel, vidéo ignorée
+    args = (tmp_path / "args").read_text()
+    assert "--cookies" in args and "--range 1-20" in args and args.strip().endswith("https://www.instagram.com/p/Abc/")
+
+
+def test_post_images_text_without_gallery_dl(monkeypatch):
+    monkeypatch.setattr(video_service.shutil, "which", lambda name: None)
+    assert video_service.post_images_text("https://www.instagram.com/p/Abc/") == ""

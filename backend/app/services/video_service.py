@@ -243,14 +243,66 @@ def _ydl_base() -> dict:
         "quiet": True, "no_warnings": True, "noplaylist": True,
         "retries": 3, "extractor_retries": 2, "socket_timeout": 20,
     }
-    cookies = settings.ytdlp_cookies_file
-    if cookies and os.path.isfile(cookies):
-        # Copie : yt-dlp réécrit son fichier de cookies en sortant, alors que
-        # celui fourni est monté en lecture seule.
-        copy = os.path.join(tempfile.gettempdir(), "popote-ytdlp-cookies.txt")
-        shutil.copyfile(cookies, copy)
-        opts["cookiefile"] = copy
+    cookies = _cookies_copy()
+    if cookies:
+        opts["cookiefile"] = cookies
     return opts
+
+
+def _cookies_copy() -> str | None:
+    """Copie des cookies du compte fournis (cookies/cookies.txt), s'il y en a.
+
+    Copie : yt-dlp et gallery-dl réécrivent leur fichier de cookies en
+    sortant, alors que celui fourni est monté en lecture seule.
+    """
+    cookies = settings.ytdlp_cookies_file
+    if not cookies or not os.path.isfile(cookies):
+        return None
+    copy = os.path.join(tempfile.gettempdir(), "popote-ytdlp-cookies.txt")
+    shutil.copyfile(cookies, copy)
+    return copy
+
+
+# ── Posts en images (carrousel Instagram, mode photo TikTok) ─────────────────
+# La recette y est souvent écrite sur les images elles-mêmes, que yt-dlp ne
+# sait pas récupérer : gallery-dl (https://github.com/mikf/gallery-dl) le fait,
+# et l'OCR des vidéos (_ocr_frame) les lit.
+_POST_IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".webp")
+_MAX_POST_IMAGES = 20
+
+
+def _natural_key(name: str) -> list:
+    """« img_2 » avant « img_10 » : l'ordre des images du carrousel."""
+    return [int(part) if part.isdigit() else part for part in re.split(r"(\d+)", name)]
+
+
+def post_images_text(url: str) -> str:
+    """Texte écrit sur les images d'un post, dans l'ordre ; "" si rien de lisible."""
+    exe = shutil.which("gallery-dl")
+    if not exe:
+        return ""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        cmd = [
+            exe, "--quiet", "--no-part", "--no-mtime", "-D", tmpdir,
+            "--range", f"1-{_MAX_POST_IMAGES}",
+            "--filter", "extension in ('jpg', 'jpeg', 'png', 'webp')",
+        ]
+        cookies = _cookies_copy()
+        if cookies:
+            cmd += ["--cookies", cookies]
+        try:
+            subprocess.run(cmd + [url], capture_output=True, timeout=120, check=False)
+        except (subprocess.TimeoutExpired, OSError):
+            logger.warning("Images du post %s non récupérées", url, exc_info=True)
+        images = sorted(
+            (f for f in os.listdir(tmpdir) if f.lower().endswith(_POST_IMAGE_EXTENSIONS)),
+            key=_natural_key,
+        )
+        if not images:
+            return ""
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            texts = list(pool.map(_ocr_frame, (os.path.join(tmpdir, f) for f in images)))
+    return merge_ocr_lines(texts)
 
 
 def _fetch_info(url: str) -> dict:
