@@ -7,7 +7,7 @@ import httpx
 from bs4 import BeautifulSoup
 from playwright.async_api import async_playwright
 
-from . import recipe_parsing
+from . import recipe_parsing, site_scraper
 
 logger = logging.getLogger(__name__)
 
@@ -144,7 +144,7 @@ async def scrape_url(url: str) -> ScrapeResult:
     if isinstance(static_html, Document):
         logger.info("scrape %s : fichier %s", url, static_html.content_type)
         return await _read_document(url, static_html)
-    static = _analyze_html(static_html) if static_html else None
+    static = _analyze_html(static_html, url) if static_html else None
     if static and (static.structured_recipe or recipe_parsing.looks_like_recipe(static.text)):
         logger.info("scrape %s : HTML statique suffisant", url)
         return static
@@ -156,7 +156,7 @@ async def scrape_url(url: str) -> ScrapeResult:
             logger.warning("scrape %s : échec du navigateur, repli sur le HTML statique", url, exc_info=True)
             return static
         raise
-    rendered = _analyze_html(browser_html)
+    rendered = _analyze_html(browser_html, url)
     logger.info("scrape %s : rendu navigateur utilisé", url)
     if static and not rendered.structured_recipe and not recipe_parsing.looks_like_recipe(rendered.text):
         # Ni l'un ni l'autre n'a d'indices de recette : garder le plus fourni.
@@ -196,11 +196,23 @@ async def _fetch_with_browser(url: str) -> str:
         await context.close()
 
 
-def _analyze_html(html: str) -> ScrapeResult:
+def _analyze_html(html: str, url: str | None = None) -> ScrapeResult:
     soup = BeautifulSoup(html, "html.parser")
     og_image = soup.find("meta", property="og:image")
     thumbnail = og_image.get("content") if og_image else None
 
+    # 1. recipe-scrapers : lecteur dédié pour 700+ sites, et données
+    #    schema.org sous toutes leurs formes (JSON-LD, microdata, RDFa).
+    scraped = site_scraper.scrape_recipe(html, url)
+    if scraped:
+        recipe, compact = scraped
+        thumbnail = thumbnail or recipe.pop("thumbnail_url", None)
+        recipe.pop("thumbnail_url", None)
+        if recipe["language"] == "fr":
+            return ScrapeResult(compact, thumbnail, recipe)
+        return ScrapeResult(compact, thumbnail)  # à traduire par le LLM
+
+    # 2. Repli : notre lecteur JSON-LD (bibliothèque absente, données partielles…).
     node = recipe_parsing.find_jsonld_recipe(soup)
     if node:
         recipe = recipe_parsing.jsonld_to_recipe(node)

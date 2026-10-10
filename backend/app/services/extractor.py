@@ -1,13 +1,14 @@
+import asyncio
 import logging
 import re
 import time
 from typing import Awaitable, Callable
 
-from .video_service import video_to_text
+from .video_service import post_images_text, video_to_text
 from .web_scraper import scrape_url
 from .llm_service import extract_recipe_with_llm, reconstruct_recipe_with_llm
 from .extraction_steps import error_text
-from . import recipe_parsing
+from . import recipe_finder, recipe_parsing, social
 from ..models.recipe import SourceType
 
 logger = logging.getLogger(__name__)
@@ -89,17 +90,33 @@ async def extract(
     started = time.monotonic()
 
     page = None
+    video_failed = False
     if source_type == SourceType.video:
         await progress("Lecture des informations de la vidéo…")
         try:
             raw_text, thumbnail_url = await video_to_text(source, progress)
         except Exception as exc:
-            # Post photo Instagram, tweet ou post Reddit sans vidéo, vérification
-            # anti-robot de YouTube… : la page elle-même (légende, description)
-            # contient souvent la recette.
-            logger.warning("Vidéo illisible (%s), repli sur la page : %s", error_text(exc), source)
-            await progress("Vidéo illisible, lecture de la page…")
-            page = await _scrape(source, video_error=exc)
+            video_failed = True
+            # Instagram qui exige une connexion, post photo, tweet ou post
+            # Reddit sans vidéo, vérification anti-robot de YouTube… : la
+            # légende du post (lue sans compte) ou la page elle-même
+            # contiennent souvent la recette.
+            logger.warning("Vidéo illisible (%s), repli sur la légende/la page : %s", error_text(exc), source)
+            await progress("Vidéo illisible, lecture de la légende du post…")
+            caption, caption_thumb = await social.post_caption(source)
+            if caption:
+                raw_text, thumbnail_url = f"Légende de la publication :\n{caption}", caption_thumb
+            else:
+                await progress("Vidéo illisible, lecture de la page…")
+                page = await _scrape(source, video_error=exc)
+        else:
+            if not recipe_parsing.has_full_recipe(raw_text):
+                # yt-dlp a lu la vidéo mais sans la légende complète (Instagram
+                # la tronque ou la cache sans connexion) : on la complète.
+                caption, caption_thumb = await social.post_caption(source)
+                if caption and caption[:80] not in raw_text:
+                    raw_text = f"{raw_text}\n\nLégende de la publication :\n{caption}".strip()
+                    thumbnail_url = thumbnail_url or caption_thumb
     elif source_type == SourceType.web:
         await progress("Chargement de la page web…")
         page = await _scrape(source)
@@ -112,6 +129,22 @@ async def extract(
             # minutes, et rien d'inventé ni de mal recopié.
             await progress("Lecture de la recette publiée par le site…")
             recipe_data = page.structured_recipe
+    if recipe_data is None and _is_photo_post(source, video_failed) and not recipe_parsing.has_full_recipe(raw_text):
+        # Carrousel Instagram, mode photo TikTok : la recette est souvent
+        # écrite sur les images elles-mêmes.
+        await progress("Lecture du texte écrit sur les images du post…")
+        slides = await asyncio.to_thread(post_images_text, source)
+        if slides:
+            raw_text = f"{raw_text}\n\nTexte écrit sur les images du post :\n{slides}".strip()
+    if recipe_data is None and source_type != SourceType.web and recipe_finder.candidate_links(raw_text, source):
+        # La description renvoie souvent à la recette complète sur le blog
+        # de l'auteur : quantités exactes publiées, plutôt que devinées.
+        await progress("Lecture de la recette complète liée dans la description…")
+        linked = await recipe_finder.linked_recipe(raw_text, exclude=source)
+        if linked:
+            recipe_data, link, image = linked
+            _add_note(recipe_data, f"Recette complète publiée sur {_domain(link)}.")
+            thumbnail_url = thumbnail_url or image
     fetched = time.monotonic()
 
     used_llm = recipe_data is None
@@ -121,10 +154,16 @@ async def extract(
         await progress("Analyse de la recette par l'IA…")
         recipe_data = await extract_recipe_with_llm(raw_text)
         if "error" in recipe_data:
-            # Pas de recette détaillée (nom de plat seul, reel sans légende…) :
-            # l'IA propose une recette du plat plutôt qu'un échec.
-            await progress("Pas de recette détaillée : l'IA en propose une…")
-            recipe_data = await reconstruct_recipe_with_llm(raw_text)
+            if source_type != SourceType.text:
+                # Un lien donne SA recette, jamais une autre : rien n'est
+                # inventé ni cherché ailleurs quand il n'en contient pas.
+                raise ValueError(
+                    "Ce lien ne contient pas de recette détaillée (ni dans la vidéo, ni dans sa "
+                    "légende ou sa page). Si elle est ailleurs (commentaire, lien en bio…), "
+                    "copiez-la et collez-la dans Popote."
+                )
+            # Texte sans recette (nom de plat tapé seul…) : l'IA en propose une.
+            recipe_data, _ = await recipe_for_dish(raw_text, progress)
             if "error" in recipe_data:
                 raise ValueError(
                     "Aucune recette ni aucun plat reconnaissable dans ce contenu."
@@ -146,6 +185,35 @@ async def extract(
             recipe_data["similar_recipe_id"] = similar
 
     return recipe_data
+
+
+def _is_photo_post(url: str, video_failed: bool) -> bool:
+    """Post Instagram/TikTok qui peut être fait d'images : post (pas reel)
+    Instagram, mode photo TikTok, ou post dont la vidéo n'a pas pu être lue."""
+    if not (social.instagram_shortcode(url) or social.is_tiktok(url)):
+        return False
+    return video_failed or bool(re.search(r"instagram\.com/(?:[\w.]+/)?p/|tiktok\.com/.*/photo/", url, re.I))
+
+
+def _domain(url: str) -> str:
+    host = recipe_finder._host(url)
+    return host[4:] if host.startswith("www.") else host
+
+
+def _add_note(recipe: dict, note: str) -> None:
+    description = recipe.get("description")
+    recipe["description"] = f"{note} {description}" if description else note
+
+
+async def recipe_for_dish(text: str, progress: ProgressCallback | None = None) -> tuple[dict, str | None]:
+    """(recette, image) pour une entrée SANS lien qui évoque un plat sans en
+    donner la recette (nom de plat tapé, photo d'un plat) : l'IA en propose
+    une, marquée « à vérifier ». Jamais utilisé pour un lien.
+    {"error": …} si aucun plat n'est reconnaissable.
+    """
+    progress = progress or _noop_progress
+    await progress("Pas de recette détaillée : l'IA en propose une…")
+    return await reconstruct_recipe_with_llm(text), None
 
 
 async def _scrape(url: str, video_error: Exception | None = None):

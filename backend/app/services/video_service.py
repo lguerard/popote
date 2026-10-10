@@ -3,6 +3,7 @@ import gc
 import logging
 import os
 import re
+import shutil
 import subprocess
 import tempfile
 from concurrent.futures import ThreadPoolExecutor
@@ -201,7 +202,7 @@ def _ocr_video_text(url: str) -> str:
     """Texte incrusté dans la vidéo : images extraites par ffmpeg, lues par Tesseract."""
     with tempfile.TemporaryDirectory() as tmpdir:
         opts = {
-            **_YDL_BASE,
+            **_ydl_base(),
             # Basse définition : le texte incrusté est gros, et une vidéo
             # 480p se télécharge et se décode bien plus vite.
             "format": "bv*[height<=720][ext=mp4]/b[height<=720]/bv*/b/worst",
@@ -234,11 +235,78 @@ def _ocr_video_text(url: str) -> str:
     return merge_ocr_lines(texts)
 
 
-_YDL_BASE = {"quiet": True, "no_warnings": True, "noplaylist": True}
+def _ydl_base() -> dict:
+    """Options yt-dlp communes : quelques nouvelles tentatives sur les
+    erreurs réseau, et les cookies d'un compte s'ils sont fournis (Instagram
+    exige de plus en plus souvent une connexion, voir DEPLOIEMENT.md)."""
+    opts = {
+        "quiet": True, "no_warnings": True, "noplaylist": True,
+        "retries": 3, "extractor_retries": 2, "socket_timeout": 20,
+    }
+    cookies = _cookies_copy()
+    if cookies:
+        opts["cookiefile"] = cookies
+    return opts
+
+
+def _cookies_copy() -> str | None:
+    """Copie des cookies du compte fournis (cookies/cookies.txt), s'il y en a.
+
+    Copie : yt-dlp et gallery-dl réécrivent leur fichier de cookies en
+    sortant, alors que celui fourni est monté en lecture seule.
+    """
+    cookies = settings.ytdlp_cookies_file
+    if not cookies or not os.path.isfile(cookies):
+        return None
+    copy = os.path.join(tempfile.gettempdir(), "popote-ytdlp-cookies.txt")
+    shutil.copyfile(cookies, copy)
+    return copy
+
+
+# ── Posts en images (carrousel Instagram, mode photo TikTok) ─────────────────
+# La recette y est souvent écrite sur les images elles-mêmes, que yt-dlp ne
+# sait pas récupérer : gallery-dl (https://github.com/mikf/gallery-dl) le fait,
+# et l'OCR des vidéos (_ocr_frame) les lit.
+_POST_IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".webp")
+_MAX_POST_IMAGES = 20
+
+
+def _natural_key(name: str) -> list:
+    """« img_2 » avant « img_10 » : l'ordre des images du carrousel."""
+    return [int(part) if part.isdigit() else part for part in re.split(r"(\d+)", name)]
+
+
+def post_images_text(url: str) -> str:
+    """Texte écrit sur les images d'un post, dans l'ordre ; "" si rien de lisible."""
+    exe = shutil.which("gallery-dl")
+    if not exe:
+        return ""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        cmd = [
+            exe, "--quiet", "--no-part", "--no-mtime", "-D", tmpdir,
+            "--range", f"1-{_MAX_POST_IMAGES}",
+            "--filter", "extension in ('jpg', 'jpeg', 'png', 'webp')",
+        ]
+        cookies = _cookies_copy()
+        if cookies:
+            cmd += ["--cookies", cookies]
+        try:
+            subprocess.run(cmd + [url], capture_output=True, timeout=120, check=False)
+        except (subprocess.TimeoutExpired, OSError):
+            logger.warning("Images du post %s non récupérées", url, exc_info=True)
+        images = sorted(
+            (f for f in os.listdir(tmpdir) if f.lower().endswith(_POST_IMAGE_EXTENSIONS)),
+            key=_natural_key,
+        )
+        if not images:
+            return ""
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            texts = list(pool.map(_ocr_frame, (os.path.join(tmpdir, f) for f in images)))
+    return merge_ocr_lines(texts)
 
 
 def _fetch_info(url: str) -> dict:
-    with yt_dlp.YoutubeDL({**_YDL_BASE, "skip_download": True}) as ydl:
+    with yt_dlp.YoutubeDL({**_ydl_base(), "skip_download": True}) as ydl:
         return ydl.extract_info(url, download=False) or {}
 
 
@@ -276,7 +344,7 @@ def _fetch_subtitles(url: str, info: dict) -> str:
     lang, automatic = track
     with tempfile.TemporaryDirectory() as tmpdir:
         opts = {
-            **_YDL_BASE,
+            **_ydl_base(),
             "skip_download": True,
             "writesubtitles": not automatic,
             "writeautomaticsub": automatic,
@@ -303,7 +371,7 @@ def _download_audio_and_transcribe(url: str) -> str:
         # Pas de conversion WAV via ffmpeg : faster-whisper décode directement
         # m4a/webm/mp4, la conversion ne faisait que coûter du temps.
         opts = {
-            **_YDL_BASE,
+            **_ydl_base(),
             "format": "bestaudio[ext=m4a]/bestaudio/best",
             "outtmpl": os.path.join(tmpdir, "audio.%(ext)s"),
         }

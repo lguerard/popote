@@ -258,10 +258,24 @@ def test_video_falls_back_to_whisper(monkeypatch):
 # Orchestration
 # ---------------------------------------------------------------------------
 
-def _run_extract(monkeypatch, source, scrape_result=None, llm_result=None, rebuilt=None):
+def _run_extract(
+    monkeypatch, source, scrape_result=None, llm_result=None, rebuilt=None, caption=("", None),
+    linked=None, slides="",
+):
     from app.services import extractor
 
     llm_calls = []
+    monkeypatch.setattr(extractor, "post_images_text", lambda url: slides)
+
+    async def fake_caption(url):
+        return caption
+
+    async def fake_linked(text, exclude=None):
+        llm_calls.append(("lien", text))
+        return linked
+
+    monkeypatch.setattr(extractor.social, "post_caption", fake_caption)
+    monkeypatch.setattr(extractor.recipe_finder, "linked_recipe", fake_linked)
 
     async def fake_scrape(url):
         if isinstance(scrape_result, Exception):
@@ -507,3 +521,322 @@ def test_reconstructed_recipe_is_flagged(monkeypatch):
     assert prompts == [llm_service.RECONSTRUCT_PROMPT]
     assert data["description"].startswith(llm_service.RECONSTRUCTED_NOTICE)
     assert data["tags"][0] == "à vérifier"
+
+
+# ---------------------------------------------------------------------------
+# Légende des posts Instagram / TikTok, sans compte
+# ---------------------------------------------------------------------------
+
+from app.services import social  # noqa: E402
+
+
+@pytest.mark.parametrize("url, code", [
+    ("https://www.instagram.com/reel/DeT4q4AtgNE/", "DeT4q4AtgNE"),
+    ("https://instagram.com/p/AbC_-1/?igsh=xyz", "AbC_-1"),
+    ("https://www.instagram.com/chef.martin/reel/Xyz123/", "Xyz123"),
+    ("https://www.instagram.com/reels/Q1w2/", "Q1w2"),
+    ("https://www.instagram.com/chef.martin/", None),
+    ("https://www.tiktok.com/@a/video/1", None),
+])
+def test_instagram_shortcode(url, code):
+    assert social.instagram_shortcode(url) == code
+
+
+EMBED_HTML = """<html><body><div class="Embed">
+<img class="EmbeddedMediaImage" src="https://cdn.ig/x.jpg">
+<div class="Caption"><a class="CaptionUsername" href="#">chef.martin</a><br><br>
+Tiramisu express 😍<br>Ingrédients :<br>- 250 g de mascarpone<br>- 3 œufs<br>
+Battre les jaunes avec le sucre.
+<div class="CaptionComments"><a>Voir les 120 commentaires</a></div></div>
+</div></body></html>"""
+
+
+def test_parse_instagram_embed():
+    caption, thumbnail = social.parse_instagram_embed(EMBED_HTML)
+    assert caption.startswith("Tiramisu express")
+    assert "250 g de mascarpone" in caption and "\n- 3 œufs" in caption
+    assert "chef.martin" not in caption and "commentaires" not in caption
+    assert thumbnail == "https://cdn.ig/x.jpg"
+
+
+def test_parse_instagram_embed_from_json_data():
+    html = (
+        '<html><body><script>window.__additionalDataLoaded("extra", {"shortcode_media":'
+        '{"edge_media_to_caption":{"edges":[{"node":{"text":"Cr\\u00eapes\\n250 g de farine"}}]}}});'
+        "</script></body></html>"
+    )
+    caption, _ = social.parse_instagram_embed(html)
+    assert caption == "Crêpes\n250 g de farine"
+
+
+def test_parse_instagram_embed_without_caption():
+    assert social.parse_instagram_embed("<html><body>Connectez-vous</body></html>") == ("", None)
+
+
+def test_blocked_instagram_video_uses_the_caption(monkeypatch):
+    from app.services import extractor
+
+    async def login_required(url, progress):
+        raise RuntimeError("ERROR: [Instagram] DeT4q4AtgNE: Requested content is not available, login required")
+
+    monkeypatch.setattr(extractor, "video_to_text", login_required)
+    data, calls = _run_extract(
+        monkeypatch, "https://www.instagram.com/reel/DeT4q4AtgNE/",
+        scrape_result=RuntimeError("ne doit pas être appelé"),
+        llm_result={"title": "Tiramisu"}, caption=("Tiramisu : 250 g de mascarpone…", "https://cdn.ig/x.jpg"),
+    )
+    assert calls == ["Légende de la publication :\nTiramisu : 250 g de mascarpone…"]
+    assert data["thumbnail_url"] == "https://cdn.ig/x.jpg" and data["source_type"].value == "video"
+
+
+def test_video_without_recipe_gets_the_full_caption(monkeypatch):
+    from app.services import extractor
+
+    async def music_only(url, progress):
+        return "Titre de la vidéo : Video by chef", "https://thumb"
+
+    monkeypatch.setattr(extractor, "video_to_text", music_only)
+    data, calls = _run_extract(
+        monkeypatch, "https://www.instagram.com/reel/Abc/", llm_result={"title": "T"},
+        caption=("Gâteau : 200 g de farine, 3 œufs…", None),
+    )
+    assert calls == ["Titre de la vidéo : Video by chef\n\nLégende de la publication :\nGâteau : 200 g de farine, 3 œufs…"]
+    assert data["thumbnail_url"] == "https://thumb"
+
+
+def test_tiktok_caption_from_oembed(monkeypatch):
+    real_client = httpx.AsyncClient
+
+    def handler(request):
+        assert request.url.host == "www.tiktok.com" and request.url.path == "/oembed"
+        return httpx.Response(200, json={"title": "Pâtes <b>crémeuses</b> #recette", "thumbnail_url": "https://t/x.jpg"})
+
+    monkeypatch.setattr(
+        social.httpx, "AsyncClient",
+        lambda *a, **kw: real_client(*a, transport=httpx.MockTransport(handler), **kw),
+    )
+    assert asyncio.run(social.post_caption("https://www.tiktok.com/@chef/video/123")) == (
+        "Pâtes crémeuses #recette", "https://t/x.jpg",
+    )
+
+
+def test_post_caption_never_raises(monkeypatch):
+    real_client = httpx.AsyncClient
+
+    def boom(request):
+        raise httpx.ConnectError("réseau coupé")
+
+    monkeypatch.setattr(
+        social.httpx, "AsyncClient",
+        lambda *a, **kw: real_client(*a, transport=httpx.MockTransport(boom), **kw),
+    )
+    assert asyncio.run(social.post_caption("https://www.instagram.com/p/Abc/")) == ("", None)
+    assert asyncio.run(social.post_caption("https://exemple.fr/x")) == ("", None)
+
+
+def test_ydl_options_use_a_copy_of_the_cookies(tmp_path, monkeypatch):
+    cookies = tmp_path / "cookies.txt"
+    monkeypatch.setattr(video_service.settings, "ytdlp_cookies_file", str(cookies))
+    assert "cookiefile" not in video_service._ydl_base()  # absent : ignoré
+    cookies.write_text("# Netscape HTTP Cookie File\n")
+    opts = video_service._ydl_base()
+    assert opts["cookiefile"] != str(cookies)
+    assert open(opts["cookiefile"]).read() == "# Netscape HTTP Cookie File\n"
+    assert opts["retries"] >= 1
+
+
+# ---------------------------------------------------------------------------
+# Trouver la vraie recette : lien de la description, recherche web
+# ---------------------------------------------------------------------------
+
+from app.services import recipe_finder  # noqa: E402
+
+PUBLISHED = {
+    "title": "Tiramisu", "description": "Le classique.", "ingredients": [{"name": "mascarpone"}],
+    "steps": [{"order": 1, "text": "Monter."}], "language": "fr",
+}
+
+
+def test_candidate_links_prefer_the_announced_recipe():
+    text = (
+        "Mon matériel : https://amzn.to/xyz\n"
+        "Suivez-moi https://www.instagram.com/chef\n"
+        "Mon livre https://editions.fr/livre\n"
+        "👉 Recette complète : https://www.chef-martin.fr/tiramisu/.\n"
+        "Aussi sur www.chef-martin.fr/blog\n"
+        "Doublon https://www.chef-martin.fr/tiramisu/"
+    )
+    assert recipe_finder.candidate_links(text) == [
+        "https://www.chef-martin.fr/tiramisu/",
+        "https://www.chef-martin.fr/blog",
+        "https://editions.fr/livre",
+    ]
+    assert recipe_finder.candidate_links("https://youtu.be/x et https://t.co/a") == []
+    assert recipe_finder.candidate_links("https://site.fr/r", exclude="https://site.fr/r") == []
+
+
+def test_video_with_recipe_link_uses_the_published_recipe(monkeypatch):
+    from app.services import extractor
+
+    async def video(url, progress):
+        return "Titre : Tiramisu\nLa recette : https://www.chef-martin.fr/tiramisu", "https://thumb/video.jpg"
+
+    monkeypatch.setattr(extractor, "video_to_text", video)
+    data, calls = _run_extract(
+        monkeypatch, "https://youtu.be/abc", linked=(dict(PUBLISHED), "https://www.chef-martin.fr/tiramisu", "https://img"),
+    )
+    assert [c for c in calls if not isinstance(c, tuple)] == []  # aucun appel au LLM
+    assert data["title"] == "Tiramisu" and data["source_url"] == "https://youtu.be/abc"
+    assert data["description"] == "Recette complète publiée sur chef-martin.fr. Le classique."
+    assert data["thumbnail_url"] == "https://thumb/video.jpg"
+
+
+def test_link_without_recipe_is_never_invented(monkeypatch):
+    """Un lien donne SA recette : ni reconstitution par l'IA, ni recette d'ailleurs."""
+    from app.services import extractor
+
+    async def music_only(url, progress):
+        return "Titre de la vidéo : Pasta alla vodka 🍝", None
+
+    monkeypatch.setattr(extractor, "video_to_text", music_only)
+    with pytest.raises(ValueError, match="ne contient pas de recette détaillée"):
+        _run_extract(
+            monkeypatch, "https://www.instagram.com/reel/Abc/",
+            llm_result={"error": "Aucune recette trouvée"}, rebuilt={"title": "Inventée"},
+        )
+    with pytest.raises(ValueError, match="ne contient pas de recette détaillée"):
+        _run_extract(
+            monkeypatch, "https://exemple.fr/article", web_scraper.ScrapeResult("Un article sans recette.", None),
+            llm_result={"error": "Aucune recette trouvée"}, rebuilt={"title": "Inventée"},
+        )
+
+
+def test_no_web_search_anywhere():
+    assert not hasattr(recipe_finder, "search_recipe")
+
+
+def test_structured_recipe_at_reads_json_ld(monkeypatch):
+    async def fake_static(url):
+        return _html(RECIPE)
+
+    monkeypatch.setattr(web_scraper, "_fetch_static", fake_static)
+    recipe, image = asyncio.run(recipe_finder.structured_recipe_at("https://exemple.fr/crepes"))
+    assert recipe["title"] == "Crêpes" and recipe["ingredients"]
+
+
+# ---------------------------------------------------------------------------
+# Recettes publiées par les sites : recipe-scrapers, repli JSON-LD maison
+# ---------------------------------------------------------------------------
+
+from app.services import site_scraper  # noqa: E402
+
+MICRODATA = """<html lang="fr"><body><div itemscope itemtype="https://schema.org/Recipe">
+<h1 itemprop="name">Gratin dauphinois</h1>
+<span itemprop="recipeYield">6</span><meta itemprop="prepTime" content="PT20M"><meta itemprop="cookTime" content="PT1H">
+<ul><li itemprop="recipeIngredient">1 kg de pommes de terre</li><li itemprop="recipeIngredient">50 cl de crème</li>
+<li itemprop="recipeIngredient">1 gousse d'ail</li></ul>
+<div itemprop="recipeInstructions">Éplucher et trancher les pommes de terre. Cuire au four avec la crème.</div>
+</div></body></html>"""
+
+
+def test_microdata_recipe_is_read_without_llm():
+    pytest.importorskip("recipe_scrapers")
+    result = web_scraper._analyze_html(MICRODATA, "https://blog-inconnu.fr/gratin")
+    recipe = result.structured_recipe
+    assert recipe["title"] == "Gratin dauphinois"
+    assert [i["name"] for i in recipe["ingredients"]] == ["pommes de terre", "crème", "ail"]
+    assert (recipe["servings"], recipe["prep_time"], recipe["cook_time"]) == (6, 20, 60)
+    assert "1 kg de pommes de terre" in result.text
+
+
+def test_site_scraper_ignores_pages_without_recipe():
+    assert site_scraper.scrape_recipe("<html><body>Un article.</body></html>", "https://x.fr/a") is None
+    assert site_scraper.scrape_recipe("", None) is None
+
+
+def test_own_jsonld_reader_remains_the_fallback(monkeypatch):
+    monkeypatch.setattr(site_scraper, "scrape_html", None)  # bibliothèque absente
+    result = web_scraper._analyze_html(_html(RECIPE), "https://exemple.fr/crepes")
+    assert result.structured_recipe["title"] == "Crêpes"
+    # …mais il ne lit pas la microdata : la page part au LLM.
+    assert web_scraper._analyze_html(MICRODATA, "https://blog-inconnu.fr/gratin").structured_recipe is None
+
+
+def test_english_published_recipe_goes_to_llm_for_translation():
+    pytest.importorskip("recipe_scrapers")
+    english = {
+        "@type": "Recipe", "name": "Pancakes", "recipeIngredient": ["2 cups flour", "2 eggs", "1 cup milk"],
+        "recipeInstructions": ["Whisk the flour and the eggs.", "Add the milk and stir until smooth.", "Cook in a hot pan."],
+    }
+    result = web_scraper._analyze_html(_html(english), "https://example.com/pancakes")
+    assert result.structured_recipe is None
+    assert result.text.startswith("Titre : Pancakes") and "- 2 cups flour" in result.text
+
+
+# ---------------------------------------------------------------------------
+# Posts en images : carrousel Instagram, mode photo TikTok
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("url, failed, expected", [
+    ("https://www.instagram.com/p/Abc/", False, True),
+    ("https://www.instagram.com/chef/p/Abc/", False, True),
+    ("https://www.tiktok.com/@chef/photo/123", False, True),
+    ("https://www.instagram.com/reel/Abc/", False, False),
+    ("https://www.instagram.com/reel/Abc/", True, True),
+    ("https://www.tiktok.com/@chef/video/123", False, False),
+    ("https://www.youtube.com/watch?v=x", True, False),
+])
+def test_is_photo_post(url, failed, expected):
+    from app.services import extractor
+
+    assert extractor._is_photo_post(url, failed) is expected
+
+
+def test_carousel_text_reaches_the_llm(monkeypatch):
+    from app.services import extractor
+
+    async def no_video(url, progress):
+        raise RuntimeError("ERROR: [Instagram] Abc: There is no video in this post")
+
+    monkeypatch.setattr(extractor, "video_to_text", no_video)
+    data, calls = _run_extract(
+        monkeypatch, "https://www.instagram.com/p/Abc/",
+        llm_result={"title": "Cookies"}, caption=("Mes cookies 🍪 (recette en photos)", None),
+        slides="Ingrédients\n200 g de farine\n100 g de chocolat",
+    )
+    assert calls[-1] == (
+        "Légende de la publication :\nMes cookies 🍪 (recette en photos)\n\n"
+        "Texte écrit sur les images du post :\nIngrédients\n200 g de farine\n100 g de chocolat"
+    )
+
+
+FAKE_GALLERY_DL = """#!/bin/sh
+# Simule gallery-dl : écrit 3 images dans le dossier -D, note ses arguments.
+echo "$@" > "$GDL_ARGS"
+while [ "$1" != "-D" ]; do shift; done
+for n in 10 2 1; do printf 'img' > "$2/post_$n.jpg"; done
+printf 'video' > "$2/post_3.mp4"
+"""
+
+
+def test_post_images_text_reads_images_in_order(tmp_path, monkeypatch):
+    exe = tmp_path / "gallery-dl"
+    exe.write_text(FAKE_GALLERY_DL)
+    exe.chmod(0o755)
+    cookies = tmp_path / "cookies.txt"
+    cookies.write_text("# Netscape HTTP Cookie File\n")
+    monkeypatch.setenv("GDL_ARGS", str(tmp_path / "args"))
+    monkeypatch.setattr(video_service.shutil, "which", lambda name: str(exe))
+    monkeypatch.setattr(video_service.settings, "ytdlp_cookies_file", str(cookies))
+    words = {"1": "Ingrédients", "2": "Préparation", "10": "Bon appétit"}
+    monkeypatch.setattr(video_service, "_ocr_frame", lambda path: words[path.rsplit("_", 1)[1].split(".")[0]])
+
+    text = video_service.post_images_text("https://www.instagram.com/p/Abc/")
+    assert text == "Ingrédients\nPréparation\nBon appétit"  # ordre du carrousel, vidéo ignorée
+    args = (tmp_path / "args").read_text()
+    assert "--cookies" in args and "--range 1-20" in args and args.strip().endswith("https://www.instagram.com/p/Abc/")
+
+
+def test_post_images_text_without_gallery_dl(monkeypatch):
+    monkeypatch.setattr(video_service.shutil, "which", lambda name: None)
+    assert video_service.post_images_text("https://www.instagram.com/p/Abc/") == ""

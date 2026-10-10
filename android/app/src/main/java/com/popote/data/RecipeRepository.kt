@@ -10,8 +10,17 @@ import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.RequestBody.Companion.toRequestBody
 import retrofit2.HttpException
 
+/** Extraction terminée en échec côté serveur (message lisible du serveur). */
+class ExtractionFailedException(message: String) : Exception(message)
+
+/** Connexion perdue trop longtemps pendant le suivi d'une extraction, qui continue sur le serveur. */
+class ConnectionLostException(cause: Exception) : Exception(cause)
+
 class RecipeRepository(private val context: Context) {
     private val apiClient = ApiClient(context)
+
+    // Dernière adresse utilisée, pour dire QUEL serveur ne répond pas.
+    @Volatile private var lastServerUrl: String? = null
 
     val serverUrl = apiClient.serverUrl
     val isLoggedIn = apiClient.token.map { it != null }
@@ -19,6 +28,7 @@ class RecipeRepository(private val context: Context) {
 
     private suspend fun api(): PopoteApi {
         val url = apiClient.serverUrl.first()
+        lastServerUrl = url
         apiClient.currentToken = apiClient.token.first()
         return apiClient.getApi(url)
     }
@@ -84,13 +94,28 @@ class RecipeRepository(private val context: Context) {
         return api().extractImage(part)
     }
 
+    /**
+     * Suit une extraction jusqu'à la fin. Une coupure réseau (passage Wi-Fi →
+     * 4G, écran verrouillé, serveur qui redémarre…) ne la fait plus échouer :
+     * l'extraction continue sur le serveur, on réessaie pendant ~3 minutes.
+     */
     suspend fun pollTask(id: String, onStatus: (String, String?) -> Unit): Recipe {
+        var failures = 0
         while (true) {
-            val task = api().getTask(id)
+            val task = try {
+                api().getTask(id).also { failures = 0 }
+            } catch (e: Exception) {
+                val transient = e is java.io.IOException || (e is HttpException && e.code() >= 500)
+                if (!transient) throw e
+                if (++failures > 60) throw ConnectionLostException(e)
+                onStatus("reconnecting", null)
+                delay(3000)
+                continue
+            }
             onStatus(task.status, task.progress_message)
             when (task.status) {
                 "done" -> return task
-                "failed" -> throw Exception(task.error_msg ?: "Extraction échouée")
+                "failed" -> throw ExtractionFailedException(task.error_msg ?: "Extraction échouée")
                 else -> delay(2000)
             }
         }
@@ -152,8 +177,17 @@ class RecipeRepository(private val context: Context) {
 
     /** Message lisible d'une erreur réseau/API, pour l'afficher tel quel. */
     fun describe(e: Exception): String = when (e) {
-        is HttpException -> errorDetail(e) ?: "Erreur du serveur (${e.code()})"
-        is java.io.IOException -> "Serveur injoignable"
+        is ConnectionLostException ->
+            "La connexion au serveur a été perdue, mais l'extraction continue sur le serveur : " +
+                "la recette apparaîtra dans votre liste une fois prête."
+        is HttpException -> when (e.code()) {
+            502, 503, 504 -> "Le serveur Popote redémarre ou est arrêté (erreur ${e.code()}). Réessayez dans un instant."
+            else -> errorDetail(e) ?: "Erreur du serveur (${e.code()})"
+        }
+        is java.net.SocketTimeoutException -> "Le serveur Popote met trop de temps à répondre. Réessayez dans un instant."
+        is java.io.IOException ->
+            "Serveur Popote injoignable${lastServerUrl?.let { " ($it)" } ?: ""} : vérifiez votre connexion " +
+                "(une adresse 192.168… ne marche qu'à la maison) et que le serveur tourne."
         else -> e.message ?: "Erreur inconnue"
     }
     suspend fun analyzeNutrition(id: String): Nutrition = api().analyzeNutrition(id)

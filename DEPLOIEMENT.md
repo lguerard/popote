@@ -215,11 +215,18 @@ Si Cloudflare Tunnel est configuré :
 ## 7. Mises à jour
 
 ```bash
-cd kitchen_ai
+cd ~/server_setup/popote
 git pull
-docker compose down
-docker compose up -d --build
+./scripts/demarrer.sh --build
 ```
+
+`scripts/demarrer.sh` fait un `docker compose up -d` ; si les conteneurs GPU
+ne peuvent pas démarrer (pilote NVIDIA en panne), il relance Popote **en mode
+CPU** (`docker-compose.cpu.yml`) plutôt que de le laisser injoignable. Relancer
+le script une fois le GPU réparé suffit à revenir au GPU.
+
+yt-dlp (lecture des vidéos) est mis à jour à chaque démarrage du backend :
+`docker compose restart backend` suffit quand Instagram ou TikTok changent.
 
 ---
 
@@ -241,6 +248,21 @@ Pour forcer CPU (plus lent) :
 WHISPER_DEVICE=cpu
 ```
 
+### « failed to fulfil mount request: /run/nvidia-persistenced/socket »
+
+Le pilote NVIDIA a souvent été mis à jour sans redémarrage :
+
+```bash
+nvidia-smi                      # « Driver/library version mismatch » → sudo reboot
+sudo systemctl enable --now nvidia-persistenced
+# Si le pilote va bien mais l'erreur persiste : régénérer la config GPU de Docker
+sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml
+sudo systemctl restart docker
+./scripts/demarrer.sh
+```
+
+En attendant, `./scripts/demarrer.sh` garde Popote en ligne en mode CPU.
+
 ### Ollama ne répond pas / modèle pas chargé
 
 ```bash
@@ -251,17 +273,53 @@ docker compose exec ollama ollama pull qwen2.5:7b
 
 ### Extraction échoue sur une vidéo
 
-- yt-dlp peut nécessiter une mise à jour si la plateforme a changé son API :
-```bash
-docker compose exec backend pip install -U yt-dlp
-```
+Popote ne garde que la recette du lien donné. Il la cherche, dans l'ordre :
+1. dans la vidéo : légende, sous-titres, audio, texte affiché à l'écran ;
+   pour un **carrousel Instagram ou un post photo TikTok**, le texte écrit sur
+   les images (téléchargées par gallery-dl, lues par OCR) ;
+2. dans la **légende du post lue sans compte** (page d'intégration Instagram,
+   oEmbed TikTok), puis dans la page web. Une recette publiée par un site est
+   lue par [recipe-scrapers](https://github.com/hhursev/recipe-scrapers)
+   (lecteurs dédiés pour 700+ sites dont Marmiton, 750g, CuisineAZ, Jow ;
+   schema.org en JSON-LD, microdata ou RDFa ailleurs) : telle quelle, sans IA ;
+3. via le **lien de la recette complète** que l'auteur cite dans sa
+   description (« recette complète : https://… ») : la même recette, publiée
+   avec ses quantités exactes.
 
-### L'app Android affiche "Serveur inaccessible"
+Rien n'est jamais cherché ailleurs ni inventé pour un lien : s'il ne contient
+pas de recette, l'extraction échoue avec un message clair. (Seul un texte
+sans lien — un nom de plat tapé — ou la photo d'un plat donne une recette
+proposée par l'IA, marquée « à vérifier ».)
 
-1. Vérifier que le serveur tourne : `docker compose ps`
-2. Vérifier l'URL dans les paramètres (pas d'espace, bon port)
-3. Sur réseau local : désactiver le VPN sur le téléphone
-4. Sur réseau externe : vérifier `sudo systemctl status cloudflared`
+- **yt-dlp / gallery-dl trop anciens** (la plateforme a changé) : ils se
+  mettent à jour à chaque démarrage, `docker compose restart backend` suffit.
+- **Instagram exige une connexion** (« login required », « rate-limit » ;
+  presque toujours pour les carrousels) : donner à Popote les cookies d'un
+  compte Instagram (idéalement un compte secondaire), utilisés par yt-dlp et
+  gallery-dl :
+  1. dans Firefox ou Chrome connecté à Instagram, exporter les cookies au
+     format Netscape (extension « Get cookies.txt LOCALLY » par exemple) ;
+  2. copier le fichier sur le serveur : `~/server_setup/popote/cookies/cookies.txt` ;
+  3. `docker compose up -d backend`.
+
+  Le dossier `cookies/` n'est jamais versionné ; il est monté en lecture seule.
+- **Voir pourquoi** : `docker compose logs backend --since 15m | grep -iE "extraction|vidéo|légende"`
+- **En dernier recours** : copier la légende du post et la coller dans Popote,
+  qui extrait la recette du texte.
+
+### L'app Android affiche "Serveur injoignable"
+
+Le message indique l'adresse configurée dans l'appli.
+
+1. Vérifier que le serveur tourne : `docker compose ps` (sinon `./scripts/demarrer.sh`)
+2. Une adresse `192.168.…` ne marche qu'en Wi-Fi à la maison : dehors, il faut
+   l'adresse publique (Cloudflare Tunnel, section 5)
+3. Vérifier l'URL dans les paramètres (pas d'espace, bon port)
+4. Sur réseau local : désactiver le VPN sur le téléphone
+5. Sur réseau externe : vérifier `sudo systemctl status cloudflared`
+
+Une coupure pendant une extraction n'est plus un échec : l'appli réessaie
+pendant ~3 minutes, et l'extraction continue de toute façon sur le serveur.
 
 ---
 
