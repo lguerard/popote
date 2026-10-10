@@ -42,45 +42,14 @@ import com.popote.ui.components.Stars
 import com.popote.ui.components.formatIsoDate
 import com.popote.ui.components.formatSeconds
 import com.popote.ui.components.imageUrl
+import com.popote.ui.components.scaleQty
 import com.popote.ui.components.isLocalServer
 import com.popote.ui.components.openMyFitnessPal
 import com.popote.ui.components.parseStepSeconds
 import com.popote.ui.components.shareText
 import com.popote.ui.viewmodels.RecipeDetailViewModel
 import java.time.LocalDate
-import kotlin.math.abs
-import kotlin.math.floor
 import kotlin.math.roundToInt
-
-// ── Scaling helpers ────────────────────────────────────────────────────────────
-
-private fun parseFraction(s: String?): Double? {
-    if (s.isNullOrBlank()) return null
-    val frac = Regex("""^(\d+)\s*/\s*(\d+)$""").find(s.trim())
-    if (frac != null) return frac.groupValues[1].toDouble() / frac.groupValues[2].toDouble()
-    val mixed = Regex("""^(\d+)\s+(\d+)\s*/\s*(\d+)$""").find(s.trim())
-    if (mixed != null) return mixed.groupValues[1].toDouble() + mixed.groupValues[2].toDouble() / mixed.groupValues[3].toDouble()
-    return s.trim().toDoubleOrNull()
-}
-
-private fun formatQty(n: Double): String {
-    if (n <= 0) return "0"
-    val whole = floor(n).toInt()
-    val frac = n - whole
-    val FRACS = listOf(Pair(1, 4), Pair(1, 3), Pair(1, 2), Pair(2, 3), Pair(3, 4))
-    if (frac < 0.04) return if (whole > 0) whole.toString() else "0"
-    for ((num, den) in FRACS) {
-        if (abs(frac - num.toDouble() / den) < 0.06)
-            return if (whole > 0) "$whole $num/$den" else "$num/$den"
-    }
-    val r = (n * 10).roundToInt() / 10.0
-    return if (r % 1.0 == 0.0) r.toInt().toString() else r.toString()
-}
-
-private fun scaleQty(qty: String?, scale: Double): String? {
-    val n = parseFraction(qty) ?: return qty
-    return formatQty(n * scale)
-}
 
 // ── Screen ────────────────────────────────────────────────────────────────────
 
@@ -108,6 +77,8 @@ fun RecipeDetailScreen(
     var showCollections by remember { mutableStateOf(false) }
     var menuOpen by remember { mutableStateOf(false) }
     var cookingMode by remember { mutableStateOf(false) }
+    // Partagé avec le mode cuisine : il affiche les quantités pour ces portions.
+    var scale by remember { mutableDoubleStateOf(1.0) }
 
     val context = LocalContext.current
 
@@ -123,6 +94,7 @@ fun RecipeDetailScreen(
     if (cookingMode && recipe != null) {
         CookingModeOverlay(
             recipe = recipe!!,
+            scale = scale,
             onExit = { cookingMode = false },
             onCooked = { rating ->
                 vm.markCooked(LocalDate.now(), rating, null)
@@ -277,6 +249,8 @@ fun RecipeDetailScreen(
             }
             else -> RecipeContent(
                 recipe = recipe!!,
+                scale = scale,
+                onScaleChange = { scale = it },
                 modifier = Modifier.padding(padding),
                 actionError = error,
                 onDismissError = vm::clearError,
@@ -471,6 +445,8 @@ private fun MyFitnessPalDialog(
 @Composable
 private fun RecipeContent(
     recipe: Recipe,
+    scale: Double,
+    onScaleChange: (Double) -> Unit,
     modifier: Modifier = Modifier,
     actionError: String? = null,
     onDismissError: () -> Unit = {},
@@ -489,7 +465,6 @@ private fun RecipeContent(
 ) {
     val context = LocalContext.current
     val server = LocalServerUrl.current
-    var scale by remember { mutableDoubleStateOf(1.0) }
     val scaledServings = recipe.servings?.let { (it * scale).roundToInt() }
 
     LazyColumn(modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 32.dp)) {
@@ -692,7 +667,7 @@ private fun RecipeContent(
                 Row(Modifier.padding(horizontal = 16.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text("Portions :", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     listOf(0.5 to "½×", 1.0 to "1×", 2.0 to "2×", 3.0 to "3×").forEach { (v, label) ->
-                        FilterChip(selected = scale == v, onClick = { scale = v }, label = { Text(label, style = MaterialTheme.typography.labelMedium) })
+                        FilterChip(selected = scale == v, onClick = { onScaleChange(v) }, label = { Text(label, style = MaterialTheme.typography.labelMedium) })
                     }
                 }
             }

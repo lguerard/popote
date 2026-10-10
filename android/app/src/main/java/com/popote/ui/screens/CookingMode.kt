@@ -5,6 +5,7 @@ import android.media.AudioManager
 import android.media.ToneGenerator
 import android.os.VibrationEffect
 import android.os.Vibrator
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -18,15 +19,20 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.popote.data.Ingredient
 import com.popote.data.Recipe
 import com.popote.ui.components.Stars
 import com.popote.ui.components.formatSeconds
+import com.popote.ui.components.ingredientAmount
+import com.popote.ui.components.ingredientsForStep
 import com.popote.ui.components.parseStepSeconds
 import kotlinx.coroutines.delay
+import kotlin.math.roundToInt
 
 /** Minuteur calculé depuis son heure de fin : juste même si l'appli passe en arrière-plan. */
 private data class CookTimer(
@@ -53,15 +59,22 @@ private fun alarm(context: Context) {
     } catch (_: Exception) { }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CookingModeOverlay(
     recipe: Recipe,
+    scale: Double = 1.0,
     onExit: () -> Unit,
     onCooked: (rating: Int?) -> Unit,
 ) {
     val context = LocalContext.current
-    var stepIdx by remember { mutableIntStateOf(0) }
-    var showIngredients by remember { mutableStateOf(false) }
+    val ingredients = recipe.ingredients
+    // Page 0 = « mise en place » (tous les ingrédients et leurs quantités),
+    // puis une page par étape.
+    val offset = if (ingredients.isNotEmpty()) 1 else 0
+    var page by remember { mutableIntStateOf(0) }
+    val ready = remember { mutableStateListOf<Int>() }
+    var showAllIngredients by remember { mutableStateOf(false) }
     var finished by remember { mutableStateOf(false) }
     var finalRating by remember { mutableStateOf<Int?>(null) }
     val timers = remember { mutableStateListOf<CookTimer>() }
@@ -69,8 +82,13 @@ fun CookingModeOverlay(
     var nextId by remember { mutableLongStateOf(1L) }
 
     val steps = recipe.steps
+    val pageCount = steps.size + offset
+    val stepIdx = page - offset
     val step = steps.getOrNull(stepIdx)
     val stepSeconds = step?.let { parseStepSeconds(it.text) }
+    val stepIngredients = step?.let { ingredientsForStep(it.text, ingredients) }.orEmpty()
+    val servings = recipe.servings?.let { (it * scale).roundToInt() }
+    fun toggleReady(i: Int) { if (i in ready) ready.remove(i) else ready.add(i) }
 
     // Tic d'horloge tant qu'un minuteur tourne ; sonne à la fin de chacun.
     val anyRunning = timers.any { it.endsAt != null }
@@ -95,11 +113,14 @@ fun CookingModeOverlay(
                 IconButton(onClick = onExit) { Icon(Icons.Default.Close, "Quitter") }
                 Text(recipe.title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f),
                     maxLines = 1, overflow = TextOverflow.Ellipsis)
-                if (steps.isNotEmpty()) Text("${stepIdx + 1}/${steps.size}", style = MaterialTheme.typography.labelLarge,
+                if (ingredients.isNotEmpty()) {
+                    TextButton(onClick = { showAllIngredients = true }) { Text("🧺 Ingrédients") }
+                }
+                if (steps.isNotEmpty() && stepIdx >= 0) Text("${stepIdx + 1}/${steps.size}", style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             LinearProgressIndicator(
-                progress = { if (steps.isEmpty()) 1f else (stepIdx + 1).toFloat() / steps.size },
+                progress = { if (pageCount == 0) 1f else (page + 1).toFloat() / pageCount },
                 modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
             )
 
@@ -138,7 +159,21 @@ fun CookingModeOverlay(
                 )
             }
 
-            if (step != null) {
+            if (stepIdx < 0) {
+                Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState())) {
+                    Text("Mise en place", style = MaterialTheme.typography.headlineSmall)
+                    Text(
+                        (servings?.let { "Pour $it portion${if (it > 1) "s" else ""} · " } ?: "") +
+                            "cochez au fur et à mesure",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(bottom = 8.dp),
+                    )
+                    ingredients.forEachIndexed { i, ing ->
+                        IngredientLine(ing, scale, checked = i in ready, onToggle = { toggleReady(i) })
+                    }
+                }
+            } else if (step != null) {
                 Column(
                     Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(20.dp, Alignment.CenterVertically),
@@ -157,6 +192,17 @@ fun CookingModeOverlay(
                             Text("Lancer ${formatSeconds(stepSeconds)}")
                         }
                     }
+                    // Les étapes disent « ajouter la farine », rarement combien :
+                    // les quantités des ingrédients cités, sous les yeux.
+                    if (stepIngredients.isNotEmpty()) {
+                        Card(Modifier.fillMaxWidth()) {
+                            Column(Modifier.padding(12.dp)) {
+                                Text("Pour cette étape", style = MaterialTheme.typography.labelLarge,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                stepIngredients.forEach { ing -> IngredientLine(ing, scale) }
+                            }
+                        }
+                    }
                 }
             } else {
                 Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
@@ -164,25 +210,13 @@ fun CookingModeOverlay(
                 }
             }
 
-            if (recipe.ingredients.isNotEmpty()) {
-                TextButton(onClick = { showIngredients = !showIngredients }) {
-                    Text(if (showIngredients) "▾ Ingrédients" else "▸ Ingrédients")
-                }
-                if (showIngredients) {
-                    Column(Modifier.heightIn(max = 160.dp).verticalScroll(rememberScrollState()).padding(horizontal = 8.dp)) {
-                        recipe.ingredients.forEach { ing ->
-                            Text(listOfNotNull(ing.quantity, ing.unit, ing.name).joinToString(" "),
-                                style = MaterialTheme.typography.bodyMedium)
-                        }
-                    }
-                }
-            }
-
             Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                FilledTonalButton(onClick = { if (stepIdx > 0) stepIdx-- }, enabled = stepIdx > 0,
+                FilledTonalButton(onClick = { if (page > 0) page-- }, enabled = page > 0,
                     modifier = Modifier.weight(1f).height(56.dp)) { Text("←", fontSize = 22.sp) }
-                if (stepIdx < steps.size - 1) {
-                    Button(onClick = { stepIdx++ }, modifier = Modifier.weight(1f).height(56.dp)) { Text("→", fontSize = 22.sp) }
+                if (page < pageCount - 1) {
+                    Button(onClick = { page++ }, modifier = Modifier.weight(1f).height(56.dp)) {
+                        Text(if (stepIdx < 0) "C'est parti →" else "→", fontSize = if (stepIdx < 0) 18.sp else 22.sp)
+                    }
                 } else {
                     Button(
                         onClick = { finished = true },
@@ -193,6 +227,20 @@ fun CookingModeOverlay(
                         Spacer(Modifier.width(6.dp))
                         Text("Terminé !")
                     }
+                }
+            }
+        }
+    }
+
+    if (showAllIngredients) {
+        ModalBottomSheet(onDismissRequest = { showAllIngredients = false }) {
+            Column(
+                Modifier.padding(horizontal = 20.dp).padding(bottom = 32.dp).verticalScroll(rememberScrollState()),
+            ) {
+                Text("🧺 Ingrédients" + (servings?.let { " · $it portion${if (it > 1) "s" else ""}" } ?: ""),
+                    style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(bottom = 8.dp))
+                ingredients.forEachIndexed { i, ing ->
+                    IngredientLine(ing, scale, checked = i in ready, onToggle = { toggleReady(i) })
                 }
             }
         }
@@ -214,5 +262,38 @@ fun CookingModeOverlay(
             },
             dismissButton = { TextButton(onClick = { finished = false; onExit() }) { Text("Sortir sans noter") } },
         )
+    }
+}
+
+/** « 200 g · farine (tamisée) », quantité en évidence, cochable en mise en place. */
+@Composable
+private fun IngredientLine(
+    ing: Ingredient,
+    scale: Double,
+    checked: Boolean? = null,
+    onToggle: (() -> Unit)? = null,
+) {
+    val done = checked == true
+    Row(
+        Modifier.fillMaxWidth()
+            .then(if (onToggle != null) Modifier.clickable(onClick = onToggle) else Modifier)
+            .padding(vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        if (checked != null) Checkbox(checked = checked, onCheckedChange = { onToggle?.invoke() })
+        Text(
+            ingredientAmount(ing, scale),
+            Modifier.widthIn(min = 72.dp),
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+            color = if (done) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary,
+        )
+        Column(Modifier.weight(1f)) {
+            Text(ing.name, style = MaterialTheme.typography.titleMedium,
+                color = if (done) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface)
+            if (!ing.notes.isNullOrBlank()) Text(ing.notes, style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
     }
 }
