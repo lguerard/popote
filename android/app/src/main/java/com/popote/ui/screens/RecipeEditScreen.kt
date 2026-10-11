@@ -157,7 +157,7 @@ fun RecipeEditScreen(
                     onValueChange = { edit { title = it.take(500) } },
                     label = { Text("Nom de la recette") },
                     isError = !titleOk,
-                    supportingText = if (titleOk) null else @Composable { Text("Le nom est obligatoire.") },
+                    supportingText = if (titleOk) null else { { Text("Le nom est obligatoire.") } },
                     keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
                     modifier = Modifier.fillMaxWidth(),
                 )

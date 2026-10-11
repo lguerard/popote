@@ -340,7 +340,7 @@ private fun RenameDialog(current: String, saving: Boolean, error: String?, onDis
                 label = { Text("Nom") },
                 singleLine = true,
                 isError = title.isBlank() || error != null,
-                supportingText = if (error == null) null else @Composable { Text(error) },
+                supportingText = if (error != null) { { Text(error) } } else null,
                 modifier = Modifier.fillMaxWidth(),
             )
         },
