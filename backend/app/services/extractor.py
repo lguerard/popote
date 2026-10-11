@@ -154,7 +154,14 @@ async def extract(
         await progress("Analyse de la recette par l'IA…")
         recipe_data = await extract_recipe_with_llm(raw_text)
         if "error" in recipe_data:
-            if source_type != SourceType.text:
+            salvaged = _ingredients_only(raw_text) if source_type != SourceType.text else None
+            if salvaged:
+                # L'IA n'a rien reconnu, mais le texte liste clairement des
+                # ingrédients : on les garde tels quels plutôt que d'échouer.
+                logger.info("IA sans recette pour %s : %d ingrédients relevés tels quels",
+                            source, len(salvaged["ingredients"]))
+                recipe_data = salvaged
+            elif source_type != SourceType.text:
                 # Un lien donne SA recette, jamais une autre : rien n'est
                 # inventé ni cherché ailleurs quand il n'en contient pas.
                 logger.info("Pas de recette dans %s ; texte lu : %.800s", source, raw_text)
@@ -163,12 +170,13 @@ async def extract(
                     "légende ou sa page). Si elle est ailleurs (commentaire, lien en bio…), "
                     f"copiez-la et collez-la dans Popote. Popote a lu : {sources_read(raw_text)}."
                 )
-            # Texte sans recette (nom de plat tapé seul…) : l'IA en propose une.
-            recipe_data, _ = await recipe_for_dish(raw_text, progress)
-            if "error" in recipe_data:
-                raise ValueError(
-                    "Aucune recette ni aucun plat reconnaissable dans ce contenu."
-                )
+            else:
+                # Texte sans recette (nom de plat tapé seul…) : l'IA en propose une.
+                recipe_data, _ = await recipe_for_dish(raw_text, progress)
+                if "error" in recipe_data:
+                    raise ValueError(
+                        "Aucune recette ni aucun plat reconnaissable dans ce contenu."
+                    )
     logger.info(
         "extraction %s (%s) : récupération %.1fs, analyse %.1fs%s",
         source[:80], source_type.value, fetched - started, time.monotonic() - fetched,
@@ -186,6 +194,27 @@ async def extract(
             recipe_data["similar_recipe_id"] = similar
 
     return recipe_data
+
+
+def _ingredients_only(text: str) -> dict | None:
+    """Recette réduite aux ingrédients écrits dans le texte, sans IA."""
+    ingredients = recipe_parsing.ingredients_from_text(text)
+    if not ingredients:
+        return None
+    title_match = re.search(r"^Titre de la vidéo : (.+)$", text, re.MULTILINE)
+    caption = _SOURCE_HEADER.split(text)[-1] if _SOURCE_HEADER.search(text) else text
+    first_line = next((line for line in caption.splitlines() if line.strip()), "")
+    title = recipe_parsing.clean_text(re.sub(r"#\S+", "", title_match.group(1) if title_match else first_line))
+    title = title.strip(" :-–") [:120] or "Recette"
+    return {
+        "title": title,
+        "description": "Ingrédients relevés tels quels dans la publication ; les étapes sont à voir dans la vidéo.",
+        "language": "fr",
+        "category": recipe_parsing.guess_category(None, title),
+        "ingredients": ingredients,
+        "steps": [],
+        "tags": [],
+    }
 
 
 _SOURCE_LABELS = {

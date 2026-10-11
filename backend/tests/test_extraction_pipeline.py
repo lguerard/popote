@@ -887,3 +887,47 @@ def test_no_recipe_error_says_what_was_read(monkeypatch):
     monkeypatch.setattr(extractor, "video_to_text", music_only)
     with pytest.raises(ValueError, match=r"Popote a lu : le titre \(9 caractères\)"):
         _run_extract(monkeypatch, "https://www.tiktok.com/@bourr_/video/1", llm_result={"error": "Aucune recette trouvée"})
+
+
+# ---------------------------------------------------------------------------
+# Filet de sécurité sans IA : ingrédients écrits tels quels
+# ---------------------------------------------------------------------------
+
+from app.services import recipe_parsing as rp  # noqa: E402
+
+TIKTOK_CAPTION = """Cookies vegan 🍪 trop bons !
+Ingrédients :
+- 120 g de chocolat noir
+- 250g farine
+• 2 c. à s. de sucre de coco
+Huile de coco : 80 g
+1/2 c. à c. de bicarbonate
+Préchauffer le four à 180°C et mélanger 200 g de farine avec le reste puis cuire 12 minutes
+#cookies #vegan"""
+
+
+def test_ingredients_from_text_reads_written_lines_only():
+    found = rp.ingredients_from_text(TIKTOK_CAPTION)
+    assert [(i["quantity"], i["unit"], i["name"]) for i in found] == [
+        ("120", "g", "chocolat noir"), ("250", "g", "farine"), ("2", "c. à s.", "sucre de coco"),
+        ("80", "g", "Huile de coco"), ("1/2", "c. à c.", "bicarbonate"),
+    ]
+    assert rp.ingredients_from_text("Bonjour 2 fois\nRien à voir") == []
+    assert rp.ingredients_from_text("200 g de farine\n3 œufs") == []  # moins de 3 : pas une liste
+
+
+def test_link_keeps_written_ingredients_when_the_llm_finds_nothing(monkeypatch):
+    from app.services import extractor
+
+    async def video(url, progress):
+        return f"Légende de la publication :\n{TIKTOK_CAPTION}", "https://thumb/t.jpg"
+
+    monkeypatch.setattr(extractor, "video_to_text", video)
+    data, _ = _run_extract(
+        monkeypatch, "https://www.tiktok.com/@bourr_/video/7692495841470188832",
+        llm_result={"error": "Aucune recette trouvée"},
+    )
+    assert data["title"] == "Cookies vegan 🍪 trop bons !"
+    assert len(data["ingredients"]) == 5 and data["steps"] == []
+    assert data["source_type"].value == "video" and data["thumbnail_url"] == "https://thumb/t.jpg"
+    assert "étapes sont à voir dans la vidéo" in data["description"]

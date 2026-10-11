@@ -641,6 +641,39 @@ def has_full_recipe(text: str) -> bool:
     return ingredient_signals(text) >= 3 and len(verbs) >= 3
 
 
+_LIST_BULLET = re.compile(r"^[\s\-–—•*·▪►✓✔✅☑️🔸🔹▫◾👉➡️]+")
+# « Farine : 200 g », « Sucre – 100 g » : le nom d'abord, la quantité ensuite.
+_NAME_THEN_QTY = re.compile(rf"^([^\d:]{{2,40}}?)\s*[:\-–]\s*((?:{_NUM}).*)$")
+
+
+def ingredients_from_text(text: str, minimum: int = 3) -> list[dict]:
+    """Ingrédients écrits tels quels dans un texte (légende, texte à l'écran).
+
+    Filet de sécurité sans IA : une ligne qui commence par une quantité
+    (« 200 g de farine », « - 3 œufs ») ou qui donne nom puis quantité
+    (« Farine : 200 g »). Rien n'est deviné ; moins de `minimum` lignes de ce
+    genre, et ce n'est pas une liste d'ingrédients.
+    """
+    found, seen = [], set()
+    for raw in (text or "").splitlines():
+        line = _LIST_BULLET.sub("", clean_text(raw)).strip()
+        if not line or len(line) > 100:
+            continue
+        swapped = _NAME_THEN_QTY.match(line)
+        if swapped and not _QTY_LINE.match(line):
+            line = f"{swapped.group(2)} {swapped.group(1).strip()}"
+        if not _QTY_LINE.match(line) or len(line.split()) > 10:
+            continue  # pas une quantité en tête, ou une phrase (une étape)
+        ingredient = parse_ingredient_line(line)
+        name = ingredient.get("name") or ""
+        key = _fold(name)
+        if not name or len(name) > 60 or not re.search(r"[a-z]", key) or key in seen:
+            continue
+        seen.add(key)
+        found.append(ingredient)
+    return found if len(found) >= minimum else []
+
+
 # ---------------------------------------------------------------------------
 # Sous-titres
 # ---------------------------------------------------------------------------
