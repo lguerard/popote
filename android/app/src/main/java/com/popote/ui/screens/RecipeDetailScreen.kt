@@ -84,6 +84,9 @@ fun RecipeDetailScreen(
     var showCollections by remember { mutableStateOf(false) }
     var menuOpen by remember { mutableStateOf(false) }
     var cookingMode by remember { mutableStateOf(false) }
+    var editing by remember { mutableStateOf(false) }
+    var showRename by remember { mutableStateOf(false) }
+    val saving by vm.saving.collectAsState()
     // Partagé avec le mode cuisine : il affiche les quantités pour ces portions.
     var scale by remember { mutableDoubleStateOf(1.0) }
 
@@ -109,6 +112,28 @@ fun RecipeDetailScreen(
             },
         )
         return
+    }
+
+    if (editing && recipe != null) {
+        RecipeEditScreen(
+            recipe = recipe!!,
+            saving = saving,
+            error = error,
+            onDismissError = vm::clearError,
+            onCancel = { vm.clearError(); editing = false },
+            onSave = { fields -> vm.saveEdits(fields) { editing = false } },
+        )
+        return
+    }
+
+    if (showRename && recipe != null) {
+        RenameDialog(
+            current = recipe!!.title,
+            saving = saving,
+            error = error,
+            onDismiss = { vm.clearError(); showRename = false },
+            onConfirm = { title -> vm.rename(title) { showRename = false } },
+        )
     }
 
     if (showDeleteDialog) {
@@ -176,7 +201,15 @@ fun RecipeDetailScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(recipe?.title ?: "Recette", maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                title = {
+                    // Toucher le nom pour le changer.
+                    Text(
+                        recipe?.title ?: "Recette",
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.clickable(enabled = recipe != null) { showRename = true },
+                    )
+                },
                 navigationIcon = {
                     IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Retour") }
                 },
@@ -190,12 +223,26 @@ fun RecipeDetailScreen(
                                 tint = if (r.is_favorite) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
+                        IconButton(onClick = { vm.clearError(); editing = true }, enabled = !r.reextracting) {
+                            Icon(Icons.Default.Edit, "Modifier")
+                        }
                         IconButton(onClick = {
                             vm.shareLink { link -> shareText(context, "${r.title}\n$link", "Partager la recette") }
                         }) { Icon(Icons.Default.Share, "Partager") }
                         Box {
                             IconButton(onClick = { menuOpen = true }) { Icon(Icons.Default.MoreVert, "Plus") }
                             DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                                DropdownMenuItem(
+                                    text = { Text("Modifier la recette") },
+                                    leadingIcon = { Icon(Icons.Default.Edit, null) },
+                                    enabled = !r.reextracting,
+                                    onClick = { menuOpen = false; vm.clearError(); editing = true },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Renommer") },
+                                    leadingIcon = { Icon(Icons.Default.DriveFileRenameOutline, null) },
+                                    onClick = { menuOpen = false; showRename = true },
+                                )
                                 DropdownMenuItem(
                                     text = { Text("Ajouter à un carnet") },
                                     leadingIcon = { Icon(Icons.Default.CollectionsBookmark, null) },
@@ -279,6 +326,32 @@ fun RecipeDetailScreen(
 }
 
 // ── Dialogues ─────────────────────────────────────────────────────────────────
+
+@Composable
+private fun RenameDialog(current: String, saving: Boolean, error: String?, onDismiss: () -> Unit, onConfirm: (String) -> Unit) {
+    var title by remember { mutableStateOf(current) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Renommer la recette") },
+        text = {
+            OutlinedTextField(
+                value = title,
+                onValueChange = { title = it.take(500) },
+                label = { Text("Nom") },
+                singleLine = true,
+                isError = title.isBlank() || error != null,
+                supportingText = if (error == null) null else @Composable { Text(error) },
+                modifier = Modifier.fillMaxWidth(),
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = { onConfirm(title) }, enabled = title.isNotBlank() && !saving) {
+                Text(if (saving) "Enregistrement…" else "Renommer")
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Annuler") } },
+    )
+}
 
 @Composable
 private fun CookedDialog(onDismiss: () -> Unit, onConfirm: (LocalDate, Int?, String?) -> Unit) {

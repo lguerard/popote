@@ -40,6 +40,9 @@ class RecipeDetailViewModel(app: Application) : AndroidViewModel(app) {
     private val _sendResult = MutableStateFlow<String?>(null)
     val sendResult: StateFlow<String?> = _sendResult.asStateFlow()
 
+    private val _saving = MutableStateFlow(false)
+    val saving: StateFlow<Boolean> = _saving.asStateFlow()
+
     private var polling: Job? = null
 
     fun load(id: String) {
@@ -207,6 +210,25 @@ class RecipeDetailViewModel(app: Application) : AndroidViewModel(app) {
             repo.addToCollection(c.id, id)
             _collections.value = repo.getCollections(id)
         }
+    }
+
+    /** Enregistre une modification à la main (titre, ingrédients, étapes…), puis [onDone]. */
+    fun saveEdits(fields: Map<String, Any?>, onDone: () -> Unit = {}) {
+        val id = _recipe.value?.id ?: return
+        viewModelScope.launch {
+            _saving.value = true
+            try {
+                setRecipe(repo.updateRecipe(id, fields))
+                onDone()
+            } catch (e: Exception) { _error.value = "Modifications non enregistrées : ${repo.describe(e)}" }
+            finally { _saving.value = false }
+        }
+    }
+
+    fun rename(title: String, onDone: () -> Unit) {
+        val clean = title.trim().replace(Regex("""\s+"""), " ")
+        if (clean.isEmpty() || clean == _recipe.value?.title) { onDone(); return }
+        saveEdits(mapOf("title" to clean), onDone)
     }
 
     fun clearError() { _error.value = null }

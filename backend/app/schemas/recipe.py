@@ -1,6 +1,6 @@
 import uuid
 from datetime import date, datetime
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from ..models.recipe import SourceType, ExtractionStatus
 
 
@@ -49,6 +49,11 @@ class RecipeCreate(RecipeBase):
     category: str | None = Field(None, max_length=50)
 
 
+def _text_or_none(value) -> str | None:
+    text = str(value).strip() if value is not None else ""
+    return text or None
+
+
 class RecipeUpdate(BaseModel):
     title: str | None = Field(None, min_length=1, max_length=500)
     description: str | None = None
@@ -64,6 +69,39 @@ class RecipeUpdate(BaseModel):
     nutrition: dict | None = None
     rating: int | None = Field(None, ge=1, le=5)
     cook_again: bool | None = None
+
+    # Saisie à la main (web, appli) : les lignes laissées vides ne doivent
+    # pas finir en base — un ingrédient sans nom fait planter l'appli, qui
+    # l'exige, et un titre d'espaces s'affiche comme une carte vide.
+    @field_validator("title")
+    @classmethod
+    def _title_not_blank(cls, value):
+        if value is None:
+            return None
+        value = " ".join(value.split())
+        if not value:
+            raise ValueError("Le titre ne peut pas être vide.")
+        return value
+
+    @field_validator("ingredients")
+    @classmethod
+    def _drop_empty_ingredients(cls, value):
+        if value is None:
+            return None
+        cleaned = []
+        for item in value:
+            fields = {k: _text_or_none(item.get(k)) for k in ("quantity", "unit", "name", "notes")}
+            if fields["name"]:
+                cleaned.append(fields)
+        return cleaned
+
+    @field_validator("steps")
+    @classmethod
+    def _drop_empty_steps(cls, value):
+        if value is None:
+            return None
+        texts = [_text_or_none(step.get("text")) for step in value]
+        return [{"order": n, "text": t} for n, t in enumerate(filter(None, texts), 1)]
 
 
 class RecipeOut(RecipeBase):
