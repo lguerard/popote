@@ -30,6 +30,9 @@ function parseFraction(str) {
 
 function formatQty(num) {
   if (num === null || isNaN(num)) return null
+  // « 416 2/3 g » ne se pèse pas : arrondi à l'unité, ou au demi pour 10-50.
+  if (num >= 50) return String(Math.round(num))
+  if (num >= 10) return String(Math.round(num * 2) / 2)
   const whole = Math.floor(num), frac = num - whole
   if (frac < 0.04) return whole > 0 ? String(whole) : null
   for (const [n, d] of [[1,4],[1,3],[1,2],[2,3],[3,4]]) {
@@ -38,6 +41,8 @@ function formatQty(num) {
   const r = Math.round(num * 10) / 10
   return r % 1 === 0 ? String(Math.round(r)) : String(r)
 }
+
+const formatScale = (s) => `×${String(Math.round(s * 100) / 100).replace('.', ',')}`
 
 function scaleQty(q, scale) {
   const n = parseFraction(q)
@@ -51,6 +56,17 @@ export default function DetailRecette() {
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [scale, setScale] = useState(1)
   const [customScale, setCustomScale] = useState('')
+  const [ajuste, setAjuste] = useState(null) // index de l'ingrédient dont on saisit la quantité
+  // 200 g de chocolat au lieu de 120 → toute la recette × 1,67.
+  const ajusterIngredient = (ing, valeur) => {
+    const base = parseFraction(ing.quantity), voulu = parseFraction(String(valeur).trim())
+    if (base > 0 && voulu > 0) {
+      const s = voulu / base
+      setScale(s)
+      setCustomScale(String(Math.round(s * 100) / 100))
+    }
+    setAjuste(null)
+  }
   const [notes, setNotes] = useState(null) // null = not editing
   const [savingNotes, setSavingNotes] = useState(false)
   const [panneau, setPanneau] = useState(null) // 'carnets' | 'partage' | 'compte' | 'mfp' | null
@@ -312,15 +328,37 @@ export default function DetailRecette() {
                 className="w-16 px-2 py-1 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-400 text-center" />
             </div>
           </div>
-          {scale !== 1 && <p className="text-xs text-orange-600 mb-3 font-medium">Quantités × {scale} — {scaledServings ?? '?'} portion{scaledServings !== 1 ? 's' : ''}</p>}
+          {recipe.servings > 0 && (
+            <label className="flex items-center gap-2 text-sm text-gray-600 mb-2">
+              👥 Portions :
+              <input type="number" min="1" value={scaledServings ?? ''}
+                onChange={e => { const n = parseFloat(e.target.value); if (n > 0) { setScale(n / recipe.servings); setCustomScale(String(Math.round(n / recipe.servings * 100) / 100)) } }}
+                className="w-16 px-2 py-1 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-400 text-center" />
+            </label>
+          )}
+          <p className="text-xs text-gray-400 mb-2">Cliquez sur une quantité pour l'ajuster : les autres suivent.</p>
+          {scale !== 1 && <p className="text-xs text-orange-600 mb-3 font-medium">Quantités {formatScale(scale)} — {scaledServings ?? '?'} portion{scaledServings !== 1 ? 's' : ''}</p>}
           <ul className="bg-white rounded-xl border border-gray-100 divide-y divide-gray-50">
             {recipe.ingredients.map((ing, i) => {
               const sq = scaleQty(ing.quantity, scale)
+              const ajustable = parseFraction(ing.quantity) > 0
               return (
                 <li key={i} className="flex items-baseline gap-2 px-4 py-3">
-                  <span className="font-semibold text-orange-600 w-24 text-right flex-shrink-0">
-                    {sq && ing.unit ? `${sq} ${ing.unit}` : sq || ing.unit || ''}
-                  </span>
+                  {ajuste === i ? (
+                    <span className="w-24 flex-shrink-0 flex items-baseline justify-end gap-1">
+                      <input autoFocus inputMode="decimal" defaultValue={sq}
+                        onBlur={e => ajusterIngredient(ing, e.target.value)}
+                        onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); if (e.key === 'Escape') setAjuste(null) }}
+                        className="w-16 px-1 py-0.5 text-right font-semibold text-orange-600 border border-orange-300 rounded focus:outline-none focus:ring-2 focus:ring-orange-400" />
+                      <span className="text-orange-600 text-sm">{ing.unit}</span>
+                    </span>
+                  ) : (
+                    <button type="button" disabled={!ajustable} onClick={() => setAjuste(i)}
+                      title={ajustable ? 'Ajuster cette quantité : les autres suivent' : undefined}
+                      className={`font-semibold text-orange-600 w-24 text-right flex-shrink-0 ${ajustable ? 'hover:underline decoration-dotted cursor-pointer' : 'cursor-default'}`}>
+                      {sq && ing.unit ? `${sq} ${ing.unit}` : sq || ing.unit || ''}
+                    </button>
+                  )}
                   <span className="text-gray-900">{ing.name}</span>
                   {ing.notes && <span className="text-gray-400 text-sm">({ing.notes})</span>}
                 </li>

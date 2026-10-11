@@ -8,6 +8,9 @@ import android.net.Uri
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.LazyColumn
@@ -42,6 +45,10 @@ import com.popote.ui.components.Stars
 import com.popote.ui.components.formatIsoDate
 import com.popote.ui.components.formatSeconds
 import com.popote.ui.components.imageUrl
+import com.popote.ui.components.formatScale
+import com.popote.ui.components.parseAmount
+import com.popote.ui.components.parseFraction
+import com.popote.ui.components.scaleFor
 import com.popote.ui.components.scaleQty
 import com.popote.ui.components.isLocalServer
 import com.popote.ui.components.openMyFitnessPal
@@ -440,6 +447,63 @@ private fun MyFitnessPalDialog(
     )
 }
 
+/** Ce que l'utilisateur ajuste pour recalculer toutes les quantités. */
+private sealed class AmountEdit {
+    object Multiplier : AmountEdit()
+    object Servings : AmountEdit()
+    data class Ingredient(val ingredient: com.popote.data.Ingredient) : AmountEdit()
+}
+
+/**
+ * Saisie d'un multiplicateur, d'un nombre de portions ou de la quantité d'un
+ * ingrédient (« 200 » g de chocolat au lieu de 120) : on en déduit le
+ * multiplicateur appliqué à toute la recette.
+ */
+@Composable
+private fun AmountDialog(
+    edit: AmountEdit,
+    recipe: Recipe,
+    scale: Double,
+    onDismiss: () -> Unit,
+    onScale: (Double) -> Unit,
+) {
+    val (title, initial, suffix) = when (edit) {
+        AmountEdit.Multiplier -> Triple("Multiplier les quantités par", formatScale(scale).removePrefix("×"), "×")
+        AmountEdit.Servings -> Triple("Nombre de portions", "${((recipe.servings ?: 1) * scale).roundToInt()}", "pers.")
+        is AmountEdit.Ingredient -> Triple(
+            "Quantité de ${edit.ingredient.name}",
+            scaleQty(edit.ingredient.quantity, scale).orEmpty(),
+            edit.ingredient.unit.orEmpty(),
+        )
+    }
+    var input by remember { mutableStateOf(initial) }
+    val newScale: Double? = when (edit) {
+        AmountEdit.Multiplier -> parseAmount(input)?.takeIf { it > 0 }
+        AmountEdit.Servings -> recipe.servings?.takeIf { it > 0 }?.let { s -> parseAmount(input)?.takeIf { it > 0 }?.div(s) }
+        is AmountEdit.Ingredient -> scaleFor(edit.ingredient.quantity, input)
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = input, onValueChange = { input = it }, singleLine = true,
+                    suffix = { if (suffix.isNotBlank()) Text(suffix) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                )
+                Text(
+                    newScale?.let { "Toutes les quantités : ${formatScale(it)}" } ?: "Entrez un nombre (ex. 200, 1,5 ou 1/2).",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (newScale != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        confirmButton = { Button(onClick = { newScale?.let(onScale) }, enabled = newScale != null) { Text("Appliquer") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Annuler") } },
+    )
+}
+
 // ── Content ───────────────────────────────────────────────────────────────────
 
 @Composable
@@ -466,6 +530,13 @@ private fun RecipeContent(
     val context = LocalContext.current
     val server = LocalServerUrl.current
     val scaledServings = recipe.servings?.let { (it * scale).roundToInt() }
+    var amountEdit by remember { mutableStateOf<AmountEdit?>(null) }
+    amountEdit?.let { edit ->
+        AmountDialog(edit, recipe, scale, onDismiss = { amountEdit = null }) { newScale ->
+            onScaleChange(newScale)
+            amountEdit = null
+        }
+    }
 
     LazyColumn(modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 32.dp)) {
 
@@ -664,19 +735,45 @@ private fun RecipeContent(
                 }
             }
             item {
-                Row(Modifier.padding(horizontal = 16.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("Portions :", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    listOf(0.5 to "½×", 1.0 to "1×", 2.0 to "2×", 3.0 to "3×").forEach { (v, label) ->
+                val presets = listOf(0.5 to "½×", 1.0 to "1×", 2.0 to "2×", 3.0 to "3×")
+                Row(
+                    Modifier.padding(horizontal = 16.dp, vertical = 4.dp).horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    presets.forEach { (v, label) ->
                         FilterChip(selected = scale == v, onClick = { onScaleChange(v) }, label = { Text(label, style = MaterialTheme.typography.labelMedium) })
                     }
+                    // Multiplicateur libre (×1,5, ×0,75…)
+                    FilterChip(
+                        selected = presets.none { it.first == scale },
+                        onClick = { amountEdit = AmountEdit.Multiplier },
+                        label = { Text(if (presets.none { it.first == scale }) formatScale(scale) else "×…", style = MaterialTheme.typography.labelMedium) },
+                    )
+                    if (recipe.servings != null) {
+                        AssistChip(
+                            onClick = { amountEdit = AmountEdit.Servings },
+                            label = { Text("👥 ${scaledServings} pers.", style = MaterialTheme.typography.labelMedium) },
+                        )
+                    }
                 }
+                Text(
+                    "Touchez une quantité pour l'ajuster : les autres suivent.",
+                    Modifier.padding(horizontal = 16.dp),
+                    style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
             items(recipe.ingredients) { ing ->
                 val scaledQty = scaleQty(ing.quantity, scale)
+                val adjustable = parseFraction(ing.quantity) != null
                 ListItem(
                     headlineContent = { Text(ing.name) },
                     leadingContent = {
-                        Text(listOfNotNull(scaledQty, ing.unit).joinToString(" "), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
+                        Text(
+                            listOfNotNull(scaledQty, ing.unit).joinToString(" ") + if (adjustable) " ✎" else "",
+                            Modifier.then(if (adjustable) Modifier.clickable { amountEdit = AmountEdit.Ingredient(ing) } else Modifier),
+                            style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
                     },
                     supportingContent = ing.notes?.let { { Text(it) } },
                 )

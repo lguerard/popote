@@ -24,6 +24,12 @@ fun parseFraction(s: String?): Double? {
 
 fun formatQty(n: Double): String {
     if (n <= 0) return "0"
+    // « 416 2/3 g » ne se pèse pas : arrondi à l'unité, ou au demi pour 10-50.
+    if (n >= 50) return n.roundToInt().toString()
+    if (n >= 10) {
+        val half = (n * 2).roundToInt() / 2.0
+        return if (half % 1.0 == 0.0) half.toInt().toString() else half.toString()
+    }
     val whole = floor(n).toInt()
     val frac = n - whole
     if (frac < 0.04) return if (whole > 0) whole.toString() else "0"
@@ -40,6 +46,32 @@ fun scaleQty(qty: String?, scale: Double): String? {
     if (scale == 1.0) return qty
     val n = parseFraction(qty) ?: return qty
     return formatQty(n * scale)
+}
+
+/** Nombre saisi par l'utilisateur : « 200 », « 1,5 », « 1/2 », « 200 g », « x1.5 ». */
+fun parseAmount(s: String?): Double? {
+    val t = s?.trim()?.trimStart('x', 'X', '×', '*')?.trim() ?: return null
+    parseFraction(t)?.let { return it }
+    val lead = Regex("""^(\d+(?:[.,]\d+)?)""").find(t)?.groupValues?.get(1) ?: return null
+    return lead.replace(',', '.').toDoubleOrNull()?.takeIf { it.isFinite() }
+}
+
+/**
+ * Multiplicateur qui donne [target] à la place de [original] : 200 g de
+ * chocolat au lieu de 120 → × 1,67, appliqué ensuite à tous les ingrédients.
+ * Null si l'une des deux quantités n'est pas un nombre (« une pincée »).
+ */
+fun scaleFor(original: String?, target: String?): Double? {
+    val from = parseFraction(original) ?: return null
+    val to = parseAmount(target) ?: return null
+    return if (from > 0 && to > 0) to / from else null
+}
+
+/** « ×1,5 », « ×1,67 » : multiplicateur lisible, deux décimales au plus. */
+fun formatScale(scale: Double): String {
+    val rounded = (scale * 100).roundToInt() / 100.0
+    val text = if (rounded % 1.0 == 0.0) rounded.toInt().toString() else rounded.toString().replace('.', ',')
+    return "×$text"
 }
 
 /** « 200 g », « 3 », « 1/2 c. à s. » — vide si ni quantité ni unité. */
