@@ -157,10 +157,11 @@ async def extract(
             if source_type != SourceType.text:
                 # Un lien donne SA recette, jamais une autre : rien n'est
                 # inventé ni cherché ailleurs quand il n'en contient pas.
+                logger.info("Pas de recette dans %s ; texte lu : %.800s", source, raw_text)
                 raise ValueError(
                     "Ce lien ne contient pas de recette détaillée (ni dans la vidéo, ni dans sa "
                     "légende ou sa page). Si elle est ailleurs (commentaire, lien en bio…), "
-                    "copiez-la et collez-la dans Popote."
+                    f"copiez-la et collez-la dans Popote. Popote a lu : {sources_read(raw_text)}."
                 )
             # Texte sans recette (nom de plat tapé seul…) : l'IA en propose une.
             recipe_data, _ = await recipe_for_dish(raw_text, progress)
@@ -185,6 +186,30 @@ async def extract(
             recipe_data["similar_recipe_id"] = similar
 
     return recipe_data
+
+
+_SOURCE_LABELS = {
+    "Titre de la vidéo": "le titre",
+    "Transcription de la vidéo": "l'audio",
+    "Légende de la publication": "la légende",
+    "Texte affiché à l'écran pendant la vidéo": "le texte à l'écran",
+    "Texte écrit sur les images du post": "le texte des images",
+}
+_SOURCE_HEADER = re.compile(rf"^({'|'.join(map(re.escape, _SOURCE_LABELS))}) :", re.MULTILINE)
+
+
+def sources_read(text: str) -> str:
+    """Ce que Popote a pu lire, pour un message d'échec qui dit pourquoi :
+    « la légende (230 caractères), l'audio (rien) »."""
+    parts = _SOURCE_HEADER.split(text or "")
+    if len(parts) == 1:
+        size = len(text.strip()) if text else 0
+        return f"le texte de la page ({size} caractères)" if size else "rien"
+    found = []
+    for header, body in zip(parts[1::2], parts[2::2]):
+        size = len(body.strip())
+        found.append(f"{_SOURCE_LABELS[header]} ({size} caractères)" if size else f"{_SOURCE_LABELS[header]} (vide)")
+    return ", ".join(found)
 
 
 def _is_photo_post(url: str, video_failed: bool) -> bool:

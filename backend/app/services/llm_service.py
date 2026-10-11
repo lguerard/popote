@@ -41,7 +41,8 @@ Règles :
 - category : UNE valeur parmi petit-déjeuner, entrée, plat, dessert, snack, boisson, sauce, apéritif, soupe.
 - tags : 2 à 5 mots-clés courts (régime, difficulté, technique, ingrédient principal).
 - Ignorer publicités, commentaires, navigation et autres recettes suggérées.
-- Si le texte ne contient aucune recette : {"found": false}.
+- Des ingrédients sans étapes (étapes seulement montrées dans la vidéo) SONT une recette : "found": true, "steps": [].
+- {"found": false} uniquement si le texte ne donne ni ingrédients ni étapes.
 """
 
 # Dernier recours quand le contenu ne contient pas de recette détaillée :
@@ -153,12 +154,17 @@ def parse_llm_content(content: str) -> dict:
     except ValueError:
         logger.warning("Réponse du modèle illisible : %.300s", content)
         raise UnreadableResponse("Le modèle a renvoyé une réponse illisible, réessaie l'extraction.")
-    if not isinstance(data, dict) or data.get("found") is False or "error" in data:
+    if not isinstance(data, dict) or "error" in data:
         return {"error": "Aucune recette trouvée"}
-    data.pop("found", None)
+    said_none = data.pop("found", None) is False
     _normalize_recipe_shape(data)
     if not data["ingredients"] and not data["steps"]:
         return {"error": "Aucune recette trouvée"}
+    if said_none and len(data["ingredients"]) < 2:
+        return {"error": "Aucune recette trouvée"}
+    # Les petits modèles répondent souvent « pas de recette » tout en ayant
+    # rempli les ingrédients (légende avec ingrédients, étapes seulement
+    # montrées dans la vidéo) : ce qui a été extrait fait foi.
     return data
 
 

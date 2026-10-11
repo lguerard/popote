@@ -840,3 +840,50 @@ def test_post_images_text_reads_images_in_order(tmp_path, monkeypatch):
 def test_post_images_text_without_gallery_dl(monkeypatch):
     monkeypatch.setattr(video_service.shutil, "which", lambda name: None)
     assert video_service.post_images_text("https://www.instagram.com/p/Abc/") == ""
+
+
+# ---------------------------------------------------------------------------
+# « Pas de recette » alors que la légende donne les ingrédients
+# ---------------------------------------------------------------------------
+
+def test_found_false_with_ingredients_is_still_a_recipe():
+    """Les petits modèles disent « pas de recette » tout en remplissant les
+    ingrédients (étapes seulement montrées dans la vidéo) : le contenu fait foi."""
+    content = json.dumps({
+        "found": False, "title": "Cookies vegan",
+        "ingredients": [{"quantity": "120", "unit": "g", "name": "chocolat"},
+                        {"quantity": "250", "unit": "g", "name": "farine"}],
+        "steps": [],
+    })
+    data = parse_llm_content(content)
+    assert data["title"] == "Cookies vegan" and len(data["ingredients"]) == 2 and data["steps"] == []
+    # Un seul ingrédient isolé avec « pas de recette » : on suit le modèle.
+    lonely = json.dumps({"found": False, "title": "x", "ingredients": [{"name": "sel"}], "steps": []})
+    assert parse_llm_content(lonely) == {"error": "Aucune recette trouvée"}
+
+
+def test_prompt_says_ingredients_alone_are_a_recipe():
+    assert "Des ingrédients sans étapes" in llm_service.SYSTEM_PROMPT
+
+
+def test_sources_read():
+    from app.services.extractor import sources_read
+
+    text = (
+        "Titre de la vidéo : Cookies\n\nTranscription de la vidéo :\n\n\n"
+        "Légende de la publication :\n120 g de chocolat, 250 g de farine"
+    )
+    assert sources_read(text) == "le titre (7 caractères), l'audio (vide), la légende (34 caractères)"
+    assert sources_read("Un article.") == "le texte de la page (11 caractères)"
+    assert sources_read("") == "rien"
+
+
+def test_no_recipe_error_says_what_was_read(monkeypatch):
+    from app.services import extractor
+
+    async def music_only(url, progress):
+        return "Titre de la vidéo : Cookies 🍪", None
+
+    monkeypatch.setattr(extractor, "video_to_text", music_only)
+    with pytest.raises(ValueError, match=r"Popote a lu : le titre \(9 caractères\)"):
+        _run_extract(monkeypatch, "https://www.tiktok.com/@bourr_/video/1", llm_result={"error": "Aucune recette trouvée"})
