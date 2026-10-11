@@ -154,20 +154,29 @@ async def extract(
         await progress("Analyse de la recette par l'IA…")
         recipe_data = await extract_recipe_with_llm(raw_text)
         if "error" in recipe_data:
-            if source_type != SourceType.text:
+            salvaged = _ingredients_only(raw_text) if source_type != SourceType.text else None
+            if salvaged:
+                # L'IA n'a rien reconnu, mais le texte liste clairement des
+                # ingrédients : on les garde tels quels plutôt que d'échouer.
+                logger.info("IA sans recette pour %s : %d ingrédients relevés tels quels",
+                            source, len(salvaged["ingredients"]))
+                recipe_data = salvaged
+            elif source_type != SourceType.text:
                 # Un lien donne SA recette, jamais une autre : rien n'est
                 # inventé ni cherché ailleurs quand il n'en contient pas.
+                logger.info("Pas de recette dans %s ; texte lu : %.800s", source, raw_text)
                 raise ValueError(
                     "Ce lien ne contient pas de recette détaillée (ni dans la vidéo, ni dans sa "
                     "légende ou sa page). Si elle est ailleurs (commentaire, lien en bio…), "
-                    "copiez-la et collez-la dans Popote."
+                    f"copiez-la et collez-la dans Popote. Popote a lu : {sources_read(raw_text)}."
                 )
-            # Texte sans recette (nom de plat tapé seul…) : l'IA en propose une.
-            recipe_data, _ = await recipe_for_dish(raw_text, progress)
-            if "error" in recipe_data:
-                raise ValueError(
-                    "Aucune recette ni aucun plat reconnaissable dans ce contenu."
-                )
+            else:
+                # Texte sans recette (nom de plat tapé seul…) : l'IA en propose une.
+                recipe_data, _ = await recipe_for_dish(raw_text, progress)
+                if "error" in recipe_data:
+                    raise ValueError(
+                        "Aucune recette ni aucun plat reconnaissable dans ce contenu."
+                    )
     logger.info(
         "extraction %s (%s) : récupération %.1fs, analyse %.1fs%s",
         source[:80], source_type.value, fetched - started, time.monotonic() - fetched,
@@ -185,6 +194,51 @@ async def extract(
             recipe_data["similar_recipe_id"] = similar
 
     return recipe_data
+
+
+def _ingredients_only(text: str) -> dict | None:
+    """Recette réduite aux ingrédients écrits dans le texte, sans IA."""
+    ingredients = recipe_parsing.ingredients_from_text(text)
+    if not ingredients:
+        return None
+    title_match = re.search(r"^Titre de la vidéo : (.+)$", text, re.MULTILINE)
+    caption = _SOURCE_HEADER.split(text)[-1] if _SOURCE_HEADER.search(text) else text
+    first_line = next((line for line in caption.splitlines() if line.strip()), "")
+    title = recipe_parsing.clean_text(re.sub(r"#\S+", "", title_match.group(1) if title_match else first_line))
+    title = title.strip(" :-–") [:120] or "Recette"
+    return {
+        "title": title,
+        "description": "Ingrédients relevés tels quels dans la publication ; les étapes sont à voir dans la vidéo.",
+        "language": "fr",
+        "category": recipe_parsing.guess_category(None, title),
+        "ingredients": ingredients,
+        "steps": [],
+        "tags": [],
+    }
+
+
+_SOURCE_LABELS = {
+    "Titre de la vidéo": "le titre",
+    "Transcription de la vidéo": "l'audio",
+    "Légende de la publication": "la légende",
+    "Texte affiché à l'écran pendant la vidéo": "le texte à l'écran",
+    "Texte écrit sur les images du post": "le texte des images",
+}
+_SOURCE_HEADER = re.compile(rf"^({'|'.join(map(re.escape, _SOURCE_LABELS))}) :", re.MULTILINE)
+
+
+def sources_read(text: str) -> str:
+    """Ce que Popote a pu lire, pour un message d'échec qui dit pourquoi :
+    « la légende (230 caractères), l'audio (rien) »."""
+    parts = _SOURCE_HEADER.split(text or "")
+    if len(parts) == 1:
+        size = len(text.strip()) if text else 0
+        return f"le texte de la page ({size} caractères)" if size else "rien"
+    found = []
+    for header, body in zip(parts[1::2], parts[2::2]):
+        size = len(body.strip())
+        found.append(f"{_SOURCE_LABELS[header]} ({size} caractères)" if size else f"{_SOURCE_LABELS[header]} (vide)")
+    return ", ".join(found)
 
 
 def _is_photo_post(url: str, video_failed: bool) -> bool:
