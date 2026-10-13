@@ -193,7 +193,10 @@ fun RecipeDetailScreen(
     if (showMfp && recipe != null) {
         MyFitnessPalDialog(
             recipe = recipe!!,
-            onCopyLinkAndOpen = { vm.importLink { link -> copyText(context, link); openMyFitnessPal(context) } },
+            scale = scale,
+            onCopyLinkAndOpen = { portions ->
+                vm.importLink(scale, portions) { link -> copyText(context, link); openMyFitnessPal(context) }
+            },
             onDismiss = { showMfp = false },
         )
     }
@@ -479,12 +482,23 @@ private fun copyText(context: Context, text: String) {
 @Composable
 private fun MyFitnessPalDialog(
     recipe: Recipe,
-    onCopyLinkAndOpen: () -> Unit,
+    scale: Double,
+    onCopyLinkAndOpen: (portions: Int?) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val context = LocalContext.current
     val localServer = isLocalServer(LocalServerUrl.current)
-    val lines = recipe.ingredients.map(::ingredientLine).filter { it.isNotBlank() }.joinToString("\n")
+    // Version affichée sur la fiche : quantités × scale, portions modifiables
+    // (une fournée ×2 peut être coupée en 4 parts au lieu de 8).
+    val shownPortions = recipe.servings?.let { (it * scale).roundToInt().coerceAtLeast(1) }
+    var portionsText by remember(shownPortions) { mutableStateOf(shownPortions?.toString() ?: "") }
+    val portions = portionsText.toIntOrNull()?.takeIf { it > 0 }
+    // Paramètre envoyé seulement si l'export diffère de la recette enregistrée.
+    val exportPortions = portions?.takeIf { scale != 1.0 || it != recipe.servings }
+    val lines = recipe.ingredients
+        .map { ingredientLine(it.copy(quantity = scaleQty(it.quantity, scale))) }
+        .filter { it.isNotBlank() }
+        .joinToString("\n")
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Ajouter à MyFitnessPal") },
@@ -492,6 +506,21 @@ private fun MyFitnessPalDialog(
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text("Popote copie la recette puis ouvre MyFitnessPal : il ne reste qu'à coller (appui long → Coller).",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (scale != 1.0) {
+                    Text("Version exportée : quantités ${formatScale(scale)}, comme affiché sur la fiche.",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                }
+                if (recipe.servings != null) {
+                    OutlinedTextField(
+                        value = portionsText,
+                        onValueChange = { portionsText = it.filter(Char::isDigit).take(4) },
+                        label = { Text("Portions") },
+                        supportingText = { Text("À changer si vous coupez la fournée autrement") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
 
                 Text("Recette complète (lien)", fontWeight = FontWeight.SemiBold)
                 Text("Dans MyFitnessPal : ••• Plus → Recettes, repas et aliments → Recettes → Créer une recette → Importer depuis le Web, collez le lien.",
@@ -500,14 +529,14 @@ private fun MyFitnessPalDialog(
                     Text("Votre serveur Popote n'est joignable que depuis votre réseau local : MyFitnessPal ne pourra pas lire ce lien. Utilisez plutôt les ingrédients ci-dessous.",
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                 }
-                Button(onClick = onCopyLinkAndOpen, enabled = !localServer, modifier = Modifier.fillMaxWidth()) {
+                Button(onClick = { onCopyLinkAndOpen(exportPortions) }, enabled = !localServer, modifier = Modifier.fillMaxWidth()) {
                     Text("Copier le lien et ouvrir MyFitnessPal")
                 }
 
                 HorizontalDivider()
                 Text("Ingrédients seulement", fontWeight = FontWeight.SemiBold)
                 Text("Créer une recette → Saisir manuellement : collez la liste" +
-                    (recipe.servings?.let { ", indiquez $it portions" } ?: "") +
+                    (portions?.let { ", indiquez $it portion" + if (it > 1) "s" else "" } ?: "") +
                     ", puis vérifiez les aliments proposés.",
                     style = MaterialTheme.typography.bodySmall)
                 FilledTonalButton(

@@ -16,6 +16,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import java.time.LocalDate
+import java.util.Locale
 
 class RecipeDetailViewModel(app: Application) : AndroidViewModel(app) {
     private val repo = RecipeRepository(app)
@@ -159,12 +160,22 @@ class RecipeDetailViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /** Lien de la page importable par MyFitnessPal (crée le lien public si besoin). */
-    fun importLink(onLink: (String) -> Unit) {
+    /**
+     * Lien de la page importable par MyFitnessPal (crée le lien public si besoin).
+     * [scale] et [portions] exportent la version affichée (×1,5, fournée coupée
+     * autrement) plutôt que la recette enregistrée.
+     */
+    fun importLink(scale: Double = 1.0, portions: Int? = null, onLink: (String) -> Unit) {
         val id = _recipe.value?.id ?: return
+        val params = listOfNotNull(
+            if (scale != 1.0) "scale=" + "%.4f".format(Locale.ROOT, scale).trimEnd('0').trimEnd('.') else null,
+            portions?.takeIf { it > 0 }?.let { "portions=$it" },
+        ).joinToString("&")
         act("Lien impossible") {
             val r = _recipe.value?.takeIf { it.share_token != null } ?: repo.shareRecipe(id).also { setRecipe(it) }
-            r.share_token?.let { onLink(repo.publicLink("/api/public/recipes/$it/page")) }
+            r.share_token?.let {
+                onLink(repo.publicLink("/api/public/recipes/$it/page" + if (params.isEmpty()) "" else "?$params"))
+            }
         }
     }
 

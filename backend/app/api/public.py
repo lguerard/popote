@@ -7,7 +7,7 @@ ressource non partagée (ou révoquée) répond 404, comme un jeton inventé.
 
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -71,15 +71,26 @@ def _public_base_url(request: Request) -> str:
 
 
 @router.get("/recipes/{token}/page", response_class=HTMLResponse)
-async def public_recipe_page(token: str, request: Request, db: AsyncSession = Depends(get_db)):
+async def public_recipe_page(
+    token: str,
+    request: Request,
+    scale: float = Query(1.0, gt=0, le=100, description="Multiplicateur des quantités (×1,5…)"),
+    portions: int | None = Query(None, ge=1, le=10_000, description="Nombre de portions exporté"),
+    db: AsyncSession = Depends(get_db),
+):
     """Même recette, en page HTML avec données schema.org/Recipe : c'est le
     lien à donner à l'import « depuis le web » de MyFitnessPal (et des
-    autres applis de recettes), qui n'exécutent pas le JavaScript."""
+    autres applis de recettes), qui n'exécutent pas le JavaScript.
+
+    ``?scale=1.5&portions=4`` exporte la version multipliée affichée dans
+    l'appli plutôt que la recette d'origine."""
     recipe = await public_recipe(token, db)
     base = _public_base_url(request)
+    params = ([f"scale={scale:g}"] if scale != 1 else []) + ([f"portions={portions}"] if portions else [])
+    query = "?" + "&".join(params) if params else ""
     return HTMLResponse(recipe_export.render_recipe_page(
-        recipe, base, page_url=f"{base}/api/public/recipes/{token}/page",
-        app_url=f"{base}/partage/r/{token}",
+        recipe, base, page_url=f"{base}/api/public/recipes/{token}/page{query}",
+        app_url=f"{base}/partage/r/{token}", scale=scale, servings=portions,
     ))
 
 

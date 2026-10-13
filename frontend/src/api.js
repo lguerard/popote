@@ -102,4 +102,11 @@ export const stopSending = (userId) => api.delete(`/sharing/automatic/${userId}`
 export const stopReceiving = (userId) => api.delete(`/sharing/automatic/from/${userId}`)
 
 // Page HTML avec données schema.org/Recipe, pour l'import de MyFitnessPal
-export const importPageLink = (token) => publicLink(`/api/public/recipes/${token}/page`)
+// ?scale=…&portions=… : version multipliée affichée dans l'appli.
+export const importPageLink = (token, { scale = 1, portions = null } = {}) => {
+  const params = new URLSearchParams()
+  if (scale !== 1) params.set('scale', String(Math.round(scale * 10000) / 10000))
+  if (portions) params.set('portions', String(portions))
+  const query = params.toString()
+  return publicLink(`/api/public/recipes/${token}/page${query ? `?${query}` : ''}`)
+}

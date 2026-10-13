@@ -11,6 +11,9 @@ d'import n'y verrait rien.
 import html
 import json
 import math
+import re
+
+from .grocery import parse_quantity
 
 _NUTRIENTS = {
     "calories": ("calories", "kcal"),
@@ -23,6 +26,56 @@ _NUTRIENTS = {
 
 def _text(value) -> str:
     return " ".join(str(value).split()) if value not in (None, "") else ""
+
+
+def format_amount(n: float) -> str:
+    """Quantité lisible, mêmes arrondis que l'appli : « 416 2/3 g » ne se pèse pas."""
+    if n >= 50:
+        return str(round(n))
+    if n >= 10:
+        half = round(n * 2) / 2
+        return str(int(half)) if half == int(half) else str(half)
+    whole, frac = int(n), n - int(n)
+    if frac < 0.04:
+        return str(whole)
+    for num, den in ((1, 4), (1, 3), (1, 2), (2, 3), (3, 4)):
+        if abs(frac - num / den) < 0.06:
+            return f"{whole} {num}/{den}" if whole else f"{num}/{den}"
+    r = round(n, 1)
+    return str(int(r)) if r == int(r) else str(r)
+
+
+_RANGE = re.compile(r"^\s*(\d+(?:[.,]\d+)?)\s*(-|–|à)\s*(\d+(?:[.,]\d+)?)\s*$")
+
+
+def scale_quantity(quantity, scale: float):
+    """Quantité multipliée par [scale] ; texte libre (« une pincée ») inchangé."""
+    if scale == 1 or quantity in (None, ""):
+        return quantity
+    rng = _RANGE.match(str(quantity))
+    if rng:
+        low, sep, high = rng.groups()
+        return f"{format_amount(float(low.replace(',', '.')) * scale)}{sep}" \
+               f"{format_amount(float(high.replace(',', '.')) * scale)}"
+    n = parse_quantity(quantity)
+    return format_amount(n * scale) if n is not None and n > 0 else quantity
+
+
+def scale_ingredients(ingredients, scale: float) -> list:
+    if not isinstance(ingredients, list):
+        return []
+    return [
+        {**i, "quantity": scale_quantity(i.get("quantity"), scale)} if isinstance(i, dict) else i
+        for i in ingredients
+    ]
+
+
+def export_servings(servings, scale: float, override: int | None = None) -> int | None:
+    """Portions de la version exportée : celles choisies, sinon les portions × [scale]."""
+    if override:
+        return override
+    # Arrondi « au demi supérieur », comme l'appli (round() de Python arrondit 4,5 à 4).
+    return max(1, math.floor(servings * scale + 0.5)) if servings else None
 
 
 def ingredient_line(ingredient) -> str:
@@ -60,14 +113,21 @@ def absolute_url(url: str | None, base_url: str) -> str | None:
     return f"{base_url.rstrip('/')}{url}" if url.startswith("/") else url
 
 
-def recipe_jsonld(recipe, base_url: str, page_url: str) -> dict:
-    """Données schema.org/Recipe d'une recette (objet Recipe ou équivalent)."""
+def recipe_jsonld(
+    recipe, base_url: str, page_url: str, scale: float = 1.0, servings: int | None = None,
+) -> dict:
+    """Données schema.org/Recipe d'une recette (objet Recipe ou équivalent).
+
+    [scale] multiplie les quantités (version ×1,5 affichée dans l'appli) et
+    [servings] remplace le nombre de portions (fournée coupée autrement).
+    """
+    portions = export_servings(recipe.servings, scale, servings)
     data = {
         "@context": "https://schema.org",
         "@type": "Recipe",
         "name": recipe.title,
         "url": page_url,
-        "recipeIngredient": ingredient_lines(recipe.ingredients),
+        "recipeIngredient": ingredient_lines(scale_ingredients(recipe.ingredients, scale)),
         "recipeInstructions": [
             {"@type": "HowToStep", "position": n, "text": text}
             for n, text in enumerate(step_texts(recipe.steps), 1)
@@ -76,7 +136,7 @@ def recipe_jsonld(recipe, base_url: str, page_url: str) -> dict:
     optional = {
         "description": _text(recipe.description) or None,
         "image": absolute_url(recipe.thumbnail_url, base_url),
-        "recipeYield": f"{recipe.servings} portions" if recipe.servings else None,
+        "recipeYield": f"{portions} portions" if portions else None,
         "prepTime": _duration(recipe.prep_time),
         "cookTime": _duration(recipe.cook_time),
         "totalTime": _duration((recipe.prep_time or 0) + (recipe.cook_time or 0)),
@@ -85,8 +145,10 @@ def recipe_jsonld(recipe, base_url: str, page_url: str) -> dict:
     }
     data.update({k: v for k, v in optional.items() if v})
     nutrition = recipe.nutrition if isinstance(recipe.nutrition, dict) else {}
+    # Valeurs par portion : même total (× scale) réparti sur les portions exportées.
+    per_portion = recipe.servings * scale / portions if recipe.servings and portions else 1.0
     facts = {
-        prop: f"{round(float(nutrition[key]))} {unit}"
+        prop: f"{round(float(nutrition[key]) * per_portion)} {unit}"
         for key, (prop, unit) in _NUTRIENTS.items()
         if isinstance(nutrition.get(key), (int, float)) and math.isfinite(nutrition[key])
     }
@@ -95,17 +157,22 @@ def recipe_jsonld(recipe, base_url: str, page_url: str) -> dict:
     return data
 
 
-def render_recipe_page(recipe, base_url: str, page_url: str, app_url: str) -> str:
+def render_recipe_page(
+    recipe, base_url: str, page_url: str, app_url: str, scale: float = 1.0, servings: int | None = None,
+) -> str:
     """Page autonome : lisible par un humain, importable par un robot."""
-    data = recipe_jsonld(recipe, base_url, page_url)
+    data = recipe_jsonld(recipe, base_url, page_url, scale, servings)
+    portions = export_servings(recipe.servings, scale, servings)
     # Aucun « < » brut : « </script> » dans un texte fermerait la balise
     # avant la fin du JSON (\u003c reste du JSON valide).
     jsonld = json.dumps(data, ensure_ascii=False).replace("<", "\\u003c")
     e = html.escape
     image = data.get("image")
     meta = []
-    if recipe.servings:
-        meta.append(f"{recipe.servings} portions")
+    if portions:
+        meta.append(f"{portions} portions")
+    if scale != 1:
+        meta.append("quantités ×" + f"{round(scale, 2):g}".replace(".", ","))
     if recipe.prep_time:
         meta.append(f"préparation {recipe.prep_time} min")
     if recipe.cook_time:
