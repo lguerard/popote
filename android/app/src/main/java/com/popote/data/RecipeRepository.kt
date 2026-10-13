@@ -2,6 +2,7 @@ package com.popote.data
 
 import android.content.Context
 import androidx.datastore.preferences.core.edit
+import com.google.gson.GsonBuilder
 import com.google.gson.JsonParser
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
@@ -125,6 +126,12 @@ class RecipeRepository(private val context: Context) {
     suspend fun updateNotes(id: String, notes: String) { api().patchRecipe(id, mapOf("notes" to notes)) }
     suspend fun setRating(id: String, rating: Int): Recipe = api().patchRecipe(id, mapOf("rating" to rating))
     suspend fun setCookAgain(id: String, value: Boolean): Recipe = api().patchRecipe(id, mapOf("cook_again" to value))
+
+    /** Modification à la main : une valeur null efface le champ côté serveur. */
+    suspend fun updateRecipe(id: String, fields: Map<String, Any?>): Recipe {
+        val json = GsonBuilder().serializeNulls().create().toJson(fields)
+        return api().patchRecipeJson(id, json.toRequestBody("application/json".toMediaTypeOrNull()))
+    }
 
     // Historique
     suspend fun markCooked(id: String, date: String, rating: Int?, comment: String?): Recipe =

@@ -197,7 +197,8 @@ export default function DetailRecette() {
       {panneau === 'mfp' && (
         <div className="mb-5 p-4 bg-white rounded-xl border border-gray-100">
           <h3 className="font-semibold text-gray-800 mb-3">Exporter vers MyFitnessPal</h3>
-          <ExportMfp recipe={recipe} onShare={() => shareMut.mutate()} busy={shareMut.isPending} />
+          <ExportMfp recipe={recipe} scale={scale} scaleQty={scaleQty} portions={scaledServings}
+            onShare={() => shareMut.mutate()} busy={shareMut.isPending} />
         </div>
       )}
 

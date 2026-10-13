@@ -129,3 +129,36 @@ def test_error_text_never_empty_and_hides_sql():
     assert error_text(_SilentError()) == "_SilentError"
     db_error = Exception("value too long for type character varying(500)\n[SQL: UPDATE recipes SET ...]")
     assert error_text(db_error) == "value too long for type character varying(500)"
+
+
+# ── Modification à la main ────────────────────────────────────────────────────
+
+def test_manual_edit_drops_blank_lines_and_renumbers_steps():
+    from app.schemas.recipe import RecipeUpdate
+
+    data = RecipeUpdate(
+        title="  Cookies   vegan ",
+        ingredients=[
+            {"quantity": " 200 ", "unit": "g", "name": " chocolat ", "notes": ""},
+            {"quantity": "3", "unit": "", "name": "   "},  # ligne ajoutée puis laissée vide
+            {"name": "sel"},
+        ],
+        steps=[{"order": 1, "text": "Mélanger"}, {"order": 2, "text": "  "}, {"order": 7, "text": "Cuire"}],
+    )
+    assert data.title == "Cookies vegan"
+    assert data.ingredients == [
+        {"quantity": "200", "unit": "g", "name": "chocolat", "notes": None},
+        {"quantity": None, "unit": None, "name": "sel", "notes": None},
+    ]
+    assert data.steps == [{"order": 1, "text": "Mélanger"}, {"order": 2, "text": "Cuire"}]
+
+
+def test_manual_edit_rejects_blank_title_and_keeps_partial_updates():
+    from pydantic import ValidationError
+
+    from app.schemas.recipe import RecipeUpdate
+
+    with pytest.raises(ValidationError):
+        RecipeUpdate(title="   ")
+    # Un PATCH qui ne touche pas au titre (note, favori…) ne l'efface pas.
+    assert RecipeUpdate(rating=4).model_dump(exclude_unset=True) == {"rating": 4}

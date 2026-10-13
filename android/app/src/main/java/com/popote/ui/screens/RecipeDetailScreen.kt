@@ -84,6 +84,9 @@ fun RecipeDetailScreen(
     var showCollections by remember { mutableStateOf(false) }
     var menuOpen by remember { mutableStateOf(false) }
     var cookingMode by remember { mutableStateOf(false) }
+    var editing by remember { mutableStateOf(false) }
+    var showRename by remember { mutableStateOf(false) }
+    val saving by vm.saving.collectAsState()
     // Partagé avec le mode cuisine : il affiche les quantités pour ces portions.
     var scale by remember { mutableDoubleStateOf(1.0) }
 
@@ -109,6 +112,28 @@ fun RecipeDetailScreen(
             },
         )
         return
+    }
+
+    if (editing && recipe != null) {
+        RecipeEditScreen(
+            recipe = recipe!!,
+            saving = saving,
+            error = error,
+            onDismissError = vm::clearError,
+            onCancel = { vm.clearError(); editing = false },
+            onSave = { fields -> vm.saveEdits(fields) { editing = false } },
+        )
+        return
+    }
+
+    if (showRename && recipe != null) {
+        RenameDialog(
+            current = recipe!!.title,
+            saving = saving,
+            error = error,
+            onDismiss = { vm.clearError(); showRename = false },
+            onConfirm = { title -> vm.rename(title) { showRename = false } },
+        )
     }
 
     if (showDeleteDialog) {
@@ -168,7 +193,10 @@ fun RecipeDetailScreen(
     if (showMfp && recipe != null) {
         MyFitnessPalDialog(
             recipe = recipe!!,
-            onCopyLinkAndOpen = { vm.importLink { link -> copyText(context, link); openMyFitnessPal(context) } },
+            scale = scale,
+            onCopyLinkAndOpen = { portions ->
+                vm.importLink(scale, portions) { link -> copyText(context, link); openMyFitnessPal(context) }
+            },
             onDismiss = { showMfp = false },
         )
     }
@@ -176,7 +204,15 @@ fun RecipeDetailScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(recipe?.title ?: "Recette", maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                title = {
+                    // Toucher le nom pour le changer.
+                    Text(
+                        recipe?.title ?: "Recette",
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.clickable(enabled = recipe != null) { showRename = true },
+                    )
+                },
                 navigationIcon = {
                     IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Retour") }
                 },
@@ -190,12 +226,26 @@ fun RecipeDetailScreen(
                                 tint = if (r.is_favorite) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
+                        IconButton(onClick = { vm.clearError(); editing = true }, enabled = !r.reextracting) {
+                            Icon(Icons.Default.Edit, "Modifier")
+                        }
                         IconButton(onClick = {
                             vm.shareLink { link -> shareText(context, "${r.title}\n$link", "Partager la recette") }
                         }) { Icon(Icons.Default.Share, "Partager") }
                         Box {
                             IconButton(onClick = { menuOpen = true }) { Icon(Icons.Default.MoreVert, "Plus") }
                             DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                                DropdownMenuItem(
+                                    text = { Text("Modifier la recette") },
+                                    leadingIcon = { Icon(Icons.Default.Edit, null) },
+                                    enabled = !r.reextracting,
+                                    onClick = { menuOpen = false; vm.clearError(); editing = true },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Renommer") },
+                                    leadingIcon = { Icon(Icons.Default.DriveFileRenameOutline, null) },
+                                    onClick = { menuOpen = false; showRename = true },
+                                )
                                 DropdownMenuItem(
                                     text = { Text("Ajouter à un carnet") },
                                     leadingIcon = { Icon(Icons.Default.CollectionsBookmark, null) },
@@ -279,6 +329,32 @@ fun RecipeDetailScreen(
 }
 
 // ── Dialogues ─────────────────────────────────────────────────────────────────
+
+@Composable
+private fun RenameDialog(current: String, saving: Boolean, error: String?, onDismiss: () -> Unit, onConfirm: (String) -> Unit) {
+    var title by remember { mutableStateOf(current) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Renommer la recette") },
+        text = {
+            OutlinedTextField(
+                value = title,
+                onValueChange = { title = it.take(500) },
+                label = { Text("Nom") },
+                singleLine = true,
+                isError = title.isBlank() || error != null,
+                supportingText = if (error != null) { { Text(error) } } else null,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = { onConfirm(title) }, enabled = title.isNotBlank() && !saving) {
+                Text(if (saving) "Enregistrement…" else "Renommer")
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Annuler") } },
+    )
+}
 
 @Composable
 private fun CookedDialog(onDismiss: () -> Unit, onConfirm: (LocalDate, Int?, String?) -> Unit) {
@@ -406,12 +482,23 @@ private fun copyText(context: Context, text: String) {
 @Composable
 private fun MyFitnessPalDialog(
     recipe: Recipe,
-    onCopyLinkAndOpen: () -> Unit,
+    scale: Double,
+    onCopyLinkAndOpen: (portions: Int?) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val context = LocalContext.current
     val localServer = isLocalServer(LocalServerUrl.current)
-    val lines = recipe.ingredients.map(::ingredientLine).filter { it.isNotBlank() }.joinToString("\n")
+    // Version affichée sur la fiche : quantités × scale, portions modifiables
+    // (une fournée ×2 peut être coupée en 4 parts au lieu de 8).
+    val shownPortions = recipe.servings?.let { (it * scale).roundToInt().coerceAtLeast(1) }
+    var portionsText by remember(shownPortions) { mutableStateOf(shownPortions?.toString() ?: "") }
+    val portions = portionsText.toIntOrNull()?.takeIf { it > 0 }
+    // Paramètre envoyé seulement si l'export diffère de la recette enregistrée.
+    val exportPortions = portions?.takeIf { scale != 1.0 || it != recipe.servings }
+    val lines = recipe.ingredients
+        .map { ingredientLine(it.copy(quantity = scaleQty(it.quantity, scale))) }
+        .filter { it.isNotBlank() }
+        .joinToString("\n")
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Ajouter à MyFitnessPal") },
@@ -419,6 +506,21 @@ private fun MyFitnessPalDialog(
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text("Popote copie la recette puis ouvre MyFitnessPal : il ne reste qu'à coller (appui long → Coller).",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (scale != 1.0) {
+                    Text("Version exportée : quantités ${formatScale(scale)}, comme affiché sur la fiche.",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                }
+                if (recipe.servings != null) {
+                    OutlinedTextField(
+                        value = portionsText,
+                        onValueChange = { portionsText = it.filter(Char::isDigit).take(4) },
+                        label = { Text("Portions") },
+                        supportingText = { Text("À changer si vous coupez la fournée autrement") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
 
                 Text("Recette complète (lien)", fontWeight = FontWeight.SemiBold)
                 Text("Dans MyFitnessPal : ••• Plus → Recettes, repas et aliments → Recettes → Créer une recette → Importer depuis le Web, collez le lien.",
@@ -427,14 +529,14 @@ private fun MyFitnessPalDialog(
                     Text("Votre serveur Popote n'est joignable que depuis votre réseau local : MyFitnessPal ne pourra pas lire ce lien. Utilisez plutôt les ingrédients ci-dessous.",
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                 }
-                Button(onClick = onCopyLinkAndOpen, enabled = !localServer, modifier = Modifier.fillMaxWidth()) {
+                Button(onClick = { onCopyLinkAndOpen(exportPortions) }, enabled = !localServer, modifier = Modifier.fillMaxWidth()) {
                     Text("Copier le lien et ouvrir MyFitnessPal")
                 }
 
                 HorizontalDivider()
                 Text("Ingrédients seulement", fontWeight = FontWeight.SemiBold)
                 Text("Créer une recette → Saisir manuellement : collez la liste" +
-                    (recipe.servings?.let { ", indiquez $it portions" } ?: "") +
+                    (portions?.let { ", indiquez $it portion" + if (it > 1) "s" else "" } ?: "") +
                     ", puis vérifiez les aliments proposés.",
                     style = MaterialTheme.typography.bodySmall)
                 FilledTonalButton(

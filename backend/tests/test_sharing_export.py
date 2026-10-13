@@ -79,3 +79,40 @@ def test_page_embeds_the_jsonld_safely():
     assert json.loads(blocks[0])["recipeInstructions"][0]["text"].startswith("Cuire </script>")
     assert "<b>Crêpes</b>" not in page and "&lt;b&gt;Crêpes&lt;/b&gt;" in page
     assert "<script>alert" not in page
+
+
+# ── Export de la version multipliée ──────────────────────────────────────────
+
+def test_scale_quantity_matches_the_app():
+    s = recipe_export.scale_quantity
+    assert s("120", 200 / 120) == "200"          # 200 g de chocolat au lieu de 120
+    assert s("1/2", 3) == "1 1/2"
+    assert s("1,5", 2) == "3"
+    assert s("250", 5 / 3) == "417"              # pas « 416 2/3 g »
+    assert s("2-3", 2) == "4-6"
+    assert s("une pincée", 2) == "une pincée"
+    assert s(None, 2) is None
+    assert s("3", 1) == "3"
+
+
+def test_scaled_export_multiplies_quantities_and_portions():
+    recipe = _recipe(nutrition={"calories": 300})
+    data = recipe_export.recipe_jsonld(recipe, "https://p.fr", "https://p.fr/x", scale=1.5)
+    assert data["recipeIngredient"] == ["375 g farine, tamisée", "4 1/2 œufs"]
+    assert data["recipeYield"] == "6 portions"
+    assert data["nutrition"]["calories"] == "300 kcal"  # même portion, plus de portions
+    # Recette d'origine intacte (l'export travaille sur une copie).
+    assert recipe.ingredients[0]["quantity"] == "250"
+
+
+def test_export_with_fewer_portions_makes_bigger_portions():
+    # Fournée ×2 coupée en 4 parts au lieu de 8 : chaque part vaut le double.
+    data = recipe_export.recipe_jsonld(
+        _recipe(nutrition={"calories": 300}), "https://p.fr", "https://p.fr/x", scale=2, servings=4,
+    )
+    assert data["recipeYield"] == "4 portions"
+    assert data["nutrition"]["calories"] == "600 kcal"
+    page = recipe_export.render_recipe_page(
+        _recipe(), "https://p.fr", "https://p.fr/x", "https://p.fr/a", scale=2, servings=4,
+    )
+    assert "4 portions" in page and "quantités ×2" in page and "500 g farine" in page

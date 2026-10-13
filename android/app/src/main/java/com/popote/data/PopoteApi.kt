@@ -44,6 +44,11 @@ interface PopoteApi {
     @PATCH("api/recipes/{id}")
     suspend fun patchRecipe(@Path("id") id: String, @Body body: Map<String, @JvmSuppressWildcards Any?>): Recipe
 
+    // JSON déjà sérialisé : garde les null (« vider la description »), que
+    // le convertisseur Gson par défaut supprime.
+    @PATCH("api/recipes/{id}")
+    suspend fun patchRecipeJson(@Path("id") id: String, @Body body: okhttp3.RequestBody): Recipe
+
     // Historique et avis
     @POST("api/recipes/{id}/cooked")
     suspend fun markCooked(@Path("id") id: String, @Body body: CookedRequest): Recipe
