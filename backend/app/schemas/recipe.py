@@ -211,3 +211,18 @@ class ExtractionResponse(BaseModel):
     recipe_id: uuid.UUID
     status: ExtractionStatus
     message: str = ""
+
+
+class BatchExtractionRequest(BaseModel):
+    text: str = Field(max_length=50_000)  # liens collés, un par ligne ou en vrac
+
+
+class BatchItem(BaseModel):
+    recipe_id: uuid.UUID
+    input: str
+
+
+class BatchExtractionResponse(BaseModel):
+    items: list[BatchItem]
+    already_saved: list[str] = []  # liens déjà dans Popote, pas réimportés
+    ignored: int = 0               # liens au-delà de la limite

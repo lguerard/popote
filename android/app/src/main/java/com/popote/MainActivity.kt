@@ -172,6 +172,7 @@ class MainActivity : ComponentActivity() {
                         onSuccess = { id ->
                             navController.navigate("recipe/$id") { popUpTo("home") }
                         },
+                        onOpenRecipe = { id -> navController.navigate("recipe/$id") },
                     )
                 }
                 composable("achievements") {

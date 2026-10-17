@@ -36,6 +36,9 @@ export const submitImageExtraction = (file) => {
   return api.post('/extract/image', form, { headers: { 'Content-Type': 'multipart/form-data' } }).then(r => r.data)
 }
 export const getTaskStatus = (id) => api.get(`/tasks/${id}`).then(r => r.data)
+// Import de plusieurs liens : extraits l'un après l'autre côté serveur.
+export const submitBatchExtraction = (text) => api.post('/extract/batch', { text }).then(r => r.data)
+export const getTasksStatus = (ids) => api.get('/tasks', { params: { ids: ids.join(',') } }).then(r => r.data)
 export const getShoppingList = (recipe_ids) => api.post('/shopping-list', { recipe_ids }).then(r => r.data)
 export const getMealPlans = (params) => api.get('/meal-plans', { params }).then(r => r.data)
 export const createMealPlan = (data) => api.post('/meal-plans', data).then(r => r.data)

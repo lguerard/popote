@@ -969,3 +969,25 @@ def test_llm_sections_are_kept_and_same_ingredient_in_two_parts():
         ("sucre", "Pâte"), ("sucre", "Glaçage"), ("œufs", None),
     ]
     assert data["steps"] == [{"order": 1, "text": "Mélanger."}, {"order": 2, "text": "Glacer.", "section": "Glaçage"}]
+
+
+# ── Import de plusieurs liens ────────────────────────────────────────────────
+
+def test_links_in_pasted_text():
+    from app.services.extractor import links_in
+
+    text = """Mes reels à tester :
+https://www.instagram.com/reel/AAA/?igsh=x
+- https://www.tiktok.com/@bourr_/video/123, trop bon !
+marmiton.org/recettes/recette_crepes_12345.aspx
+www.750g.com/tarte.htm
+https://www.instagram.com/reel/AAA/?igsh=x
+Pas un lien : 3.5 kg de pommes."""
+    assert links_in(text) == [
+        "https://www.instagram.com/reel/AAA/?igsh=x",
+        "https://www.tiktok.com/@bourr_/video/123",
+        "https://marmiton.org/recettes/recette_crepes_12345.aspx",
+        "https://www.750g.com/tarte.htm",
+    ]
+    assert links_in("une recette de crêpes sans lien") == []
+    assert links_in("") == []

@@ -63,6 +63,32 @@ def resolve_input(input_text: str) -> str:
     return url if URL_PATTERN.match(url) else "https://" + url
 
 
+MAX_BATCH_LINKS = 50
+
+
+def links_in(text: str) -> list[str]:
+    """Liens d'un texte collé (un par ligne, ou mélangés à du texte), dans
+    l'ordre et sans doublon : l'import de plusieurs recettes d'un coup."""
+    found: list[tuple[int, str]] = []
+    for pattern in (_URL_IN_TEXT, _BARE_URL_IN_TEXT):
+        for match in pattern.finditer(text or ""):
+            # Un lien sans https:// déjà couvert par le lien complet qui le contient.
+            if any(start <= match.start() < start + len(url) for start, url in found):
+                continue
+            found.append((match.start(), match.group(0)))
+    for line in (text or "").splitlines():  # « marmiton.org » seul sur sa ligne
+        bare = line.strip()
+        if _BARE_URL.match(bare) and not any(bare in url for _, url in found):
+            found.append(((text or "").find(bare), bare))
+    links: list[str] = []
+    for _, raw in sorted(found):
+        url = raw.rstrip(".,;:!?)]}»")
+        url = url if URL_PATTERN.match(url) else "https://" + url
+        if url not in links:
+            links.append(url)
+    return links
+
+
 def detect_source_type(input_text: str) -> SourceType:
     input_text = input_text.strip()
     if not URL_PATTERN.match(input_text):

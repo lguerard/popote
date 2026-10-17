@@ -1,15 +1,17 @@
 import asyncio
 import logging
 from uuid import UUID
-from fastapi import APIRouter, Depends, BackgroundTasks, UploadFile, File, HTTPException
-from sqlalchemy import update
+from fastapi import APIRouter, Depends, BackgroundTasks, UploadFile, File, HTTPException, Query
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from ..database import get_db
 from ..deps import current_user
 from ..models.user import User
 from ..models.recipe import Recipe, ExtractionStatus
-from ..schemas.recipe import ExtractionRequest, ExtractionResponse, RecipeOut
-from ..services.extractor import extract
+from ..schemas.recipe import (
+    BatchExtractionRequest, BatchExtractionResponse, BatchItem, ExtractionRequest, ExtractionResponse, RecipeOut,
+)
+from ..services.extractor import MAX_BATCH_LINKS, extract, links_in
 from ..services.extraction_steps import EXTRACTION_TIMEOUT_SECONDS, StepTracker, error_text
 from ..services import sharing
 from ..services.llm_service import offload_hint
@@ -61,6 +63,71 @@ async def submit_extraction(
     )
 
 
+@router.post("/extract/batch", response_model=BatchExtractionResponse, status_code=202)
+async def submit_batch_extraction(
+    req: BatchExtractionRequest,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(current_user),
+):
+    """Plusieurs liens d'un coup (reels enregistrés, favoris…), extraits l'un
+    après l'autre : en parallèle, ils se disputeraient le modèle et la carte
+    graphique, et finiraient tous par dépasser le temps imparti."""
+    links = links_in(req.text)
+    if not links:
+        raise HTTPException(400, "Aucun lien trouvé dans le texte.")
+    saved = set((await db.execute(
+        select(Recipe.source_url).where(
+            Recipe.owner_id == user.id, Recipe.status == ExtractionStatus.done, Recipe.source_url.in_(links),
+        )
+    )).scalars())
+    todo = [link for link in links if link not in saved]
+    ignored = max(0, len(todo) - MAX_BATCH_LINKS)
+    todo = todo[:MAX_BATCH_LINKS]
+
+    recipes = [
+        Recipe(title="En attente…", status=ExtractionStatus.pending, owner_id=user.id, source_url=link,
+               progress_message=f"En file d'attente ({n}/{len(todo)})")
+        for n, link in enumerate(todo, 1)
+    ]
+    db.add_all(recipes)
+    await db.commit()
+    jobs = [(recipe.id, link) for recipe, link in zip(recipes, todo)]
+    if jobs:
+        background_tasks.add_task(_run_batch, jobs)
+    return BatchExtractionResponse(
+        items=[BatchItem(recipe_id=recipe_id, input=link) for recipe_id, link in jobs],
+        already_saved=[link for link in links if link in saved],
+        ignored=ignored,
+    )
+
+
+async def _run_batch(jobs: list[tuple[UUID, str]]) -> None:
+    for recipe_id, link in jobs:
+        try:
+            await _run_extraction(recipe_id, link)
+        except Exception:  # une recette en échec n'arrête pas les suivantes
+            logger.exception("Import groupé : échec inattendu pour %s", link)
+
+
+@router.get("/tasks", response_model=list[RecipeOut])
+async def get_tasks_status(
+    ids: str = Query(..., max_length=5000, description="Identifiants séparés par des virgules"),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(current_user),
+):
+    """État de plusieurs extractions en une requête (suivi d'un import groupé)."""
+    try:
+        wanted = [UUID(part) for part in ids.split(",") if part.strip()][:MAX_BATCH_LINKS]
+    except ValueError:
+        raise HTTPException(400, "Identifiant invalide")
+    rows = (await db.execute(
+        select(Recipe).where(Recipe.id.in_(wanted), Recipe.owner_id == user.id)
+    )).scalars().all()
+    by_id = {recipe.id: recipe for recipe in rows}
+    return [by_id[i] for i in wanted if i in by_id]
+
+
 @router.post("/extract/image", response_model=ExtractionResponse, status_code=202)
 async def submit_image_extraction(
     background_tasks: BackgroundTasks,
@@ -98,7 +165,8 @@ async def sweep_stuck_extractions(db: AsyncSession) -> int:
     """
     result = await db.execute(
         update(Recipe)
-        .where(Recipe.status == ExtractionStatus.processing)
+        # En file d'attente aussi : l'import groupé meurt avec le processus.
+        .where(Recipe.status.in_([ExtractionStatus.processing, ExtractionStatus.pending]))
         .values(
             status=ExtractionStatus.failed,
             error_msg="Extraction interrompue par un redémarrage du serveur.",

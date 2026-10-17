@@ -166,6 +166,15 @@ data class ExtractionResponse(
     val message: String,
 )
 
+// Import de plusieurs liens (extraits l'un après l'autre par le serveur)
+data class BatchExtractionRequest(val text: String)
+data class BatchItem(val recipe_id: String, val input: String)
+data class BatchExtractionResponse(
+    val items: List<BatchItem>?,
+    val already_saved: List<String>?,
+    val ignored: Int = 0,
+)
+
 data class LoginRequest(val email: String, val password: String)
 data class AuthUser(val id: String, val email: String, val display_name: String)
 data class LoginResponse(val access_token: String, val user: AuthUser)

@@ -88,6 +88,9 @@ class RecipeRepository(private val context: Context) {
 
     suspend fun extract(input: String): ExtractionResponse = api().extract(ExtractionRequest(input))
 
+    suspend fun extractBatch(text: String): BatchExtractionResponse = api().extractBatch(BatchExtractionRequest(text))
+    suspend fun getTasks(ids: List<String>): List<Recipe> = api().getTasks(ids.joinToString(","))
+
     /** Recette photographiée (livre, fiche manuscrite…) : lue par OCR côté serveur. */
     suspend fun extractImage(bytes: ByteArray, mimeType: String): ExtractionResponse {
         val body = bytes.toRequestBody(mimeType.toMediaTypeOrNull())
