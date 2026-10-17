@@ -232,6 +232,83 @@ def parse_ingredient_line(line: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Sections (« Pour la pâte : », « Garniture »)
+# ---------------------------------------------------------------------------
+
+_DECORATION = "#*=_~\\-–—•·▪►"
+_DECORATED = re.compile(rf"^\s*[{_DECORATION}]+.*[{_DECORATION}]+\s*:?\s*$")
+# Intertitres qui annoncent la liste elle-même, pas une partie de la recette.
+_GENERIC_HEADINGS = {
+    "ingredients", "ingredient", "les ingredients", "preparation", "la preparation", "etapes",
+    "etape", "instructions", "recette", "la recette", "materiel", "ustensiles", "directions",
+    "method", "methode", "steps", "deroulement",
+}
+MAX_SECTION_LENGTH = 100
+
+
+def section_heading(line) -> str | None:
+    """Titre de section si la ligne en est un, "" pour un intertitre générique
+    (« Ingrédients : », à ignorer), None pour une ligne ordinaire.
+
+    Un intertitre n'a pas de chiffre, au plus 6 mots, et se termine par « : »,
+    est encadré (« --- Pâte --- », « **Garniture** ») ou commence par
+    « Pour la/le/les… » (« Pour la pâte »).
+    """
+    text = clean_text(line)
+    if not text or len(text) > 60 or re.search(r"\d", text):
+        return None
+    core = re.sub(rf"^[\s{_DECORATION}]+|[\s{_DECORATION}]+$", "", text)
+    colon = core.endswith(":")
+    core = core.rstrip(" :").strip()
+    if not core or len(core.split()) > 6:
+        return None
+    folded = _fold(core)
+    if not (colon or _DECORATED.match(text) or re.match(r"pour (?:la|le|les|l'|l’|un|une)\b", folded)):
+        return None
+    if folded in _GENERIC_HEADINGS or re.search(r"\b(?:personnes?|portions?|pers)\b", folded):
+        return ""
+    return (core[0].upper() + core[1:])[:MAX_SECTION_LENGTH]
+
+
+def parse_ingredient_lines(lines) -> list[dict]:
+    """Lignes d'ingrédients ; un intertitre (« Pour la pâte : ») ouvre une section
+    au lieu de devenir un faux ingrédient."""
+    ingredients, section = [], None
+    for line in lines:
+        if not isinstance(line, (str, int, float)) or not clean_text(line):
+            continue
+        heading = section_heading(line)
+        if heading is not None:
+            section = heading or section
+            continue
+        ingredient = parse_ingredient_line(str(line))
+        if section:
+            ingredient["section"] = section
+        ingredients.append(ingredient)
+    return ingredients
+
+
+def steps_from_pairs(pairs) -> list[dict]:
+    """[(section, texte)] → étapes numérotées ; « section » seulement si connue."""
+    return [
+        {"order": n, "text": text, **({"section": section} if section else {})}
+        for n, (section, text) in enumerate(pairs, 1)
+    ]
+
+
+def lines_with_headings(items) -> list[str]:
+    """[(section, ligne)] → lignes précédées de l'intertitre de leur section
+    quand elle change (texte donné au LLM : il garde ainsi les sections)."""
+    lines, current = [], None
+    for section, line in items:
+        if section and section != current:
+            lines.append(f"{section} :")
+        current = section
+        lines.append(line)
+    return lines
+
+
+# ---------------------------------------------------------------------------
 # Étapes
 # ---------------------------------------------------------------------------
 
@@ -263,31 +340,52 @@ def _split_blob(text: str) -> list[str]:
     return [text]
 
 
-def flatten_instructions(instructions) -> list[str]:
-    raw: list[str] = []
+def _is_section_node(item: dict) -> bool:
+    kind = item.get("@type")
+    return "HowToSection" in (kind if isinstance(kind, list) else [kind])
+
+
+def sectioned_instructions(instructions) -> list[tuple[str | None, str]]:
+    """Étapes (section, texte) : sections schema.org (HowToSection) et
+    intertitres écrits dans le texte (« Pour la sauce : »)."""
+    raw: list[tuple[str | None, str]] = []
+    current: list[str | None] = [None]
 
     def walk(item):
         if item is None:
             return
         if isinstance(item, str):
-            raw.extend(_split_blob(clean_text(item)))
+            for line in _split_blob(clean_text(item)):
+                heading = section_heading(line)
+                if heading is None:
+                    raw.append((current[0], line))
+                elif heading:
+                    current[0] = heading
         elif isinstance(item, list):
             for sub in item:
                 walk(sub)
         elif isinstance(item, dict):
             if item.get("itemListElement"):
+                saved = current[0]
+                if _is_section_node(item) and clean_text(item.get("name")):
+                    current[0] = clean_text(item["name"]).rstrip(" :")[:MAX_SECTION_LENGTH] or saved
                 walk(item["itemListElement"])
+                current[0] = saved
             elif item.get("text"):
                 walk(item["text"])
             elif item.get("name"):
                 walk(item["name"])
 
     walk(instructions)
-    steps: list[str] = []
-    for step in (clean_step(s) for s in raw):
-        if step and (not steps or steps[-1] != step):
-            steps.append(step)
+    steps: list[tuple[str | None, str]] = []
+    for section, step in ((sec, clean_step(s)) for sec, s in raw):
+        if step and (not steps or steps[-1][1] != step):
+            steps.append((section, step))
     return steps
+
+
+def flatten_instructions(instructions) -> list[str]:
+    return [text for _, text in sectioned_instructions(instructions)]
 
 
 # ---------------------------------------------------------------------------
@@ -488,11 +586,9 @@ def jsonld_to_recipe(node: dict) -> dict | None:
     """Recette prête à enregistrer, ou None si les données sont trop incomplètes."""
     title = clean_text(node.get("name"))[:500]
     raw_ingredients = as_list(node.get("recipeIngredient") or node.get("ingredients"))
-    ingredients = [
-        parse_ingredient_line(line) for line in raw_ingredients
-        if isinstance(line, (str, int, float)) and clean_text(line)
-    ]
-    steps = flatten_instructions(node.get("recipeInstructions"))
+    ingredients = parse_ingredient_lines(raw_ingredients)
+    pairs = sectioned_instructions(node.get("recipeInstructions"))
+    steps = [text for _, text in pairs]
     if not title or len(ingredients) < 2 or not steps:
         return None
 
@@ -515,7 +611,7 @@ def jsonld_to_recipe(node: dict) -> dict | None:
         "prep_time": prep,
         "cook_time": cook,
         "ingredients": ingredients,
-        "steps": [{"order": i, "text": step} for i, step in enumerate(steps, 1)],
+        "steps": steps_from_pairs(pairs),
         "tags": build_tags(node, title, category, (prep or 0) + (cook or 0) or total),
         "thumbnail_url": _first_image(node.get("image")),
     }
@@ -543,10 +639,10 @@ def jsonld_to_text(node: dict) -> str:
     if ingredients:
         lines.append("Ingrédients :")
         lines.extend(f"- {clean_text(i)}" for i in ingredients)
-    steps = flatten_instructions(node.get("recipeInstructions"))
+    steps = sectioned_instructions(node.get("recipeInstructions"))
     if steps:
         lines.append("Étapes :")
-        lines.extend(f"{n}. {s}" for n, s in enumerate(steps, 1))
+        lines.extend(lines_with_headings((sec, f"{n}. {s}") for n, (sec, s) in enumerate(steps, 1)))
     return "\n".join(lines) if (ingredients or steps) else ""
 
 
@@ -654,8 +750,12 @@ def ingredients_from_text(text: str, minimum: int = 3) -> list[dict]:
     (« Farine : 200 g »). Rien n'est deviné ; moins de `minimum` lignes de ce
     genre, et ce n'est pas une liste d'ingrédients.
     """
-    found, seen = [], set()
+    found, seen, section = [], set(), None
     for raw in (text or "").splitlines():
+        heading = section_heading(raw)
+        if heading is not None:
+            section = heading or section
+            continue
         line = _LIST_BULLET.sub("", clean_text(raw)).strip()
         if not line or len(line) > 100:
             continue
@@ -667,9 +767,11 @@ def ingredients_from_text(text: str, minimum: int = 3) -> list[dict]:
         ingredient = parse_ingredient_line(line)
         name = ingredient.get("name") or ""
         key = _fold(name)
-        if not name or len(name) > 60 or not re.search(r"[a-z]", key) or key in seen:
+        if not name or len(name) > 60 or not re.search(r"[a-z]", key) or (key, section) in seen:
             continue
-        seen.add(key)
+        seen.add((key, section))
+        if section:
+            ingredient["section"] = section
         found.append(ingredient)
     return found if len(found) >= minimum else []
 

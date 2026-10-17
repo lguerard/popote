@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { Fragment, useState, useEffect } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
@@ -12,6 +12,7 @@ import Historique from '../components/Historique'
 import ChoixCarnets from '../components/ChoixCarnets'
 import EnvoiCompte from '../components/EnvoiCompte'
 import ExportMfp from '../components/ExportMfp'
+import { sectionStart, SectionTitle } from '../components/Sections'
 
 const SOURCE_ICONS = { video: '🎬', web: '🌐', text: '📝', manual: '✏️' }
 const SOURCE_LABELS = { video: 'Vidéo', web: 'Site web', text: 'Texte', manual: 'Manuel' }
@@ -343,8 +344,11 @@ export default function DetailRecette() {
             {recipe.ingredients.map((ing, i) => {
               const sq = scaleQty(ing.quantity, scale)
               const ajustable = parseFraction(ing.quantity) > 0
+              const section = sectionStart(recipe.ingredients, i)
               return (
-                <li key={i} className="flex items-baseline gap-2 px-4 py-3">
+                <Fragment key={i}>
+                {section && <SectionTitle className="px-4 pt-4 pb-1 bg-orange-50/60">{section}</SectionTitle>}
+                <li className="flex items-baseline gap-2 px-4 py-3">
                   {ajuste === i ? (
                     <span className="w-24 flex-shrink-0 flex items-baseline justify-end gap-1">
                       <input autoFocus inputMode="decimal" defaultValue={sq}
@@ -363,6 +367,7 @@ export default function DetailRecette() {
                   <span className="text-gray-900">{ing.name}</span>
                   {ing.notes && <span className="text-gray-400 text-sm">({ing.notes})</span>}
                 </li>
+                </Fragment>
               )
             })}
           </ul>
@@ -376,8 +381,11 @@ export default function DetailRecette() {
           <ol className="space-y-5">
             {recipe.steps.map((step, i) => {
               const timerSec = parseStepTime(step.text)
+              const section = sectionStart(recipe.steps, i)
               return (
-                <li key={i} className="flex gap-4">
+                <Fragment key={i}>
+                {section && <SectionTitle className="pt-2">{section}</SectionTitle>}
+                <li className="flex gap-4">
                   <span className="flex-shrink-0 w-8 h-8 bg-orange-600 text-white rounded-full flex items-center justify-center font-bold text-sm">
                     {step.order || i + 1}
                   </span>
@@ -386,6 +394,7 @@ export default function DetailRecette() {
                     {timerSec && <StepTimer seconds={timerSec} />}
                   </div>
                 </li>
+                </Fragment>
               )
             })}
           </ol>

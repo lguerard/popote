@@ -30,6 +30,8 @@ import com.popote.ui.components.Stars
 import com.popote.ui.components.formatSeconds
 import com.popote.ui.components.ingredientAmount
 import com.popote.ui.components.ingredientsForStep
+import com.popote.ui.components.sectionStart
+import com.popote.ui.components.RecipePartTitle
 import com.popote.ui.components.parseStepSeconds
 import kotlinx.coroutines.delay
 import kotlin.math.roundToInt
@@ -170,6 +172,7 @@ fun CookingModeOverlay(
                         modifier = Modifier.padding(bottom = 8.dp),
                     )
                     ingredients.forEachIndexed { i, ing ->
+                        sectionStart(ingredients, i) { it.section }?.let { RecipePartTitle(it) }
                         IngredientLine(ing, scale, checked = i in ready, onToggle = { toggleReady(i) })
                     }
                 }
@@ -179,9 +182,13 @@ fun CookingModeOverlay(
                     verticalArrangement = Arrangement.spacedBy(20.dp, Alignment.CenterVertically),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.primary) {
-                        Text("Étape ${stepIdx + 1}", Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                            style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onPrimary)
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        // Partie de la recette en cours (« Pâte », « Glaçage »).
+                        step.section?.takeIf { it.isNotBlank() }?.let { RecipePartTitle(it) }
+                        Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.primary) {
+                            Text("Étape ${stepIdx + 1}", Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                                style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onPrimary)
+                        }
                     }
                     Text(step.text, style = MaterialTheme.typography.headlineSmall, textAlign = TextAlign.Center,
                         modifier = Modifier.fillMaxWidth())
@@ -240,6 +247,7 @@ fun CookingModeOverlay(
                 Text("🧺 Ingrédients" + (servings?.let { " · $it portion${if (it > 1) "s" else ""}" } ?: ""),
                     style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(bottom = 8.dp))
                 ingredients.forEachIndexed { i, ing ->
+                    sectionStart(ingredients, i) { it.section }?.let { RecipePartTitle(it) }
                     IngredientLine(ing, scale, checked = i in ready, onToggle = { toggleReady(i) })
                 }
             }

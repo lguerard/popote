@@ -9,11 +9,13 @@ class Ingredient(BaseModel):
     unit: str | None = None
     name: str
     notes: str | None = None
+    section: str | None = None  # partie de la recette (« Pâte », « Garniture »)
 
 
 class Step(BaseModel):
     order: int
     text: str
+    section: str | None = None
 
 
 class RecipeBase(BaseModel):
@@ -54,6 +56,11 @@ def _text_or_none(value) -> str | None:
     return text or None
 
 
+def _section(value) -> str | None:
+    text = _text_or_none(value)
+    return " ".join(text.split()).rstrip(" :")[:100] or None if text else None
+
+
 class RecipeUpdate(BaseModel):
     title: str | None = Field(None, min_length=1, max_length=500)
     description: str | None = None
@@ -91,8 +98,9 @@ class RecipeUpdate(BaseModel):
         cleaned = []
         for item in value:
             fields = {k: _text_or_none(item.get(k)) for k in ("quantity", "unit", "name", "notes")}
+            section = _section(item.get("section"))
             if fields["name"]:
-                cleaned.append(fields)
+                cleaned.append({**fields, "section": section} if section else fields)
         return cleaned
 
     @field_validator("steps")
@@ -100,8 +108,11 @@ class RecipeUpdate(BaseModel):
     def _drop_empty_steps(cls, value):
         if value is None:
             return None
-        texts = [_text_or_none(step.get("text")) for step in value]
-        return [{"order": n, "text": t} for n, t in enumerate(filter(None, texts), 1)]
+        kept = [(_section(step.get("section")), _text_or_none(step.get("text"))) for step in value]
+        return [
+            {"order": n, "text": text, **({"section": section} if section else {})}
+            for n, (section, text) in enumerate(((s, t) for s, t in kept if t), 1)
+        ]
 
 
 class RecipeOut(RecipeBase):

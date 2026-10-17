@@ -148,11 +148,14 @@ data class Ingredient(
     val unit: String?,
     val name: String,
     val notes: String?,
+    // Partie de la recette (« Pâte », « Garniture ») ; null hors section.
+    val section: String? = null,
 )
 
 data class Step(
     val order: Int,
     val text: String,
+    val section: String? = null,
 )
 
 data class ExtractionRequest(val input: String)

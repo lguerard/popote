@@ -276,3 +276,72 @@ def test_normalize_tags():
     assert rp.normalize_tags(["Vegan", "vegan", "#Facile", "une phrase beaucoup trop longue pour un tag", ""]) == [
         "vegan", "facile",
     ]
+
+
+# ── Sections (« Pour la pâte », « Garniture ») ──────────────────────────────
+
+@pytest.mark.parametrize("line, expected", [
+    ("Pour la pâte :", "Pour la pâte"),
+    ("Pour la garniture", "Pour la garniture"),
+    ("Glaçage :", "Glaçage"),
+    ("--- Sauce ---", "Sauce"),
+    ("**Crème fouettée**", "Crème fouettée"),
+    ("Ingrédients :", ""),           # annonce de la liste, pas une partie
+    ("Pour 4 personnes :", None),     # chiffre : pas un intertitre
+    ("200 g de farine", None),
+    ("Sel", None),
+    ("POIVRE", None),
+    ("Mélanger la farine et le sucre dans un saladier :", None),  # phrase trop longue
+])
+def test_section_heading(line, expected):
+    assert rp.section_heading(line) == expected
+
+
+def test_ingredient_lines_with_headings_become_sections():
+    ingredients = rp.parse_ingredient_lines(
+        ["Pour la pâte :", "250 g de farine", "2 œufs", "Pour la garniture :", "3 pommes", "", None]
+    )
+    assert [(i["name"], i.get("section")) for i in ingredients] == [
+        ("farine", "Pour la pâte"), ("œufs", "Pour la pâte"), ("pommes", "Pour la garniture"),
+    ]
+
+
+def test_howto_sections_are_kept():
+    instructions = [
+        {"@type": "HowToSection", "name": "Pâte", "itemListElement": [
+            {"@type": "HowToStep", "text": "Mélanger."}, {"@type": "HowToStep", "text": "Reposer 1 h."}]},
+        {"@type": "HowToSection", "name": "Cuisson :", "itemListElement": [{"@type": "HowToStep", "text": "Cuire."}]},
+        {"@type": "HowToStep", "text": "Servir."},
+    ]
+    assert rp.sectioned_instructions(instructions) == [
+        ("Pâte", "Mélanger."), ("Pâte", "Reposer 1 h."), ("Cuisson", "Cuire."), (None, "Servir."),
+    ]
+    assert rp.flatten_instructions(instructions) == ["Mélanger.", "Reposer 1 h.", "Cuire.", "Servir."]
+    assert rp.steps_from_pairs([("Pâte", "Mélanger."), (None, "Servir.")]) == [
+        {"order": 1, "text": "Mélanger.", "section": "Pâte"}, {"order": 2, "text": "Servir."},
+    ]
+
+
+def test_headings_inside_step_text_open_sections():
+    assert rp.sectioned_instructions("Préparation :\nPour la sauce :\nFaire revenir.\nAjouter la crème.") == [
+        ("Pour la sauce", "Faire revenir."), ("Pour la sauce", "Ajouter la crème."),
+    ]
+
+
+def test_jsonld_recipe_keeps_sections():
+    recipe = rp.jsonld_to_recipe({
+        "name": "Tarte", "recipeIngredient": ["Pâte :", "200 g farine", "100 g beurre", "Garniture :", "4 pommes"],
+        "recipeInstructions": [{"@type": "HowToSection", "name": "Pâte",
+                                "itemListElement": [{"@type": "HowToStep", "text": "Sabler."}]}],
+    })
+    assert [i.get("section") for i in recipe["ingredients"]] == ["Pâte", "Pâte", "Garniture"]
+    assert recipe["steps"] == [{"order": 1, "text": "Sabler.", "section": "Pâte"}]
+
+
+def test_caption_ingredients_keep_their_sections():
+    found = rp.ingredients_from_text(
+        "Cookies 🍪\nPour la pâte :\n- 200 g de farine\n- 100 g de sucre\nGlaçage :\n- 100 g de sucre\n- 2 c. à s. de lait"
+    )
+    assert [(i["name"], i.get("section")) for i in found] == [
+        ("farine", "Pour la pâte"), ("sucre", "Pour la pâte"), ("sucre", "Glaçage"), ("lait", "Glaçage"),
+    ]

@@ -24,9 +24,9 @@ Format attendu :
   "prep_time": 15,
   "cook_time": 30,
   "ingredients": [
-    {"quantity": "200", "unit": "g", "name": "farine", "notes": ""},
-    {"quantity": "2", "unit": "c. à s.", "name": "huile d'olive", "notes": ""},
-    {"quantity": "1", "unit": "", "name": "oignon", "notes": "émincé"}
+    {"quantity": "200", "unit": "g", "name": "farine", "notes": "", "section": ""},
+    {"quantity": "2", "unit": "c. à s.", "name": "huile d'olive", "notes": "", "section": ""},
+    {"quantity": "1", "unit": "", "name": "oignon", "notes": "émincé", "section": ""}
   ],
   "steps": ["Préchauffer le four à 180 °C.", "Mélanger la farine et le sucre."],
   "tags": ["facile", "végétarien"]
@@ -35,6 +35,7 @@ Format attendu :
 Règles :
 - Tout rédiger en français (traduire si besoin). "language" = langue d'origine du texte ("fr", "en"…).
 - Ingrédients : TOUS, y compris ceux cités seulement dans les étapes. Quantité, unité et nom séparés ; les précisions (« émincé », « à température ambiante ») vont dans notes.
+- section : partie de la recette à laquelle appartient l'ingrédient quand le texte la sépare en parties (« Pâte », « Garniture », « Sauce », « Glaçage ») ; "" sinon. Un ingrédient utilisé dans deux parties apparaît deux fois.
 - Étapes : dans l'ordre, une action principale par étape, complètes mais concises, sans numéro au début.
 - prep_time et cook_time : entiers en minutes ; servings : entier (nombre de portions).
 - Valeur inconnue ou absente : "" pour un texte, 0 pour un nombre. Ne jamais inventer.
@@ -97,8 +98,9 @@ RECIPE_JSON_SCHEMA = {
                     "unit": {"type": "string"},
                     "name": {"type": "string"},
                     "notes": {"type": "string"},
+                    "section": {"type": "string"},
                 },
-                "required": ["quantity", "unit", "name", "notes"],
+                "required": ["quantity", "unit", "name", "notes", "section"],
             },
         },
         "steps": {"type": "array", "items": {"type": "string"}},
@@ -221,6 +223,9 @@ def _normalize_ingredient(item) -> dict | None:
                 ingredient = parsed
     else:
         ingredient = recipe_parsing.parse_ingredient_line(str(item))
+    section = _none_if_blank(item.get("section")) if isinstance(item, dict) else None
+    if section:
+        ingredient["section"] = section.rstrip(" :")[: recipe_parsing.MAX_SECTION_LENGTH]
     return ingredient if ingredient.get("name") else None
 
 
@@ -234,7 +239,9 @@ def _normalize_recipe_shape(data: dict) -> None:
     ingredients, seen = [], set()
     for item in recipe_parsing.as_list(data.get("ingredients")):
         ingredient = _normalize_ingredient(item)
-        key = ingredient and (ingredient["name"].lower(), ingredient["quantity"], ingredient["unit"])
+        key = ingredient and (
+            ingredient["name"].lower(), ingredient["quantity"], ingredient["unit"], ingredient.get("section"),
+        )
         if ingredient and key not in seen:
             seen.add(key)
             ingredients.append(ingredient)
@@ -244,9 +251,10 @@ def _normalize_recipe_shape(data: dict) -> None:
     for item in recipe_parsing.as_list(data.get("steps")):
         text = item.get("text") if isinstance(item, dict) else item
         step = recipe_parsing.clean_step(text or "")
+        section = _none_if_blank(item.get("section")) if isinstance(item, dict) else None
         if step:
-            steps.append(step)
-    data["steps"] = [{"order": i, "text": step} for i, step in enumerate(steps, 1)]
+            steps.append((section and section[: recipe_parsing.MAX_SECTION_LENGTH], step))
+    data["steps"] = recipe_parsing.steps_from_pairs(steps)
 
     # 0 = « inconnu » dans le schéma ; « 15 minutes » en texte libre sans schéma.
     for key in ("prep_time", "cook_time"):

@@ -1,8 +1,9 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { Fragment, useState, useEffect, useRef, useCallback } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { getRecipe, trackCookingMode, markCooked } from '../api'
 import { parseStepTime, formatTime } from '../components/Timer'
+import { sectionStart, SectionTitle } from '../components/Sections'
 import Etoiles from '../components/Etoiles'
 
 const SpeechRecognition = typeof window !== 'undefined'
@@ -295,6 +296,9 @@ export default function ModeCuisine() {
             <div className="w-14 h-14 rounded-full bg-orange-600 flex items-center justify-center text-2xl font-bold">
               {stepIdx + 1}
             </div>
+            {step?.section && (
+              <p className="-mb-4 text-sm font-bold uppercase tracking-wide text-orange-300">{step.section}</p>
+            )}
             <p className="text-2xl md:text-3xl text-center leading-relaxed max-w-3xl font-medium">{step?.text}</p>
             {timerSec && (
               <button onClick={() => actions.current.timer()}
@@ -311,7 +315,12 @@ export default function ModeCuisine() {
           <summary className="text-sm text-gray-400 cursor-pointer select-none">📋 Ingrédients</summary>
           <ul className="mt-2 grid grid-cols-2 gap-1 text-sm text-gray-300 max-h-40 overflow-y-auto">
             {recipe.ingredients.map((ing, i) => (
-              <li key={i}>{[ing.quantity, ing.unit, ing.name].filter(Boolean).join(' ')}</li>
+              <Fragment key={i}>
+                {sectionStart(recipe.ingredients, i) && (
+                  <SectionTitle className="col-span-2 pt-1 text-orange-300">{ing.section}</SectionTitle>
+                )}
+                <li>{[ing.quantity, ing.unit, ing.name].filter(Boolean).join(' ')}</li>
+              </Fragment>
             ))}
           </ul>
         </details>

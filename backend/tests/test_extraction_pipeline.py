@@ -931,3 +931,41 @@ def test_link_keeps_written_ingredients_when_the_llm_finds_nothing(monkeypatch):
     assert len(data["ingredients"]) == 5 and data["steps"] == []
     assert data["source_type"].value == "video" and data["thumbnail_url"] == "https://thumb/t.jpg"
     assert "étapes sont à voir dans la vidéo" in data["description"]
+
+
+WPRM_GROUPS = """<html lang="fr"><head><script type="application/ld+json">{"@context":"https://schema.org","@type":"Recipe",
+"name":"Tarte aux pommes","recipeIngredient":["200 g farine","100 g beurre","4 pommes","50 g sucre"],
+"recipeInstructions":[{"@type":"HowToSection","name":"Pâte","itemListElement":[{"@type":"HowToStep","text":"Sabler la farine et le beurre."}]},
+{"@type":"HowToSection","name":"Garniture","itemListElement":[{"@type":"HowToStep","text":"Couper les pommes."},
+{"@type":"HowToStep","text":"Cuire 40 min."}]}]}</script></head>
+<body><div class="wprm-recipe-ingredient-group"><h4 class="wprm-recipe-group-name">Pâte</h4><ul>
+<li class="wprm-recipe-ingredient">200 g farine</li><li class="wprm-recipe-ingredient">100 g beurre</li></ul></div>
+<div class="wprm-recipe-ingredient-group"><h4 class="wprm-recipe-group-name">Garniture</h4><ul>
+<li class="wprm-recipe-ingredient">4 pommes</li><li class="wprm-recipe-ingredient">50 g sucre</li></ul></div></body></html>"""
+
+
+def test_site_sections_are_kept_for_ingredients_and_steps():
+    pytest.importorskip("recipe_scrapers")
+    recipe, text = site_scraper.scrape_recipe(WPRM_GROUPS, "https://blog.fr/tarte")
+    assert [(i["name"], i.get("section")) for i in recipe["ingredients"]] == [
+        ("farine", "Pâte"), ("beurre", "Pâte"), ("pommes", "Garniture"), ("sucre", "Garniture"),
+    ]
+    # Pas de fausse étape « Pâte » : le nom de section n'est pas une action.
+    assert [(s.get("section"), s["text"]) for s in recipe["steps"]] == [
+        ("Pâte", "Sabler la farine et le beurre."), ("Garniture", "Couper les pommes."), ("Garniture", "Cuire 40 min."),
+    ]
+    assert "Garniture :\n- 4 pommes" in text
+
+
+def test_llm_sections_are_kept_and_same_ingredient_in_two_parts():
+    data = llm_service.parse_llm_content(json.dumps({
+        "found": True, "title": "Cookies", "ingredients": [
+            {"quantity": "100", "unit": "g", "name": "sucre", "notes": "", "section": "Pâte"},
+            {"quantity": "100", "unit": "g", "name": "sucre", "notes": "", "section": "Glaçage :"},
+            {"quantity": "2", "unit": "", "name": "œufs", "notes": "", "section": ""},
+        ], "steps": ["Mélanger.", {"text": "Glacer.", "section": "Glaçage"}],
+    }))
+    assert [(i["name"], i.get("section")) for i in data["ingredients"]] == [
+        ("sucre", "Pâte"), ("sucre", "Glaçage"), ("œufs", None),
+    ]
+    assert data["steps"] == [{"order": 1, "text": "Mélanger."}, {"order": 2, "text": "Glacer.", "section": "Glaçage"}]
