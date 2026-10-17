@@ -10,6 +10,9 @@ import kotlinx.coroutines.flow.map
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.RequestBody.Companion.toRequestBody
 import retrofit2.HttpException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import okio.source
 
 /** Extraction terminée en échec côté serveur (message lisible du serveur). */
 class ExtractionFailedException(message: String) : Exception(message)
@@ -87,6 +90,35 @@ class RecipeRepository(private val context: Context) {
     suspend fun deleteRecipe(id: String) = api().deleteRecipe(id)
 
     suspend fun extract(input: String): ExtractionResponse = api().extract(ExtractionRequest(input))
+
+    /** Sauvegarde du compte (.zip) écrite dans [uri], choisi par l'utilisateur. */
+    suspend fun downloadBackup(uri: android.net.Uri) {
+        val body = api().downloadBackup()
+        withContext(Dispatchers.IO) {
+            body.use { response ->
+                context.contentResolver.openOutputStream(uri)?.use { out -> response.byteStream().copyTo(out) }
+                    ?: throw java.io.IOException("Impossible d'écrire le fichier choisi")
+            }
+        }
+    }
+
+    /** Restaure la sauvegarde [uri] ; envoyée au fil de l'eau (fichier de plusieurs centaines de Mo). */
+    suspend fun importBackup(uri: android.net.Uri): RestoreReport {
+        val resolver = context.contentResolver
+        val size = resolver.query(uri, arrayOf(android.provider.OpenableColumns.SIZE), null, null, null)?.use {
+            if (it.moveToFirst() && !it.isNull(0)) it.getLong(0) else null
+        }
+        val body = object : okhttp3.RequestBody() {
+            override fun contentType() = "application/zip".toMediaTypeOrNull()
+            override fun contentLength() = size ?: -1L
+            override fun writeTo(sink: okio.BufferedSink) {
+                resolver.openInputStream(uri)?.use { input -> sink.writeAll(input.source()) }
+                    ?: throw java.io.IOException("Impossible de lire le fichier choisi")
+            }
+        }
+        val part = okhttp3.MultipartBody.Part.createFormData("file", "sauvegarde.zip", body)
+        return api().importBackup(part)
+    }
 
     suspend fun extractBatch(text: String): BatchExtractionResponse = api().extractBatch(BatchExtractionRequest(text))
     suspend fun getTasks(ids: List<String>): List<Recipe> = api().getTasks(ids.joinToString(","))

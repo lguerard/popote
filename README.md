@@ -17,16 +17,23 @@ brut, ou photo — accompagnée d'une application Android native.
   français
 - **Photo / OCR** — envoyez la photo d'une page de livre de cuisine
   (interface web uniquement pour l'instant)
+- **Plusieurs liens d'un coup** (reels enregistrés, favoris…) : collés en
+  vrac, extraits l'un après l'autre, sans réimporter ceux déjà présents
 
 ### Gestion des recettes
 
 - Scaling des quantités : ½× 1× 2× 3× ou valeur personnalisée
+- Sections (« Pour la pâte », « Garniture ») pour les ingrédients et les étapes,
+  reprises des sites et des légendes, modifiables à la main
 - Classification automatique par catégorie (LLM)
 - Filtres : catégorie, temps de préparation, source, favoris
 - Lien proéminent vers la vidéo ou le site source
 - Détection de doublons à l'ajout
 - Analyse nutritionnelle par portion (IA)
 - Notes personnelles par recette
+- **Sauvegarde** : toutes les recettes (images, notes, avis, historique,
+  carnets) dans un .zip, restaurable sur ce serveur ou un autre (💾 sur le web,
+  Paramètres sur Android)
 
 ### Outils cuisiniers
 

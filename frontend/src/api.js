@@ -38,6 +38,16 @@ export const submitImageExtraction = (file) => {
 export const getTaskStatus = (id) => api.get(`/tasks/${id}`).then(r => r.data)
 // Import de plusieurs liens : extraits l'un après l'autre côté serveur.
 export const submitBatchExtraction = (text) => api.post('/extract/batch', { text }).then(r => r.data)
+// Sauvegarde complète (recettes, images, carnets, historique) en .zip
+export const downloadBackup = () => api.get('/backup', { responseType: 'blob' })
+export const importBackup = (file, onProgress) => {
+  const form = new FormData()
+  form.append('file', file)
+  return api.post('/backup/import', form, {
+    onUploadProgress: (e) => e.total && onProgress?.(e.loaded / e.total),
+    timeout: 0,
+  }).then(r => r.data)
+}
 export const getTasksStatus = (ids) => api.get('/tasks', { params: { ids: ids.join(',') } }).then(r => r.data)
 export const getShoppingList = (recipe_ids) => api.post('/shopping-list', { recipe_ids }).then(r => r.data)
 export const getMealPlans = (params) => api.get('/meal-plans', { params }).then(r => r.data)

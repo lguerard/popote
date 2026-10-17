@@ -101,6 +101,9 @@ fun SettingsScreen(
 
             HorizontalDivider()
             SharingSection()
+
+            HorizontalDivider()
+            BackupSection()
         }
     }
 }

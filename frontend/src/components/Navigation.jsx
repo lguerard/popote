@@ -52,6 +52,15 @@ export default function Navigation() {
             <span className="hidden lg:block">Comptes</span>
           </Link>
         )}
+        <Link
+          to="/sauvegarde"
+          title="Sauvegarder ou restaurer mes recettes"
+          className={`flex items-center px-2 py-1.5 rounded-lg text-sm flex-shrink-0 ${
+            pathname === '/sauvegarde' ? 'bg-orange-100 text-orange-700' : 'text-gray-500 hover:text-orange-600 hover:bg-orange-50'
+          }`}
+        >
+          💾
+        </Link>
         <button
           onClick={deconnexion}
           title={`Connecté en tant que ${user?.display_name || ''}`}

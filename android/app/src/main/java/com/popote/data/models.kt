@@ -166,6 +166,15 @@ data class ExtractionResponse(
     val message: String,
 )
 
+// Sauvegarde complète du compte (voir backend/app/services/backup.py)
+data class RestoreReport(
+    val recipes_added: Int = 0,
+    val recipes_skipped: Int = 0,
+    val invalid: Int = 0,
+    val images: Int = 0,
+    val collections_added: Int = 0,
+)
+
 // Import de plusieurs liens (extraits l'un après l'autre par le serveur)
 data class BatchExtractionRequest(val text: String)
 data class BatchItem(val recipe_id: String, val input: String)

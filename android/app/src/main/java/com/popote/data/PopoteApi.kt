@@ -31,6 +31,15 @@ interface PopoteApi {
     @POST("api/extract")
     suspend fun extract(@Body body: ExtractionRequest): ExtractionResponse
 
+    // Fichier potentiellement gros : lu au fil de l'eau, jamais en mémoire.
+    @Streaming
+    @GET("api/backup")
+    suspend fun downloadBackup(): okhttp3.ResponseBody
+
+    @Multipart
+    @POST("api/backup/import")
+    suspend fun importBackup(@Part file: okhttp3.MultipartBody.Part): RestoreReport
+
     @POST("api/extract/batch")
     suspend fun extractBatch(@Body body: BatchExtractionRequest): BatchExtractionResponse
 
