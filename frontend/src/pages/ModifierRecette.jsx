@@ -16,7 +16,7 @@ export default function ModifierRecette() {
   const [form, setForm] = useState(null)
 
   useEffect(() => {
-    if (recipe) setForm(recipe)
+    if (recipe) setForm({ ...recipe, ingredients: toRows(recipe.ingredients), steps: toRows(recipe.steps) })
   }, [recipe])
 
   const updateMutation = useMutation({
@@ -87,29 +87,24 @@ export default function ModifierRecette() {
 
   const set = (field) => (e) => setForm((f) => ({ ...f, [field]: e.target.value }))
 
-  const setIngredient = (i, field) => (e) => {
-    const ings = [...form.ingredients]
-    ings[i] = { ...ings[i], [field]: e.target.value }
-    setForm((f) => ({ ...f, ingredients: ings }))
-  }
+  // Ingrédients et étapes sont des lignes : éléments ou intertitres de
+  // section (« Pâte »), qui s'appliquent aux éléments qui les suivent.
+  const setRow = (list, i, field) => (e) => setForm((f) => {
+    const rows = [...f[list]]
+    rows[i] = { ...rows[i], [field]: e.target.value }
+    return { ...f, [list]: rows }
+  })
+  const addRow = (list, row) => setForm((f) => ({ ...f, [list]: [...f[list], row] }))
+  const removeRow = (list, i) => setForm((f) => ({ ...f, [list]: f[list].filter((_, idx) => idx !== i) }))
 
-  const addIngredient = () =>
-    setForm((f) => ({ ...f, ingredients: [...f.ingredients, { quantity: '', unit: '', name: '', notes: '' }] }))
-
-  const removeIngredient = (i) =>
-    setForm((f) => ({ ...f, ingredients: f.ingredients.filter((_, idx) => idx !== i) }))
-
-  const setStep = (i) => (e) => {
-    const steps = [...form.steps]
-    steps[i] = { ...steps[i], text: e.target.value }
-    setForm((f) => ({ ...f, steps }))
-  }
-
-  const addStep = () =>
-    setForm((f) => ({ ...f, steps: [...f.steps, { order: f.steps.length + 1, text: '' }] }))
-
-  const removeStep = (i) =>
-    setForm((f) => ({ ...f, steps: f.steps.filter((_, idx) => idx !== i).map((s, idx) => ({ ...s, order: idx + 1 })) }))
+  const setIngredient = (i, field) => setRow('ingredients', i, field)
+  const addIngredient = () => addRow('ingredients', { quantity: '', unit: '', name: '', notes: '' })
+  const removeIngredient = (i) => removeRow('ingredients', i)
+  const setStep = (i) => setRow('steps', i, 'text')
+  const addStep = () => addRow('steps', { text: '' })
+  const removeStep = (i) => removeRow('steps', i)
+  const addSection = (list) => addRow(list, { isSection: true, title: '' })
+  const stepNumbers = numberItems(form.steps)
 
   const handleSubmit = (e) => {
     e.preventDefault()
@@ -119,8 +114,8 @@ export default function ModifierRecette() {
       servings: form.servings ? Number(form.servings) : null,
       prep_time: form.prep_time ? Number(form.prep_time) : null,
       cook_time: form.cook_time ? Number(form.cook_time) : null,
-      ingredients: form.ingredients,
-      steps: form.steps,
+      ingredients: fromRows(form.ingredients),
+      steps: fromRows(form.steps).map((step, i) => ({ ...step, order: i + 1 })),
       tags: typeof form.tags === 'string' ? form.tags.split(',').map(t => t.trim()).filter(Boolean) : form.tags,
       thumbnail_url: form.thumbnail_url,
     })
@@ -220,10 +215,16 @@ export default function ModifierRecette() {
       <div>
         <div className="flex items-center justify-between mb-2">
           <label className={labelCls + ' mb-0'}>Ingrédients</label>
-          <button type="button" onClick={addIngredient} className="text-sm text-orange-600 hover:underline">+ Ajouter</button>
+          <span className="flex gap-3">
+            <button type="button" onClick={() => addSection('ingredients')} className="text-sm text-gray-500 hover:underline">+ Section</button>
+            <button type="button" onClick={addIngredient} className="text-sm text-orange-600 hover:underline">+ Ajouter</button>
+          </span>
         </div>
         <div className="space-y-2">
-          {form.ingredients.map((ing, i) => (
+          {form.ingredients.map((ing, i) => ing.isSection ? (
+            <SectionRow key={i} value={ing.title} onChange={setRow('ingredients', i, 'title')}
+              onRemove={() => removeIngredient(i)} inputCls={inputCls} />
+          ) : (
             <div key={i} className="flex gap-2 items-center">
               <input placeholder="Qté" value={ing.quantity || ''} onChange={setIngredient(i, 'quantity')} className={inputCls + ' w-16'} />
               <input placeholder="Unité" value={ing.unit || ''} onChange={setIngredient(i, 'unit')} className={inputCls + ' w-20'} />
@@ -239,13 +240,19 @@ export default function ModifierRecette() {
       <div>
         <div className="flex items-center justify-between mb-2">
           <label className={labelCls + ' mb-0'}>Étapes</label>
-          <button type="button" onClick={addStep} className="text-sm text-orange-600 hover:underline">+ Ajouter</button>
+          <span className="flex gap-3">
+            <button type="button" onClick={() => addSection('steps')} className="text-sm text-gray-500 hover:underline">+ Section</button>
+            <button type="button" onClick={addStep} className="text-sm text-orange-600 hover:underline">+ Ajouter</button>
+          </span>
         </div>
         <div className="space-y-2">
-          {form.steps.map((step, i) => (
+          {form.steps.map((step, i) => step.isSection ? (
+            <SectionRow key={i} value={step.title} onChange={setRow('steps', i, 'title')}
+              onRemove={() => removeStep(i)} inputCls={inputCls} />
+          ) : (
             <div key={i} className="flex gap-2 items-start">
               <span className="w-7 h-7 bg-orange-100 text-orange-700 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0 mt-1.5">
-                {i + 1}
+                {stepNumbers[i]}
               </span>
               <textarea
                 value={step.text}
@@ -268,5 +275,48 @@ export default function ModifierRecette() {
         {updateMutation.isPending ? 'Enregistrement…' : 'Enregistrer les modifications'}
       </button>
     </form>
+  )
+}
+
+// Liste enregistrée → lignes du formulaire, avec un intertitre à chaque
+// changement de section (un intertitre vide = retour « sans section »).
+function toRows(items = []) {
+  const rows = []
+  let current = null
+  for (const { section, ...item } of items) {
+    const next = section || null
+    if (next !== current) rows.push({ isSection: true, title: next || '' })
+    current = next
+    rows.push(item)
+  }
+  return rows
+}
+
+// Lignes du formulaire → liste enregistrée : chaque élément prend la section
+// du dernier intertitre au-dessus de lui.
+function fromRows(rows) {
+  let section = null
+  const items = []
+  for (const row of rows) {
+    if (row.isSection) section = row.title.trim() || null
+    else items.push(section ? { ...row, section } : row)
+  }
+  return items
+}
+
+// Numéros des étapes (les intertitres ne comptent pas).
+function numberItems(rows) {
+  let n = 0
+  return rows.map((row) => (row.isSection ? null : ++n))
+}
+
+function SectionRow({ value, onChange, onRemove, inputCls }) {
+  return (
+    <div className="flex gap-2 items-center pt-2">
+      <input value={value} onChange={onChange} placeholder="Nom de la partie (ex. Pâte, Garniture)"
+        className={inputCls + ' flex-1 font-semibold uppercase tracking-wide text-orange-700 bg-orange-50'} />
+      <button type="button" onClick={onRemove} title="Supprimer l'intertitre"
+        className="text-red-400 hover:text-red-600 text-lg">×</button>
+    </div>
   )
 }

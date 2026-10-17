@@ -24,15 +24,32 @@ import com.popote.data.Step
 
 // Lignes du formulaire : la clé reste stable quand on ajoute, supprime ou
 // déplace une ligne, pour que le champ en cours de saisie garde le focus.
+// Une ligne « section » est un intertitre (« Pâte ») : son nom est dans
+// name/text et il s'applique aux lignes qui le suivent.
 private data class IngredientDraft(
     val key: Long,
     val quantity: String = "",
     val unit: String = "",
     val name: String = "",
     val notes: String = "",
+    val isSection: Boolean = false,
 )
 
-private data class StepDraft(val key: Long, val text: String = "")
+private data class StepDraft(val key: Long, val text: String = "", val isSection: Boolean = false)
+
+/** Liste enregistrée → lignes, avec un intertitre à chaque changement de section
+ *  (un intertitre vide ramène les lignes suivantes « sans section »). */
+private fun <T, R> toRows(items: List<T>, section: (T) -> String?, header: (String) -> R, row: (T) -> R): List<R> {
+    val rows = mutableListOf<R>()
+    var current: String? = null
+    for (item in items) {
+        val next = section(item)?.takeIf { it.isNotBlank() }
+        if (next != current) rows.add(header(next ?: ""))
+        current = next
+        rows.add(row(item))
+    }
+    return rows
+}
 
 private var nextKey = 0L
 private fun newKey() = nextKey++
@@ -64,12 +81,18 @@ fun RecipeEditScreen(
     var cook by remember { mutableStateOf(recipe.cook_time?.toString() ?: "") }
     var tags by remember { mutableStateOf(recipe.tags.joinToString(", ")) }
     val ingredients = remember {
-        recipe.ingredients.map {
-            IngredientDraft(newKey(), it.quantity ?: "", it.unit ?: "", it.name, it.notes ?: "")
-        }.toMutableStateList()
+        toRows(
+            recipe.ingredients, { it.section },
+            { IngredientDraft(newKey(), name = it, isSection = true) },
+            { IngredientDraft(newKey(), it.quantity ?: "", it.unit ?: "", it.name, it.notes ?: "") },
+        ).toMutableStateList()
     }
     val steps = remember {
-        recipe.steps.sortedBy { it.order }.map { StepDraft(newKey(), it.text) }.toMutableStateList()
+        toRows(
+            recipe.steps.sortedBy { it.order }, { it.section },
+            { StepDraft(newKey(), it, isSection = true) },
+            { StepDraft(newKey(), it.text) },
+        ).toMutableStateList()
     }
     var changed by remember { mutableStateOf(false) }
     var confirmLeave by remember { mutableStateOf(false) }
@@ -89,10 +112,11 @@ fun RecipeEditScreen(
                 "prep_time" to prep.toIntOrNull(),
                 "cook_time" to cook.toIntOrNull(),
                 "tags" to tags.split(',').mapNotNull { it.orNull() },
-                "ingredients" to ingredients.filter { it.name.isNotBlank() }.map {
-                    Ingredient(it.quantity.orNull(), it.unit.orNull(), it.name.trim(), it.notes.orNull())
+                "ingredients" to sectioned(ingredients, { it.isSection }, { it.name }) { ing, section ->
+                    ing.name.orNull()?.let { Ingredient(ing.quantity.orNull(), ing.unit.orNull(), it, ing.notes.orNull(), section) }
                 },
-                "steps" to steps.mapNotNull { it.text.orNull() }.mapIndexed { i, text -> Step(i + 1, text) },
+                "steps" to sectioned(steps, { it.isSection }, { it.text }) { step, section -> step.text.orNull()?.let { it to section } }
+                    .mapIndexed { i, (text, section) -> Step(i + 1, text, section) },
             )
         )
     }
@@ -193,38 +217,55 @@ fun RecipeEditScreen(
 
             item { SectionTitle("Ingrédients") }
             itemsIndexed(ingredients, key = { _, d -> d.key }) { i, ing ->
-                IngredientRow(
-                    ing,
-                    onChange = { updated -> edit { ingredients[i] = updated } },
-                    onRemove = { edit { ingredients.removeAt(i) } },
-                )
+                if (ing.isSection) {
+                    SectionRow(
+                        ing.name,
+                        onChange = { name -> edit { ingredients[i] = ing.copy(name = name) } },
+                        onRemove = { edit { ingredients.removeAt(i) } },
+                    )
+                } else {
+                    IngredientRow(
+                        ing,
+                        onChange = { updated -> edit { ingredients[i] = updated } },
+                        onRemove = { edit { ingredients.removeAt(i) } },
+                    )
+                }
             }
             item {
-                TextButton(onClick = { edit { ingredients.add(IngredientDraft(newKey())) } }) {
-                    Icon(Icons.Default.Add, null)
-                    Spacer(Modifier.width(4.dp))
-                    Text("Ajouter un ingrédient")
-                }
+                AddButtons(
+                    label = "Ajouter un ingrédient",
+                    onAdd = { edit { ingredients.add(IngredientDraft(newKey())) } },
+                    onAddSection = { edit { ingredients.add(IngredientDraft(newKey(), isSection = true)) } },
+                )
             }
 
             item { SectionTitle("Étapes") }
             itemsIndexed(steps, key = { _, d -> d.key }) { i, step ->
-                StepRow(
-                    number = i + 1,
-                    step = step,
-                    canMoveUp = i > 0,
-                    canMoveDown = i < steps.lastIndex,
-                    onChange = { text -> edit { steps[i] = step.copy(text = text) } },
-                    onMove = { delta -> edit { steps.add(i + delta, steps.removeAt(i)) } },
-                    onRemove = { edit { steps.removeAt(i) } },
-                )
+                if (step.isSection) {
+                    SectionRow(
+                        step.text,
+                        onChange = { text -> edit { steps[i] = step.copy(text = text) } },
+                        onRemove = { edit { steps.removeAt(i) } },
+                    )
+                } else {
+                    StepRow(
+                        // Les intertitres ne comptent pas dans la numérotation.
+                        number = steps.take(i + 1).count { !it.isSection },
+                        step = step,
+                        canMoveUp = i > 0,
+                        canMoveDown = i < steps.lastIndex,
+                        onChange = { text -> edit { steps[i] = step.copy(text = text) } },
+                        onMove = { delta -> edit { steps.add(i + delta, steps.removeAt(i)) } },
+                        onRemove = { edit { steps.removeAt(i) } },
+                    )
+                }
             }
             item {
-                TextButton(onClick = { edit { steps.add(StepDraft(newKey())) } }) {
-                    Icon(Icons.Default.Add, null)
-                    Spacer(Modifier.width(4.dp))
-                    Text("Ajouter une étape")
-                }
+                AddButtons(
+                    label = "Ajouter une étape",
+                    onAdd = { edit { steps.add(StepDraft(newKey())) } },
+                    onAddSection = { edit { steps.add(StepDraft(newKey(), isSection = true)) } },
+                )
             }
 
             item {
@@ -234,6 +275,62 @@ fun RecipeEditScreen(
                     modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                 ) { Text(if (saving) "Enregistrement…" else "Enregistrer les modifications") }
             }
+        }
+    }
+}
+
+/** Lignes → éléments enregistrés, chacun avec la section du dernier intertitre au-dessus. */
+private fun <T, R : Any> sectioned(
+    rows: List<T>,
+    isSection: (T) -> Boolean,
+    title: (T) -> String,
+    build: (T, String?) -> R?,
+): List<R> {
+    var section: String? = null
+    return rows.mapNotNull { row ->
+        if (isSection(row)) {
+            section = title(row).orNull()
+            null
+        } else {
+            build(row, section)
+        }
+    }
+}
+
+@Composable
+private fun AddButtons(label: String, onAdd: () -> Unit, onAddSection: () -> Unit) {
+    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        TextButton(onClick = onAdd) {
+            Icon(Icons.Default.Add, null)
+            Spacer(Modifier.width(4.dp))
+            Text(label)
+        }
+        TextButton(onClick = onAddSection) {
+            Icon(Icons.Default.Title, null)
+            Spacer(Modifier.width(4.dp))
+            Text("Section")
+        }
+    }
+}
+
+/** Intertitre de section (« Pâte », « Garniture ») ; vide = fin de la section précédente. */
+@Composable
+private fun SectionRow(title: String, onChange: (String) -> Unit, onRemove: () -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        OutlinedTextField(
+            value = title,
+            onValueChange = { onChange(it.take(100)) },
+            label = { Text("Section") },
+            placeholder = { Text("Pâte, garniture, sauce…") },
+            singleLine = true,
+            textStyle = MaterialTheme.typography.titleSmall.copy(
+                fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary,
+            ),
+            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
+            modifier = Modifier.weight(1f),
+        )
+        IconButton(onClick = onRemove) {
+            Icon(Icons.Default.Delete, "Supprimer la section", tint = MaterialTheme.colorScheme.error)
         }
     }
 }

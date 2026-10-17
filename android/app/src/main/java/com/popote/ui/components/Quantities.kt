@@ -113,3 +113,11 @@ fun ingredientsForStep(step: String, ingredients: List<Ingredient>): List<Ingred
     val inStep = words(step).map(::stem).toSet()
     return ingredients.filter { ing -> headWord(ing.name)?.let { it in inStep } == true }
 }
+
+// ── Parties d'une recette (« Pâte », « Garniture ») ─────────────────────────
+
+/** Nom de la partie qui commence à l'élément [i] (intertitre à afficher), sinon null. */
+fun <T> sectionStart(items: List<T>, i: Int, section: (T) -> String?): String? {
+    val current = section(items[i])?.takeIf { it.isNotBlank() } ?: return null
+    return if (i == 0 || section(items[i - 1]) != current) current else null
+}

@@ -116,3 +116,17 @@ def test_export_with_fewer_portions_makes_bigger_portions():
         _recipe(), "https://p.fr", "https://p.fr/x", "https://p.fr/a", scale=2, servings=4,
     )
     assert "4 portions" in page and "quantités ×2" in page and "500 g farine" in page
+
+
+def test_export_page_shows_sections():
+    recipe = _recipe(
+        ingredients=[{"quantity": "250", "unit": "g", "name": "farine", "section": "Pâte"},
+                     {"quantity": "3", "name": "œufs", "section": "Pâte"},
+                     {"quantity": "100", "unit": "g", "name": "sucre glace", "section": "Glaçage"}],
+        steps=[{"order": 1, "text": "Pétrir.", "section": "Pâte"}, {"order": 2, "text": "Glacer.", "section": "Glaçage"}],
+    )
+    page = recipe_export.render_recipe_page(recipe, "https://p.fr", "https://p.fr/x", "https://p.fr/a")
+    assert "<h3>Pâte</h3><ul><li>250 g farine</li><li>3 œufs</li></ul><h3>Glaçage</h3><ul>" in page
+    assert "<h3>Glaçage</h3><ol><li>Glacer.</li></ol>" in page
+    # MyFitnessPal lit une liste à plat.
+    assert recipe_export.recipe_jsonld(recipe, "https://p.fr", "https://p.fr/x")["recipeIngredient"][2] == "100 g sucre glace"
