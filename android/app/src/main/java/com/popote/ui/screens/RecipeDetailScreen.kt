@@ -50,6 +50,8 @@ import com.popote.ui.components.parseAmount
 import com.popote.ui.components.parseFraction
 import com.popote.ui.components.scaleFor
 import com.popote.ui.components.scaleQty
+import com.popote.ui.components.sectionStart
+import com.popote.ui.components.RecipePartTitle
 import com.popote.ui.components.isLocalServer
 import com.popote.ui.components.openMyFitnessPal
 import com.popote.ui.components.parseStepSeconds
@@ -864,7 +866,10 @@ private fun RecipeContent(
                     style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            items(recipe.ingredients) { ing ->
+            itemsIndexed(recipe.ingredients) { i, ing ->
+                sectionStart(recipe.ingredients, i) { it.section }?.let {
+                    RecipePartTitle(it, Modifier.padding(horizontal = 16.dp))
+                }
                 val scaledQty = scaleQty(ing.quantity, scale)
                 val adjustable = parseFraction(ing.quantity) != null
                 ListItem(
@@ -886,6 +891,9 @@ private fun RecipeContent(
         if (recipe.steps.isNotEmpty()) {
             item { SectionTitle("Préparation") }
             itemsIndexed(recipe.steps) { idx, step ->
+                sectionStart(recipe.steps, idx) { it.section }?.let {
+                    RecipePartTitle(it, Modifier.padding(horizontal = 16.dp))
+                }
                 Row(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Surface(shape = MaterialTheme.shapes.small, color = MaterialTheme.colorScheme.primary) {
                         Text("${idx + 1}", Modifier.padding(horizontal = 10.dp, vertical = 4.dp), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.Bold)

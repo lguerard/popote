@@ -103,6 +103,27 @@ def step_texts(steps) -> list[str]:
     return texts
 
 
+def _grouped_html(pairs, tag: str) -> str:
+    """Liste HTML coupée par un intertitre à chaque nouvelle section."""
+    e = html.escape
+    parts, current, open_list = [], None, False
+    for section, text in pairs:
+        if section != current and (section or open_list):
+            if open_list:
+                parts.append(f"</{tag}>")
+            if section:
+                parts.append(f"<h3>{e(section)}</h3>")
+            parts.append(f"<{tag}>")
+            current = section
+        elif not open_list:
+            parts.append(f"<{tag}>")
+        open_list = True
+        parts.append(f"<li>{e(text)}</li>")
+    if open_list:
+        parts.append(f"</{tag}>")
+    return "".join(parts)
+
+
 def _duration(minutes) -> str | None:
     return f"PT{int(minutes)}M" if isinstance(minutes, (int, float)) and minutes > 0 else None
 
@@ -177,8 +198,18 @@ def render_recipe_page(
         meta.append(f"préparation {recipe.prep_time} min")
     if recipe.cook_time:
         meta.append(f"cuisson {recipe.cook_time} min")
-    ingredients = "".join(f"<li>{e(line)}</li>" for line in data["recipeIngredient"])
-    steps = "".join(f"<li>{e(s['text'])}</li>" for s in data["recipeInstructions"])
+    scaled = scale_ingredients(recipe.ingredients, scale)
+    ingredients = _grouped_html(
+        ((i.get("section") if isinstance(i, dict) else None, ingredient_line(i))
+         for i in scaled if ingredient_line(i)),
+        "ul",
+    )
+    steps = _grouped_html(
+        ((step.get("section") if isinstance(step, dict) else None, text)
+         for step in (recipe.steps if isinstance(recipe.steps, list) else [])
+         if (text := _text(step.get("text") if isinstance(step, dict) else step))),
+        "ol",
+    )
     return f"""<!doctype html>
 <html lang="fr">
 <head>
@@ -203,9 +234,9 @@ img{{width:100%;max-height:360px;object-fit:cover;border-radius:12px}}
 {f'<p>{e(data["description"])}</p>' if data.get("description") else ''}
 {f'<p class="meta">{e(" · ".join(meta))}</p>' if meta else ''}
 <h2>Ingrédients</h2>
-<ul>{ingredients}</ul>
+{ingredients}
 <h2>Préparation</h2>
-<ol>{steps}</ol>
+{steps}
 </article>
 <p><a href="{e(app_url)}">Ouvrir dans Popote</a></p>
 </body>

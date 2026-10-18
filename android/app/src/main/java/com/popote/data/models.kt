@@ -148,11 +148,14 @@ data class Ingredient(
     val unit: String?,
     val name: String,
     val notes: String?,
+    // Partie de la recette (« Pâte », « Garniture ») ; null hors section.
+    val section: String? = null,
 )
 
 data class Step(
     val order: Int,
     val text: String,
+    val section: String? = null,
 )
 
 data class ExtractionRequest(val input: String)
@@ -161,6 +164,24 @@ data class ExtractionResponse(
     val recipe_id: String,
     val status: String,
     val message: String,
+)
+
+// Sauvegarde complète du compte (voir backend/app/services/backup.py)
+data class RestoreReport(
+    val recipes_added: Int = 0,
+    val recipes_skipped: Int = 0,
+    val invalid: Int = 0,
+    val images: Int = 0,
+    val collections_added: Int = 0,
+)
+
+// Import de plusieurs liens (extraits l'un après l'autre par le serveur)
+data class BatchExtractionRequest(val text: String)
+data class BatchItem(val recipe_id: String, val input: String)
+data class BatchExtractionResponse(
+    val items: List<BatchItem>?,
+    val already_saved: List<String>?,
+    val ignored: Int = 0,
 )
 
 data class LoginRequest(val email: String, val password: String)

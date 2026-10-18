@@ -228,6 +228,20 @@ le script une fois le GPU réparé suffit à revenir au GPU.
 yt-dlp (lecture des vidéos) est mis à jour à chaque démarrage du backend :
 `docker compose restart backend` suffit quand Instagram ou TikTok changent.
 
+### Sauvegarder ses recettes
+
+Chaque compte télécharge sa sauvegarde complète (recettes, images, notes,
+avis, historique, carnets) depuis 💾 **Sauvegarde** sur le web ou
+**Paramètres → Sauvegarde** sur Android, et la restaure au même endroit. La
+restauration ajoute les recettes sans dupliquer celles déjà présentes.
+
+Une sauvegarde avec beaucoup d'images peut peser plusieurs centaines de Mo :
+le plan gratuit de Cloudflare refuse les envois de plus de 100 Mo. Pour
+restaurer une grosse sauvegarde, faites-le **depuis le réseau local**
+(`http://192.168.x.x`). Le planning et la liste de courses ne sont pas inclus ;
+pour tout le serveur (tous les comptes), sauvegardez la base PostgreSQL et le
+dossier des images (volume `media_data`).
+
 ---
 
 ## 8. Dépannage

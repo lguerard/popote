@@ -162,3 +162,17 @@ def test_manual_edit_rejects_blank_title_and_keeps_partial_updates():
         RecipeUpdate(title="   ")
     # Un PATCH qui ne touche pas au titre (note, favori…) ne l'efface pas.
     assert RecipeUpdate(rating=4).model_dump(exclude_unset=True) == {"rating": 4}
+
+
+def test_manual_edit_keeps_sections():
+    from app.schemas.recipe import RecipeUpdate
+
+    data = RecipeUpdate(
+        ingredients=[{"name": "farine", "section": " Pâte : "}, {"name": "sel", "section": "  "}],
+        steps=[{"text": "Pétrir", "section": "Pâte"}, {"text": " ", "section": "Pâte"}, {"text": "Servir"}],
+    )
+    assert data.ingredients == [
+        {"quantity": None, "unit": None, "name": "farine", "notes": None, "section": "Pâte"},
+        {"quantity": None, "unit": None, "name": "sel", "notes": None},
+    ]
+    assert data.steps == [{"order": 1, "text": "Pétrir", "section": "Pâte"}, {"order": 2, "text": "Servir"}]

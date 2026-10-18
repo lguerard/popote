@@ -49,8 +49,9 @@ def scrape_recipe(html: str, url: str | None) -> tuple[dict, str] | None:
 
     title = rp.clean_text(_call(scraper, "title"))[:500]
     raw_ingredients = [line for line in rp.as_list(_call(scraper, "ingredients")) if rp.clean_text(line)]
-    ingredients = [rp.parse_ingredient_line(line) for line in raw_ingredients]
-    steps = rp.flatten_instructions(_call(scraper, "instructions_list") or _call(scraper, "instructions"))
+    ingredients, lines = _ingredients(scraper, raw_ingredients)
+    pairs = _steps(scraper)
+    steps = [text for _, text in pairs]
     if not title or len(ingredients) < 2 or not steps:
         return None
 
@@ -71,7 +72,7 @@ def scrape_recipe(html: str, url: str | None) -> tuple[dict, str] | None:
         "prep_time": prep,
         "cook_time": cook,
         "ingredients": ingredients,
-        "steps": [{"order": i, "text": step} for i, step in enumerate(steps, 1)],
+        "steps": rp.steps_from_pairs(pairs),
         "tags": rp.build_tags(
             {"keywords": keywords, "recipeCuisine": _call(scraper, "cuisine")},
             title, category, (prep or 0) + (cook or 0) or total,
@@ -80,7 +81,49 @@ def scrape_recipe(html: str, url: str | None) -> tuple[dict, str] | None:
     }
     text = "\n".join(
         [f"Titre : {title}", "Ingrédients :"]
-        + [f"- {rp.clean_text(line)}" for line in raw_ingredients]
-        + ["Étapes :"] + [f"{n}. {s}" for n, s in enumerate(steps, 1)]
+        + rp.lines_with_headings((section, f"- {rp.clean_text(line)}") for section, line in lines)
+        + ["Étapes :"]
+        + rp.lines_with_headings((sec, f"{n}. {step}") for n, (sec, step) in enumerate(pairs, 1))
     )
     return recipe, text
+
+
+def _ingredients(scraper, raw_lines: list[str]) -> tuple[list[dict], list[tuple[str | None, str]]]:
+    """(ingrédients, lignes d'origine avec leur section), groupés en sections
+    quand le site les publie (« Pour la pâte »)."""
+    groups = _call(scraper, "ingredient_groups") or []
+    if len(groups) > 1:
+        ingredients, lines = [], []
+        for group in groups:
+            section = rp.clean_text(getattr(group, "purpose", None)).rstrip(" :")[: rp.MAX_SECTION_LENGTH] or None
+            for line in getattr(group, "ingredients", None) or []:
+                if rp.clean_text(line):
+                    ingredient = rp.parse_ingredient_line(line)
+                    if section:
+                        ingredient["section"] = section
+                    ingredients.append(ingredient)
+                    lines.append((section, line))
+        if len(ingredients) >= 2:
+            return ingredients, lines
+    ingredients = rp.parse_ingredient_lines(raw_lines)
+    return ingredients, [(None, line) for line in raw_lines]
+
+
+def _steps(scraper) -> list[tuple[str | None, str]]:
+    """Étapes (section, texte) ; sections prises dans les données schema.org
+    (HowToSection) que la liste à plat de recipe-scrapers ne garde pas."""
+    pairs = rp.sectioned_instructions(_call(scraper, "instructions_list") or _call(scraper, "instructions"))
+    if any(section for section, _ in pairs):
+        return pairs
+    try:
+        schema = scraper.schema.data or {}
+    except Exception:
+        return pairs
+    from_schema = rp.sectioned_instructions(schema.get("recipeInstructions")) if isinstance(schema, dict) else []
+    names = {section for section, _ in from_schema if section}
+    # recipe-scrapers aplatit les sections en glissant leur nom comme une
+    # étape (« 1. Pâte ») : sans ces faux pas, ce sont les mêmes étapes.
+    real = [text for _, text in pairs if text.rstrip(" :") not in names]
+    if names and len(real) <= len(from_schema):
+        return from_schema
+    return pairs

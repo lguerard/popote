@@ -14,6 +14,7 @@ import Frigo from './pages/Frigo'
 import { Carnets, Carnet } from './pages/Carnets'
 import Partage from './pages/Partage'
 import PartageComptes from './pages/PartageComptes'
+import Sauvegarde from './pages/Sauvegarde'
 import { useAuth } from './auth'
 
 export default function App() {
@@ -59,6 +60,7 @@ export default function App() {
           <Route path="/carnets" element={<Carnets />} />
           <Route path="/carnets/:id" element={<Carnet />} />
           <Route path="/partager" element={<PartageComptes />} />
+          <Route path="/sauvegarde" element={<Sauvegarde />} />
           {/* Route montee seulement pour un administrateur : sans ça,
               un non-admin verrait la page avant son erreur 403. */}
           {user.is_admin && <Route path="/comptes" element={<Comptes />} />}

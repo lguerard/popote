@@ -2,10 +2,12 @@ import { useState, useRef, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { submitExtraction, submitImageExtraction } from '../api'
 import StatutExtraction from '../components/StatutExtraction'
+import ImportGroupe, { countLinks } from '../components/ImportGroupe'
 
 const TABS = [
   { id: 'url', label: 'URL / Texte', emoji: '🔗' },
   { id: 'photo', label: 'Photo', emoji: '📷' },
+  { id: 'groupe', label: 'Plusieurs liens', emoji: '📚' },
 ]
 
 export default function AjouterRecette() {
@@ -106,6 +108,12 @@ export default function AjouterRecette() {
             rows={6}
             className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-white shadow-sm focus:outline-none focus:ring-2 focus:ring-orange-400 focus:border-transparent resize-none font-mono text-sm"
           />
+          {countLinks(input) > 1 && (
+            <button type="button" onClick={() => setTab('groupe')}
+              className="w-full px-4 py-2 rounded-xl bg-orange-50 text-orange-800 text-sm hover:bg-orange-100">
+              📚 {countLinks(input)} liens détectés : les importer tous →
+            </button>
+          )}
           {error && <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm">{error}</div>}
           <button type="submit" disabled={loading || !input.trim()} className="w-full py-3 bg-orange-600 hover:bg-orange-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold rounded-xl transition-colors">
             {loading ? 'Envoi…' : 'Extraire la recette'}
@@ -118,6 +126,8 @@ export default function AjouterRecette() {
           </div>
         </form>
       )}
+
+      {tab === 'groupe' && <ImportGroupe initialText={input} />}
 
       {tab === 'photo' && (
         <form onSubmit={handleSubmitImage} className="space-y-4">
