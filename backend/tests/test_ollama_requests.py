@@ -96,3 +96,39 @@ def test_old_ollama_refusing_the_schema_switches_to_json(monkeypatch):
     _patch_http(monkeypatch, llm_service, handler)
     assert asyncio.run(llm_service._chat_ollama("recette"))["title"] == "Pâtes"
     assert llm_service._schema_supported is False
+
+
+def test_nutrition_request_has_a_schema_and_shared_options(monkeypatch):
+    from app.services import nutrition_service
+
+    monkeypatch.setattr(nutrition_service.settings, "claude_api_key", "")
+    monkeypatch.setattr(llm_service, "_schema_supported", True)
+    bodies = []
+
+    def handler(request):
+        bodies.append(json.loads(request.content))
+        return httpx.Response(200, json={"message": {"content": (
+            'Voici : {"calories": "450 kcal", "proteins": 25.55, "carbs": 55, "fat": null, '
+            '"fiber": -1, "sodium": 3}'
+        )}})
+
+    _patch_http(monkeypatch, llm_service, handler)
+    data = asyncio.run(nutrition_service.analyze_nutrition("Pâtes", [{"name": "pâtes", "quantity": "200", "unit": "g"}], 2))
+    assert data == {"calories": 450.0, "proteins": 25.6, "carbs": 55.0, "fat": None, "fiber": None}
+    _assert_common_options(bodies[0])
+    schema = bodies[0]["format"]
+    assert set(schema["required"]) == set(nutrition_service.NUTRITION_FIELDS)
+    assert all(prop["type"] == "number" for prop in schema["properties"].values())
+
+
+def test_nutrition_parse_reads_fenced_json_and_rejects_garbage():
+    from app.services import nutrition_service
+
+    fenced = '```json\n{"calories": 300, "proteins": 10, "carbs": 40, "fat": 8, "fiber": 3}\n```'
+    assert nutrition_service._parse(fenced)["calories"] == 300.0
+    try:
+        nutrition_service._parse("désolé")
+    except ValueError as e:
+        assert "illisible" in str(e)
+    else:
+        raise AssertionError("une réponse illisible doit lever")

@@ -1,7 +1,9 @@
-import json
-import re
 import httpx
+
 from ..config import settings
+from .llm_service import (
+    NUM_PREDICT_NUTRITION, _parse_json, ollama_chat_request, post_ollama_chat,
+)
 
 NUTRITION_PROMPT = """Tu es un nutritionniste expert.
 À partir d'une liste d'ingrédients et du nombre de portions, estime les valeurs nutritionnelles PAR PORTION.
@@ -20,6 +22,19 @@ Toutes les valeurs sont en grammes sauf calories (kcal).
 Si tu ne peux pas estimer une valeur, mets null.
 """
 
+NUTRITION_FIELDS = ("calories", "proteins", "carbs", "fat", "fiber")
+
+# Imposé à Ollama comme pour les recettes : plus de « 450 kcal » en texte
+# ni de champ en trop. Nombres simples (pas d'union avec null, voir
+# RECIPE_JSON_SCHEMA) : le modèle donne alors toujours une estimation.
+NUTRITION_JSON_SCHEMA = {
+    "type": "object",
+    "properties": {field: {"type": "number"} for field in NUTRITION_FIELDS},
+    "required": list(NUTRITION_FIELDS),
+}
+
+_OLLAMA_TIMEOUT_SECONDS = 60
+
 
 async def analyze_nutrition(title: str, ingredients: list[dict], servings: int | None) -> dict:
     ing_text = "\n".join(
@@ -33,23 +48,21 @@ async def analyze_nutrition(title: str, ingredients: list[dict], servings: int |
     return await _ollama_nutrition(user_msg)
 
 
+def build_nutrition_request(prompt: str, use_schema: bool = True) -> dict:
+    return ollama_chat_request(
+        [
+            {"role": "system", "content": NUTRITION_PROMPT},
+            {"role": "user", "content": prompt},
+        ],
+        num_predict=NUM_PREDICT_NUTRITION,
+        format=NUTRITION_JSON_SCHEMA if use_schema else "json",
+    )
+
+
 async def _ollama_nutrition(prompt: str) -> dict:
-    async with httpx.AsyncClient(timeout=60) as client:
-        resp = await client.post(
-            f"{settings.ollama_base_url}/api/chat",
-            json={
-                "model": settings.ollama_model,
-                "messages": [
-                    {"role": "system", "content": NUTRITION_PROMPT},
-                    {"role": "user", "content": prompt},
-                ],
-                "stream": False,
-                "format": "json",
-            },
-        )
-        resp.raise_for_status()
-        text = resp.json()["message"]["content"]
-        return _parse(text)
+    async with httpx.AsyncClient(timeout=_OLLAMA_TIMEOUT_SECONDS) as client:
+        resp = await post_ollama_chat(client, lambda use_schema: build_nutrition_request(prompt, use_schema))
+        return _parse(resp.json()["message"]["content"])
 
 
 async def _claude_nutrition(prompt: str) -> dict:
@@ -64,9 +77,31 @@ async def _claude_nutrition(prompt: str) -> dict:
     return _parse(msg.content[0].text)
 
 
+def _number(value) -> float | None:
+    """Nombre positif arrondi, ou None (« 450 kcal », null, texte, négatif…)."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, str):
+        value = value.replace(",", ".").strip().split(" ")[0]
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if number != number or number < 0:  # NaN ou négatif
+        return None
+    return round(number, 1)
+
+
 def _parse(text: str) -> dict:
-    text = text.strip()
-    match = re.search(r"```(?:json)?\s*([\s\S]*?)```", text)
-    if match:
-        text = match.group(1).strip()
-    return json.loads(text)
+    """Réponse du modèle → exactement les champs de NutritionOut.
+
+    Même lecture tolérante que pour les recettes (bloc ```json```, phrase
+    avant le JSON), puis seuls les champs attendus sont gardés, en nombres.
+    """
+    try:
+        data = _parse_json(text)
+    except ValueError:
+        raise ValueError("Le modèle a renvoyé une estimation illisible, réessaie.")
+    if not isinstance(data, dict):
+        raise ValueError("Le modèle a renvoyé une estimation illisible, réessaie.")
+    return {field: _number(data.get(field)) for field in NUTRITION_FIELDS}
