@@ -29,6 +29,7 @@ from datetime import timedelta
 from pathlib import Path
 
 from ...services import recipe_parsing
+from .scoring import reliable_reference
 
 TASKS = ("extraction", "photo_recipe", "nutrition", "description")
 DEFAULT_MAX_CASES = 12
@@ -217,6 +218,8 @@ def nutrition_case(recipe) -> dict | None:
     expected = {k: values.get(k) for k in ("calories", "proteins", "carbs", "fat", "fiber")
                 if isinstance(values.get(k), (int, float)) and not isinstance(values.get(k), bool)}
     if "calories" not in expected or len(expected) < 3 or not _get(recipe, "servings"):
+        return None
+    if not reliable_reference(expected):
         return None
     return {"id": f"nutrition-{_short_id(recipe)}", "source": "db", "title": _get(recipe, "title"),
             "servings": _get(recipe, "servings"), "ingredients": _ingredients(recipe), "expected": expected}

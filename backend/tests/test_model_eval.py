@@ -72,6 +72,17 @@ def test_nutrition_tolerance_and_consistency():
     off = scoring.score_nutrition({"calories": 520, "proteins": 20, "carbs": 50, "fat": 13, "fiber": 5}, ref)[0]
     assert 50 < off < 100       # 30 % d'écart et calories incohérentes : crédit partiel
     assert scoring.score_nutrition({"calories": None}, ref)[0] == 0
+    # La référence n'est qu'une ancienne estimation : 20 % d'écart cohérent = pleine note.
+    near = {"calories": 480, "proteins": 24, "carbs": 60, "fat": 15.6, "fiber": 6}
+    assert scoring.score_nutrition(near, ref)[0] == 100
+    assert scoring.score_nutrition({**near, "calories": 5000}, ref)[0] < 70   # hors bornes, incohérent
+
+
+def test_inconsistent_reference_is_not_a_nutrition_case():
+    good = {"calories": 400, "proteins": 20, "carbs": 50, "fat": 13, "fiber": 5}
+    assert cases.nutrition_case(recipe(1, nutrition=good)) is not None
+    stale = {"calories": 900, "proteins": 20, "carbs": 50, "fat": 13, "fiber": 5}   # 517 kcal d'après les macros
+    assert cases.nutrition_case(recipe(1, nutrition=stale)) is None
 
 
 def test_description_is_scored_loosely():
