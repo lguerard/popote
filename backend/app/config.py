@@ -8,6 +8,10 @@ class Settings(BaseSettings):
     # Fenêtre de contexte d'Ollama (tokens) : le défaut du serveur (2048-4096)
     # tronque les pages longues. Plus grand = plus de VRAM.
     ollama_num_ctx: int = 8192
+    # Modèle qui lit les photos (recettes photographiées, texte des images).
+    # Vide : OLLAMA_MODEL, à condition qu'il accepte les images (gemma4).
+    # Un modèle à part double la VRAM nécessaire s'ils tournent ensemble.
+    ollama_vision_model: str = ""
     claude_api_key: str = ""
     secret_key: str = "changeme"
     whisper_model: str = "large-v3"
@@ -29,6 +33,10 @@ class Settings(BaseSettings):
     # seulement si ceci est vrai : Popote est publie sur un domaine
     # public, une inscription libre laisserait n'importe qui entrer.
     allow_signup: bool = False
+
+    @property
+    def vision_model(self) -> str:
+        return self.ollama_vision_model or self.ollama_model
 
     @property
     def use_claude(self) -> bool:

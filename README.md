@@ -134,7 +134,7 @@ Internet / LAN
 | Transcription | faster-whisper `large-v3`, CUDA (RTX 3080) |
 | Scraping | yt-dlp (vidéos), Playwright (web) |
 | LLM | Ollama `qwen2.5:7b` + Claude `claude-sonnet-4-6` (fallback) |
-| OCR | Claude Vision (si clé API), sinon Ollama llava → pytesseract |
+| Photos | Lecture directe de la recette par le modèle de vision (Gemma 4 via Ollama, ou Claude), Tesseract en secours |
 | Frontend web | React 18, Vite, Tailwind CSS, React Query |
 | App Android | Kotlin, Jetpack Compose, Material 3, Retrofit, Coil |
 | Infrastructure | Docker Compose, NVIDIA Container Toolkit |

@@ -2,7 +2,7 @@ import asyncio
 import json
 import logging
 import re
-from typing import Callable
+from typing import Awaitable, Callable
 
 import httpx
 
@@ -67,6 +67,17 @@ RECONSTRUCT_PROMPT = (
 - Si le texte ne permet d'identifier AUCUN plat, boisson ou préparation culinaire : {"found": false}.
 """
 
+# Photo d'une recette (page de livre, fiche manuscrite, capture d'écran) :
+# lue directement par le modèle de vision, sans passer par un texte OCR
+# intermédiaire qui perdait la mise en page (colonnes, quantités en marge).
+IMAGE_RECIPE_PROMPT = (
+    "Tu es un assistant culinaire expert chargé d'extraire UNE recette d'une photo : "
+    "page de livre ou de magazine, fiche manuscrite, capture d'écran, emballage.\n"
+    + SYSTEM_PROMPT[SYSTEM_PROMPT.index("Réponds UNIQUEMENT"):]
+    + "- Recopie ce qui est écrit sur la photo, sans rien inventer ; une écriture illisible est ignorée.\n"
+    "- Photo d'un plat, d'un menu ou d'un produit sans recette écrite : {\"found\": false}.\n"
+)
+
 RECONSTRUCTED_NOTICE = "Recette reconstituée par l'IA : quantités et étapes à vérifier."
 
 
@@ -129,6 +140,16 @@ NUM_PREDICT_RECIPE = 3072
 # milieu (mots longs, tokenizer différent selon le modèle).
 NUM_PREDICT_DESCRIPTION = 200
 NUM_PREDICT_NUTRITION = 256
+# Transcription du texte d'une image : une page de recette entière.
+NUM_PREDICT_TRANSCRIPTION = 2048
+# Lecture d'une photo : chargement de l'image + génération de la recette.
+# Assez court pour laisser au repli (OCR Tesseract puis LLM texte) le temps
+# de finir dans le budget de 5 minutes de l'extraction.
+_VISION_TIMEOUT_SECONDS = 150
+# Côté le plus long d'une photo envoyée au modèle. Les modèles de vision
+# réduisent eux-mêmes l'image (~900 px pour Gemma) ; envoyer 12 Mpx ne fait
+# qu'allonger l'envoi, et Claude refuse les images de plus de 5 Mo.
+_MAX_IMAGE_SIDE = 2000
 
 
 def ollama_options(num_predict: int, temperature: float = 0) -> dict:
@@ -191,6 +212,47 @@ def build_ollama_request(
     )
 
 
+def prepare_image(image_bytes: bytes, mime_type: str) -> tuple[bytes, str]:
+    """Photo réduite (JPEG) si elle est inutilement grande, sinon telle quelle."""
+    try:
+        import io
+
+        from PIL import Image, ImageOps
+
+        image = Image.open(io.BytesIO(image_bytes))
+        if max(image.size) <= _MAX_IMAGE_SIDE and len(image_bytes) <= 4 * 1024 * 1024:
+            return image_bytes, mime_type
+        image = ImageOps.exif_transpose(image).convert("RGB")
+        image.thumbnail((_MAX_IMAGE_SIDE, _MAX_IMAGE_SIDE))
+        out = io.BytesIO()
+        image.save(out, format="JPEG", quality=90)
+        return out.getvalue(), "image/jpeg"
+    except Exception:
+        # Pillow absent ou format qu'il ne lit pas : le modèle s'en charge.
+        return image_bytes, mime_type
+
+
+def build_vision_request(
+    image_b64: str, prompt: str, *, system: str | None = None, num_predict: int,
+    format: dict | str | None = None, temperature: float = 0,
+) -> dict:
+    """Corps /api/chat avec une image, pour le modèle de vision configuré."""
+    messages = [{"role": "system", "content": system}] if system else []
+    messages.append({"role": "user", "content": prompt, "images": [image_b64]})
+    return ollama_chat_request(
+        messages, model=settings.vision_model, num_predict=num_predict,
+        temperature=temperature, format=format,
+    )
+
+
+def build_image_recipe_request(image_b64: str, *, use_schema: bool = True, temperature: float = 0) -> dict:
+    return build_vision_request(
+        image_b64, "Voici la photo à analyser.", system=IMAGE_RECIPE_PROMPT,
+        num_predict=NUM_PREDICT_RECIPE, temperature=temperature,
+        format=RECIPE_JSON_SCHEMA if use_schema else "json",
+    )
+
+
 def parse_llm_content(content: str) -> dict:
     """Réponse brute du modèle → recette normalisée, ou {"error": ...}."""
     try:
@@ -226,15 +288,41 @@ async def reconstruct_recipe_with_llm(text: str) -> dict:
     return data
 
 
+async def extract_recipe_from_image(image_bytes: bytes, mime_type: str = "image/jpeg") -> dict:
+    """Photo d'une recette → recette normalisée en UN appel au modèle de vision.
+
+    Renvoie {"error": ...} si la photo ne montre pas de recette écrite (plat,
+    menu…) ; lève si le modèle ne répond pas ou n'accepte pas les images :
+    l'appelant se rabat alors sur l'OCR.
+    """
+    import base64
+
+    image_bytes, mime_type = prepare_image(image_bytes, mime_type)
+
+    async def ask(temperature: float) -> dict:
+        if settings.use_claude:
+            return await _extract_claude_image(image_bytes, mime_type)
+        return await _extract_ollama_image(base64.standard_b64encode(image_bytes).decode(), temperature)
+
+    return await _retry_unreadable(ask)
+
+
 async def _ask_model(text: str, system: str) -> dict:
+    async def ask(temperature: float) -> dict:
+        if settings.use_claude:
+            return await _extract_claude(text, system)
+        return await _extract_ollama(text, system, temperature)
+
+    return await _retry_unreadable(ask)
+
+
+async def _retry_unreadable(ask: Callable[[float], Awaitable[dict]]) -> dict:
     """Une réponse illisible (JSON tronqué, texte libre) est réessayée une
     fois avec un peu de hasard : à température 0, le même appel redonnerait
     exactement la même réponse."""
     for attempt, temperature in enumerate((0, 0.4)):
         try:
-            if settings.use_claude:
-                return await _extract_claude(text, system)
-            return await _extract_ollama(text, system, temperature)
+            return await ask(temperature)
         except UnreadableResponse:
             if attempt:
                 raise
@@ -342,7 +430,7 @@ def offload_hint() -> str:
     )
 
 
-async def _check_offload() -> None:
+async def _check_offload(model: str | None = None) -> None:
     """Mesure, une fois le modèle chargé, s'il déborde du GPU sur le CPU.
 
     Un modèle trop gros pour la VRAM est chargé en partie sur le CPU sans
@@ -356,7 +444,8 @@ async def _check_offload() -> None:
             ps = (await client.get(f"{settings.ollama_base_url}/api/ps")).json()
     except Exception:
         return
-    ratio = offload_ratio(ps, settings.ollama_model)
+    model = model or settings.ollama_model
+    ratio = offload_ratio(ps, model)
     if ratio is None:
         return
     cpu_offload_ratio = ratio
@@ -366,7 +455,7 @@ async def _check_offload() -> None:
             "l'analyse sera très lente. Libérer le GPU (autres services), prendre "
             "un modèle plus léger (OLLAMA_MODEL=%s) ou baisser OLLAMA_NUM_CTX "
             "(actuellement %d).",
-            settings.ollama_model, ratio * 100, _LIGHT_FALLBACK_MODEL, settings.ollama_num_ctx,
+            model, ratio * 100, _LIGHT_FALLBACK_MODEL, settings.ollama_num_ctx,
         )
 
 
@@ -444,6 +533,43 @@ async def _chat_ollama(text: str, system: str = SYSTEM_PROMPT, temperature: floa
         )
 
 
+async def _extract_ollama_image(image_b64: str, temperature: float = 0) -> dict:
+    checker = asyncio.create_task(_check_offload(settings.vision_model))
+    try:
+        async with httpx.AsyncClient(timeout=_VISION_TIMEOUT_SECONDS) as client:
+            resp = await post_ollama_chat(client, lambda use_schema: build_image_recipe_request(
+                image_b64, use_schema=use_schema, temperature=temperature,
+            ))
+            return parse_llm_content(resp.json()["message"]["content"])
+    except httpx.TimeoutException:
+        raise RuntimeError(
+            f"Le modèle de vision {settings.vision_model} n'a pas lu la photo en "
+            f"{_VISION_TIMEOUT_SECONDS}s."
+        )
+    finally:
+        checker.cancel()
+
+
+async def _extract_claude_image(image_bytes: bytes, mime_type: str) -> dict:
+    import base64
+
+    import anthropic
+    client = anthropic.AsyncAnthropic(api_key=settings.claude_api_key)
+    message = await client.messages.create(
+        model="claude-sonnet-4-6",
+        max_tokens=4096,
+        system=IMAGE_RECIPE_PROMPT,
+        messages=[{"role": "user", "content": [
+            {"type": "image", "source": {
+                "type": "base64", "media_type": mime_type,
+                "data": base64.standard_b64encode(image_bytes).decode(),
+            }},
+            {"type": "text", "text": "Voici la photo à analyser."},
+        ]}],
+    )
+    return parse_llm_content(message.content[0].text)
+
+
 async def _extract_claude(text: str, system: str = SYSTEM_PROMPT) -> dict:
     import anthropic
     client = anthropic.AsyncAnthropic(api_key=settings.claude_api_key)
@@ -486,6 +612,11 @@ def model_is_installed(model: str, installed: list[str]) -> bool:
     return any(_full_model_name(name) == wanted for name in installed)
 
 
+def _ollama_models() -> list[str]:
+    """Modèles Ollama utilisés par l'appli : un seul, sauf OLLAMA_VISION_MODEL distinct."""
+    return list(dict.fromkeys([settings.ollama_model, settings.vision_model]))
+
+
 async def ensure_model_available():
     """Pull Ollama model if not present."""
     if settings.use_claude:
@@ -494,21 +625,23 @@ async def ensure_model_available():
         async with httpx.AsyncClient(timeout=10) as client:
             resp = await client.get(f"{settings.ollama_base_url}/api/tags")
             models = [m.get("model") or m.get("name") or "" for m in resp.json().get("models", [])]
-        if not model_is_installed(settings.ollama_model, models):
-            logger.info("Téléchargement du modèle Ollama %s…", settings.ollama_model)
+        for model in _ollama_models():
+            if model_is_installed(model, models):
+                continue
+            logger.info("Téléchargement du modèle Ollama %s…", model)
             # ~8 Go : laisser largement le temps du téléchargement
             async with httpx.AsyncClient(timeout=3600) as pull_client:
                 resp = await pull_client.post(
                     f"{settings.ollama_base_url}/api/pull",
-                    json={"model": settings.ollama_model, "stream": False},
+                    json={"model": model, "stream": False},
                 )
                 resp.raise_for_status()
-            logger.info("Modèle %s prêt", settings.ollama_model)
+            logger.info("Modèle %s prêt", model)
     except Exception:
         logger.exception(
             "Impossible de vérifier/télécharger le modèle Ollama %s — "
             "les extractions échoueront tant qu'il n'est pas disponible",
-            settings.ollama_model,
+            " / ".join(_ollama_models()),
         )
 
 
@@ -595,15 +728,16 @@ async def describe_dish_for_image(
 async def unload_ollama_model() -> None:
     """Libère la VRAM occupée par le modèle Ollama (rechargé à la demande).
 
-    Le modèle de texte occupe presque tout le GPU (OLLAMA_KEEP_ALIVE=24h) :
-    sans cela, le générateur d'image retombait sur le CPU, lent, et devait
-    se contenter d'un petit modèle. La prochaine extraction le recharge en
-    quelques secondes.
+    Le modèle occupe presque tout le GPU (OLLAMA_KEEP_ALIVE) : sans cela,
+    Whisper et le générateur d'image retombaient sur le CPU, lents. La
+    prochaine extraction le recharge en quelques secondes. Le modèle de
+    vision est déchargé aussi s'il est distinct (OLLAMA_VISION_MODEL).
     """
     if settings.use_claude:
         return
     async with httpx.AsyncClient(timeout=30) as client:
-        await client.post(
-            f"{settings.ollama_base_url}/api/generate",
-            json={"model": settings.ollama_model, "keep_alive": 0},
-        )
+        for model in _ollama_models():
+            await client.post(
+                f"{settings.ollama_base_url}/api/generate",
+                json={"model": model, "keep_alive": 0},
+            )
