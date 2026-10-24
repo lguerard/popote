@@ -100,6 +100,21 @@ docker compose up -d --build
 > **Premier démarrage** : Ollama va télécharger le modèle `gemma4:12b` (~8 GB).
 > Surveiller avec : `docker compose logs -f ollama`
 
+> **GPU partagé (10 Go)** : Popote n'utilise qu'un gros modèle à la fois.
+> `gemma4:12b` (~8 Go) sert au texte ET aux photos ; Whisper
+> (`large-v3-turbo`, ~1 Go, téléchargé à la première vidéo) et la génération
+> d'image déchargent Ollama avant de tourner, puis libèrent la carte dès
+> qu'ils ont fini. Si d'autres services utilisent le même serveur Ollama
+> (Paperless…), ils doivent demander la **même fenêtre de contexte** que
+> `OLLAMA_NUM_CTX` (8192, aussi passée à Ollama en `OLLAMA_CONTEXT_LENGTH`) :
+> sinon le modèle est rechargé à chaque alternance. `OLLAMA_KEEP_ALIVE=5m`
+> (au lieu de 24h) rend la VRAM plus vite aux autres services, au prix d'un
+> rechargement de ~10 s à l'extraction suivante.
+>
+> L'image Ollama est épinglée dans `docker-compose.yml` ; pour la mettre à
+> jour, prendre le dernier tag `X.Y.Z` sans `-rc` sur Docker Hub, modifier la
+> ligne `image:`, puis `docker compose pull ollama && docker compose up -d ollama`.
+
 ### 4.4 Vérifier
 
 ```bash
