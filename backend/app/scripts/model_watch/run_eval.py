@@ -27,8 +27,12 @@ import httpx
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))  # /app, so `app.*` imports work
 
 from app.config import settings  # noqa: E402
-from app.services.llm_service import build_ollama_request, parse_llm_content  # noqa: E402
-from app.scripts.model_watch.candidates import build_candidate_list, get_gpu_vram_gb  # noqa: E402
+from app.services.llm_service import (  # noqa: E402
+    _full_model_name, build_ollama_request, parse_llm_content,
+)
+from app.scripts.model_watch.candidates import (  # noqa: E402
+    build_candidate_list, get_gpu_vram_gb, vram_budget_gb,
+)
 from app.scripts.model_watch.scoring import score_extraction  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, stream=sys.stderr,
@@ -37,7 +41,6 @@ logger = logging.getLogger("model_watch")
 
 EVAL_CASES = json.loads((Path(__file__).parent / "eval_cases.json").read_text())
 
-VRAM_HEADROOM_GB = float(os.environ.get("MODEL_WATCH_VRAM_HEADROOM_GB", "1.0"))
 MAX_CANDIDATES = int(os.environ.get("MODEL_WATCH_MAX_CANDIDATES", "3"))
 MIN_IMPROVEMENT = float(os.environ.get("MODEL_WATCH_MIN_IMPROVEMENT", "5.0"))
 PULL_TIMEOUT = 3600
@@ -47,7 +50,7 @@ CHAT_TIMEOUT = 180
 async def pull_model(client: httpx.AsyncClient, model: str) -> None:
     resp = await client.post(
         f"{settings.ollama_base_url}/api/pull",
-        json={"name": model, "stream": False},
+        json={"model": model, "stream": False},
         timeout=PULL_TIMEOUT,
     )
     resp.raise_for_status()
@@ -63,10 +66,24 @@ async def delete_model(client: httpx.AsyncClient, model: str) -> None:
         logger.warning("Échec de la suppression de %s (non bloquant)", model, exc_info=True)
 
 
+async def model_capabilities(client: httpx.AsyncClient, model: str) -> list[str]:
+    """Capacités annoncées par Ollama (« completion », « vision », « thinking »…)."""
+    try:
+        resp = await client.post(
+            f"{settings.ollama_base_url}/api/show", json={"model": model}, timeout=30,
+        )
+        resp.raise_for_status()
+        return list(resp.json().get("capabilities") or [])
+    except Exception:
+        logger.warning("Capacités de %s inconnues (/api/show)", model, exc_info=True)
+        return []
+
+
 async def extract_with_model(client: httpx.AsyncClient, model: str, text: str) -> dict:
     # Exactement la requête et la normalisation de la prod (schéma JSON,
-    # num_ctx, température…) : on évalue ce que l'app ferait vraiment, et un
-    # num_ctx différent forcerait Ollama à recharger le modèle à chaque appel.
+    # num_ctx, température 0, "think": false) : on évalue ce que l'app
+    # ferait vraiment, de façon reproductible, et un num_ctx différent
+    # forcerait Ollama à recharger le modèle à chaque appel.
     resp = await client.post(
         f"{settings.ollama_base_url}/api/chat",
         json=build_ollama_request(text, model),
@@ -106,19 +123,23 @@ async def main() -> dict:
     vram_total = get_gpu_vram_gb()
     if vram_total is None:
         return {"ok": False, "error": "Impossible de mesurer la VRAM du GPU (nvidia-smi indisponible)."}
-    vram_budget = vram_total - VRAM_HEADROOM_GB
+    vram_budget = vram_budget_gb(vram_total)
     logger.info("VRAM totale : %.1f Go — budget modèle : %.1f Go", vram_total, vram_budget)
 
     baseline_model = settings.ollama_model
     candidates = build_candidate_list(vram_budget, MAX_CANDIDATES)
     # Le modèle actuel n'a pas à se re-proposer lui-même comme "candidat".
-    candidates = [c for c in candidates if c["model"] != baseline_model]
+    candidates = [c for c in candidates if _full_model_name(c["model"]) != _full_model_name(baseline_model)]
+    # OLLAMA_MODEL lit aussi les photos quand OLLAMA_VISION_MODEL est vide :
+    # un candidat texte seul le remplacerait en cassant la lecture des photos.
+    needs_vision = not settings.ollama_vision_model
 
     async with httpx.AsyncClient() as client:
         logger.info("Évaluation du modèle actuel : %s", baseline_model)
         try:
             await pull_model(client, baseline_model)
             baseline_result = await evaluate_model(client, baseline_model)
+            baseline_result["capabilities"] = await model_capabilities(client, baseline_model)
         except Exception as e:
             return {"ok": False, "error": f"Échec de l'évaluation du modèle actuel {baseline_model} : {e}"}
 
@@ -130,6 +151,7 @@ async def main() -> dict:
                 await pull_model(client, model)
                 result = await evaluate_model(client, model)
                 result["disk_size_gb"] = c["disk_size_gb"]
+                result["capabilities"] = await model_capabilities(client, model)
                 candidate_results.append(result)
             except Exception as e:
                 warnings.append(f"{model} : échec de l'évaluation ({e})")
@@ -137,7 +159,15 @@ async def main() -> dict:
 
         winner = None
         best_score = baseline_result["avg_score"]
+        baseline_vision = "vision" in baseline_result["capabilities"]
         for r in candidate_results:
+            if needs_vision and baseline_vision and "vision" not in r["capabilities"]:
+                if r["avg_score"] >= best_score + MIN_IMPROVEMENT:
+                    warnings.append(
+                        f"{r['model']} : meilleur score mais sans vision — il ne pourrait "
+                        "remplacer OLLAMA_MODEL qu'avec un OLLAMA_VISION_MODEL distinct."
+                    )
+                continue
             if r["avg_score"] >= best_score + MIN_IMPROVEMENT and r["avg_score"] > best_score:
                 best_score = r["avg_score"]
                 winner = r["model"]

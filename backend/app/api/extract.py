@@ -263,11 +263,15 @@ async def _run_extraction(recipe_id: UUID, input_text: str):
             await sharing.auto_share(db, recipe)
 
 
+# Au-delà, le texte lu sur une photo est plus qu'un nom de plat ou un menu.
+_LONG_OCR_TEXT_CHARS = 300
+
+
 async def _run_image_extraction(recipe_id: UUID, image_bytes: bytes, mime_type: str):
     from ..database import AsyncSessionLocal
     from ..services.ocr_service import extract_text_from_image
     from ..services.extractor import recipe_for_dish
-    from ..services.llm_service import extract_recipe_with_llm
+    from ..services.llm_service import extract_recipe_from_image, extract_recipe_with_llm
 
     async with AsyncSessionLocal() as db:
         recipe = await db.get(Recipe, recipe_id)
@@ -277,23 +281,38 @@ async def _run_image_extraction(recipe_id: UUID, image_bytes: bytes, mime_type: 
         recipe.status = ExtractionStatus.processing
         await db.commit()
 
-        async def run_ocr_and_llm() -> dict:
-            recipe.progress_message = "Lecture du texte de l'image (OCR)…"
+        async def report(message: str) -> None:
+            recipe.progress_message = message
             await db.commit()
-            text = await extract_text_from_image(image_bytes, mime_type)
 
+        async def run_ocr_and_llm() -> dict:
+            # 1. La photo lue directement par le modèle de vision : un seul
+            #    appel, la mise en page (colonnes, quantités en marge) aidant.
+            await report("Lecture de la recette sur la photo…")
+            data = None
+            try:
+                data = await extract_recipe_from_image(image_bytes, mime_type)
+            except Exception:
+                # Modèle sans vision, délai dépassé, réponse illisible : on
+                # retombe sur le chemin texte, Tesseract compris.
+                logger.warning("Lecture directe de la photo impossible — repli sur l'OCR", exc_info=True)
+            if data is not None and "error" not in data:
+                return data
+
+            # 2. Pas de recette écrite (plat, menu…) ou lecture directe en
+            #    échec : le texte de l'image (ou le nom du plat montré).
+            await report("Lecture du texte de l'image (OCR)…")
+            text = await extract_text_from_image(image_bytes, mime_type)
             if not text.strip():
                 raise ValueError("Aucun texte lisible sur cette image.")
-            recipe.progress_message = "Analyse de la recette par l'IA…"
-            await db.commit()
-            data = await extract_recipe_with_llm(text)
+            # Texte long : sans doute une recette que la lecture directe a
+            # manquée, l'analyse texte a sa chance avant le « plat reconnu ».
+            if data is None or len(text.strip()) > _LONG_OCR_TEXT_CHARS:
+                await report("Analyse de la recette par l'IA…")
+                data = await extract_recipe_with_llm(text)
             if "error" in data:
                 # Photo d'un plat, d'un menu, recette partielle : une vraie
                 # recette du plat reconnu (web, sinon IA) plutôt qu'un échec.
-                async def report(message: str) -> None:
-                    recipe.progress_message = message
-                    await db.commit()
-
                 data, image = await recipe_for_dish(text, report)
                 if "error" in data:
                     data = {"error": "Aucune recette ni aucun plat reconnaissable sur cette image."}

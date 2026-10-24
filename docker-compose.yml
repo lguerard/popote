@@ -15,12 +15,39 @@ services:
       retries: 10
 
   ollama:
-    image: ollama/ollama:latest
+    # Version épinglée : `latest` changeait de serveur à chaque `docker
+    # compose pull`, sans relecture (un 0.x casse parfois le format des
+    # requêtes ou la gestion de la VRAM). 0.40.10 (octobre 2026) gère
+    # Gemma 4, les sorties structurées (schéma JSON) et "think": false.
+    # Monter de version : prendre le dernier tag X.Y.Z sans -rc sur
+    #   https://hub.docker.com/r/ollama/ollama/tags
+    # puis `docker compose pull ollama && docker compose up -d ollama` et
+    # vérifier une extraction (texte et photo).
+    image: ollama/ollama:0.40.10
     restart: unless-stopped
     volumes:
       - ollama_data:/root/.ollama
     environment:
-      - OLLAMA_KEEP_ALIVE=24h
+      # Garde le modèle chargé entre deux extractions (sinon ~10 s de
+      # rechargement à chaque fois). Whisper et la génération d'image le
+      # déchargent eux-mêmes avant de tourner (keep_alive=0). Sur un GPU
+      # partagé avec d'autres services, une valeur courte (5m) rend la VRAM
+      # plus vite : le dépôt server_setup la surcharge ainsi.
+      - OLLAMA_KEEP_ALIVE=${OLLAMA_KEEP_ALIVE:-24h}
+      # Un seul modèle en VRAM à la fois : sur 10 Go, deux modèles (Popote
+      # et Paperless par exemple) ne tiennent pas ensemble et déborderaient
+      # sur le processeur ; Ollama décharge plutôt l'un pour charger l'autre.
+      - OLLAMA_MAX_LOADED_MODELS=${OLLAMA_MAX_LOADED_MODELS:-1}
+      # Attention optimisée et cache KV quantifié en 8 bits : environ deux
+      # fois moins de VRAM pour la fenêtre de contexte, sans perte visible,
+      # ce qui laisse gemma4:12b (~8 Go) tenir sur une carte de 10 Go.
+      - OLLAMA_FLASH_ATTENTION=1
+      - OLLAMA_KV_CACHE_TYPE=q8_0
+      # Fenêtre de contexte par défaut pour les clients qui n'en envoient
+      # pas. Tous les clients de cet Ollama (Popote via OLLAMA_NUM_CTX,
+      # Paperless, Tricouture…) doivent demander LA MÊME valeur : une autre
+      # fenêtre force Ollama à recharger tout le modèle à chaque alternance.
+      - OLLAMA_CONTEXT_LENGTH=${OLLAMA_NUM_CTX:-8192}
     deploy:
       resources:
         reservations:
@@ -39,6 +66,11 @@ services:
     environment:
       IMAGE_GEN_MODEL: ${IMAGE_GEN_MODEL:-stabilityai/sdxl-turbo}
       IMAGE_GEN_DEVICE: ${IMAGE_GEN_DEVICE:-cuda}
+      # Vides par défaut : imagegen applique alors le réglage propre au
+      # modèle (4 pas sans guidance pour les « turbo », voir imagegen/app.py).
+      IMAGE_GEN_STEPS: ${IMAGE_GEN_STEPS:-}
+      IMAGE_GEN_GUIDANCE: ${IMAGE_GEN_GUIDANCE:-}
+      IMAGE_GEN_SIZE: ${IMAGE_GEN_SIZE:-}
     deploy:
       resources:
         reservations:
@@ -65,11 +97,17 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://popote:${POSTGRES_PASSWORD:-popote}@db:5432/popote
       OLLAMA_BASE_URL: http://ollama:11434
-      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:7b}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-gemma4:12b}
+      # Vide : OLLAMA_MODEL lit aussi les photos (gemma4 accepte les images).
+      OLLAMA_VISION_MODEL: ${OLLAMA_VISION_MODEL:-}
+      # Même valeur que OLLAMA_CONTEXT_LENGTH du service ollama (voir plus haut).
       OLLAMA_NUM_CTX: ${OLLAMA_NUM_CTX:-8192}
       IMAGEGEN_BASE_URL: http://imagegen:8001
       IMAGE_GEN_FREE_GPU: ${IMAGE_GEN_FREE_GPU:-true}
+      # Si définie, Claude remplace Ollama pour toutes les tâches IA.
       CLAUDE_API_KEY: ${CLAUDE_API_KEY:-}
+      CLAUDE_MODEL: ${CLAUDE_MODEL:-claude-sonnet-5-5}
+      CLAUDE_FAST_MODEL: ${CLAUDE_FAST_MODEL:-claude-haiku-5-5}
       # Signe les jetons de session : le backend refuse de demarrer si
       # elle est absente, trop courte ou laissee par defaut.
       #   python3 -c "import secrets; print(secrets.token_urlsafe(48))"
@@ -78,9 +116,11 @@ services:
       # attend la validation d'un administrateur (page Comptes). Seul le
       # tout premier compte est approuve d'office et devient admin.
       ALLOW_SIGNUP: ${ALLOW_SIGNUP:-false}
-      WHISPER_MODEL: ${WHISPER_MODEL:-large-v3}
+      WHISPER_MODEL: ${WHISPER_MODEL:-large-v3-turbo}
       WHISPER_DEVICE: ${WHISPER_DEVICE:-cuda}
+      WHISPER_COMPUTE_TYPE: ${WHISPER_COMPUTE_TYPE:-int8_float16}
       WHISPER_CPU_MODEL: ${WHISPER_CPU_MODEL:-small}
+      WHISPER_IDLE_UNLOAD_SECONDS: ${WHISPER_IDLE_UNLOAD_SECONDS:-300}
       WHISPER_FREE_GPU: ${WHISPER_FREE_GPU:-true}
       # Met yt-dlp à jour à chaque démarrage (sites vidéo qui changent).
       YTDLP_AUTO_UPDATE: ${YTDLP_AUTO_UPDATE:-true}
@@ -89,6 +129,10 @@ services:
       # Optionnel : cookies d'un compte Instagram (cookies/cookies.txt) pour
       # les reels qui exigent une connexion. Voir DEPLOIEMENT.md.
       - ./cookies:/app/cookies:ro
+    # GPU utilisé par Whisper seulement (transcription des vidéos) : OCR
+    # Tesseract, yt-dlp, gallery-dl, Chromium et ffmpeg tournent sur CPU.
+    # La réservation n'occupe aucune VRAM tant que Whisper ne charge pas
+    # de modèle, et Whisper libère la carte après chaque transcription.
     deploy:
       resources:
         reservations:

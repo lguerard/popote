@@ -11,7 +11,7 @@ brut, ou photo — accompagnée d'une application Android native.
 ### Extraction intelligente
 
 - **Vidéos** (YouTube, TikTok, Instagram, et tout site supporté par yt-dlp)
-  via transcription Whisper `large-v3` sur GPU
+  via transcription Whisper `large-v3-turbo` sur GPU
 - **Sites web** via Playwright headless (Marmiton, 750g, etc.)
 - **Texte libre** en n'importe quelle langue — converti automatiquement en
   français
@@ -121,7 +121,7 @@ Internet / LAN
      ▼
 [FastAPI :8000]
      ├── PostgreSQL :5432   (recettes, planning, succès)
-     ├── Ollama :11434      (LLM qwen2.5:7b, GPU)
+     ├── Ollama :11434      (LLM gemma4:12b, GPU)
      └── faster-whisper     (transcription, GPU CUDA)
 ```
 
@@ -131,10 +131,10 @@ Internet / LAN
 |---|---|
 | Backend | Python 3.11, FastAPI, SQLAlchemy async, asyncpg |
 | Base de données | PostgreSQL 16, JSONB pour ingrédients/étapes/tags |
-| Transcription | faster-whisper `large-v3`, CUDA (RTX 3080) |
+| Transcription | faster-whisper `large-v3-turbo` (int8_float16), CUDA (RTX 3080) |
 | Scraping | yt-dlp (vidéos), Playwright (web) |
-| LLM | Ollama `qwen2.5:7b` + Claude `claude-sonnet-4-6` (fallback) |
-| OCR | Claude Vision (si clé API), sinon Ollama llava → pytesseract |
+| LLM | Ollama `gemma4:12b` en local, **ou** Claude (`claude-sonnet-5-5`, `claude-haiku-5-5` pour les tâches courtes) à sa place si `CLAUDE_API_KEY` est définie |
+| Photos | Lecture directe de la recette par le modèle de vision (Gemma 4 via Ollama, ou Claude), Tesseract en secours |
 | Frontend web | React 18, Vite, Tailwind CSS, React Query |
 | App Android | Kotlin, Jetpack Compose, Material 3, Retrofit, Coil |
 | Infrastructure | Docker Compose, NVIDIA Container Toolkit |
@@ -176,7 +176,7 @@ cp .env.example .env
 docker compose up -d
 ```
 
-Le premier démarrage télécharge `qwen2.5:7b` (~5 GB) — prévoir 10-15 min.
+Le premier démarrage télécharge `gemma4:12b` (~8 GB) — prévoir 10-15 min.
 
 ### 3. Accéder
 
@@ -194,9 +194,13 @@ voir [`DEPLOIEMENT.md`](DEPLOIEMENT.md).
 | Variable | Défaut | Description |
 |---|---|---|
 | `POSTGRES_PASSWORD` | `popote` | Mot de passe PostgreSQL |
-| `OLLAMA_MODEL` | `qwen2.5:7b` | Modèle LLM local |
-| `CLAUDE_API_KEY` | *(vide)* | Active Claude en priorité sur Ollama |
-| `WHISPER_MODEL` | `large-v3` | Modèle Whisper |
+| `OLLAMA_MODEL` | `gemma4:12b` | Modèle LLM local (texte et photos) |
+| `CLAUDE_API_KEY` | *(vide)* | Si définie, Claude **remplace** Ollama pour toutes les tâches IA (ce n'est pas un repli) |
+| `CLAUDE_MODEL` | `claude-sonnet-5-5` | Modèle Claude : extraction des recettes et lecture des photos |
+| `CLAUDE_FAST_MODEL` | `claude-haiku-5-5` | Modèle Claude des tâches courtes : nutrition, description du plat |
+| `WHISPER_MODEL` | `large-v3-turbo` | Modèle Whisper |
+| `WHISPER_COMPUTE_TYPE` | `int8_float16` | Précision de Whisper sur GPU (`float16` possible) |
+| `WHISPER_IDLE_UNLOAD_SECONDS` | `300` | Libération du modèle Whisper CPU après inactivité (sur GPU : après chaque vidéo) |
 | `WHISPER_DEVICE` | `cuda` | `cuda` ou `cpu` |
 | `SECRET_KEY` | `changeme` | Clé secrète FastAPI |
 | `PORT` | `80` | Port HTTP exposé |

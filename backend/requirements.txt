@@ -11,7 +11,8 @@ yt-dlp
 # Images des posts (carrousels Instagram, mode photo TikTok), lues par OCR.
 # Non épinglé pour la même raison que yt-dlp (mis à jour au démarrage).
 gallery-dl
-faster-whisper==1.0.3
+# 1.1.x : modèle large-v3-turbo connu par son nom, VAD Silero v5.
+faster-whisper==1.1.1
 playwright==1.48.0
 beautifulsoup4==4.12.3
 # Recettes publiées par les sites : lecteurs dédiés pour 700+ sites et
@@ -24,11 +25,13 @@ pillow==10.4.0
 pytesseract==0.3.13
 # Liens vers une fiche recette en PDF (voir web_scraper.pdf_to_text).
 pypdf==5.1.0
-# faster-whisper 1.0.3 declare huggingface_hub sans borne haute : un build
-# neuf attrape la 1.x, qui a retire les API deprecies dont il depend encore.
+# faster-whisper (1.1.1 compris) declare huggingface_hub sans borne haute :
+# un build neuf attrape la 1.x, qui a retire les API depreciees dont il
+# depend encore (snapshot_download(local_dir_use_symlinks=...)).
 huggingface_hub<1.0
-# CTranslate2 est le moteur de faster-whisper. Non epingle, un build neuf
-# peut changer la version majeure de cuDNN attendue : on fige le couple.
+# CTranslate2 est le moteur de faster-whisper (1.1.1 : >=4.0,<5). Non
+# epingle, un build neuf peut changer la version majeure de cuDNN
+# attendue : on fige le couple avec nvidia-cudnn-cu12 ci-dessous.
 ctranslate2==4.5.0
 # Sur GPU, CTranslate2 charge libcublas.so.12 et libcudnn. Le NVIDIA
 # Container Toolkit n'injecte que le PILOTE (libcuda), jamais ces

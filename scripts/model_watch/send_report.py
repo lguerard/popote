@@ -19,7 +19,9 @@ from pathlib import Path
 REPORTS_DIR = Path(__file__).parent / "reports"
 
 
-def build_body(old_model: str, new_model: str, result: dict | None, error: str | None) -> str:
+def build_body(
+    old_model: str, new_model: str, result: dict | None, error: str | None, winner: str | None = None,
+) -> str:
     lines = [f"Vérification mensuelle des modèles Ollama — {datetime.now(timezone.utc):%Y-%m-%d %H:%M UTC}", ""]
 
     if error:
@@ -35,6 +37,16 @@ def build_body(old_model: str, new_model: str, result: dict | None, error: str |
             "  2. docker compose up -d --no-deps backend",
             "",
         ]
+    elif winner and winner != old_model:
+        lines += [
+            f"CANDIDAT MEILLEUR (non appliqué) : {winner} fait mieux que {old_model}",
+            "",
+            "Pour l'adopter après vérification (texte ET photos) :",
+            f"  1. Dans .env, mettre OLLAMA_MODEL={winner}",
+            "  2. docker compose up -d --no-deps backend",
+            "(Bascule automatique : MODEL_WATCH_AUTO_SWITCH=true dans .env.)",
+            "",
+        ]
     else:
         lines += [f"Aucun changement — modèle actuel conservé : {old_model}", ""]
 
@@ -44,7 +56,7 @@ def build_body(old_model: str, new_model: str, result: dict | None, error: str |
     b = result["baseline"]
     lines.append(f"Modèle actuel  {b['model']:<30} score {b['avg_score']:>5.1f}/100   latence moy. {b['avg_latency_s']}s")
     for c in result["candidates"]:
-        marker = " <-- retenu" if c["model"] == new_model and old_model != new_model else ""
+        marker = " <-- retenu" if c["model"] in (new_model, winner) and c["model"] != old_model else ""
         lines.append(
             f"Candidat       {c['model']:<30} score {c['avg_score']:>5.1f}/100   "
             f"latence moy. {c['avg_latency_s']}s   ~{c['disk_size_gb']} Go{marker}"
@@ -54,8 +66,9 @@ def build_body(old_model: str, new_model: str, result: dict | None, error: str |
         lines += ["", "Avertissements :"]
         lines += [f"  - {w}" for w in result["warnings"]]
 
-    detail_model = result["baseline"] if new_model == b["model"] else next(
-        (c for c in result["candidates"] if c["model"] == new_model), b
+    shown = winner or new_model
+    detail_model = result["baseline"] if shown == b["model"] else next(
+        (c for c in result["candidates"] if c["model"] == shown), b
     )
     lines += ["", f"Détail par cas de test ({detail_model['model']}) :"]
     for case in detail_model["cases"]:
@@ -109,6 +122,7 @@ def main() -> None:
     parser.add_argument("--old-model", required=True)
     parser.add_argument("--new-model", required=True)
     parser.add_argument("--error", default=None)
+    parser.add_argument("--winner", default="")
     args = parser.parse_args()
 
     result = None
@@ -116,12 +130,14 @@ def main() -> None:
         raw = sys.stdin.read()
         result = json.loads(raw) if raw.strip() else None
 
-    body = build_body(args.old_model, args.new_model, result, args.error)
+    body = build_body(args.old_model, args.new_model, result, args.error, args.winner or None)
 
     if args.error:
         subject = "[Popote] Échec de la vérification mensuelle des modèles"
     elif args.old_model != args.new_model:
         subject = f"[Popote] Modèle changé : {args.old_model} → {args.new_model}"
+    elif args.winner and args.winner != args.old_model:
+        subject = f"[Popote] Meilleur modèle trouvé (non appliqué) : {args.winner}"
     else:
         subject = "[Popote] Vérification mensuelle des modèles — rien de nouveau"
 

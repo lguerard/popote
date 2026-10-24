@@ -10,6 +10,7 @@ résident en permanence dépasserait le budget VRAM disponible.
 """
 
 import asyncio
+import gc
 import io
 import logging
 import os
@@ -64,7 +65,13 @@ def _load_pipeline(device: str):
     if device == "cuda":
         kwargs["variant"] = "fp16"
     pipe = AutoPipelineForText2Image.from_pretrained(MODEL_ID, **kwargs)
-    return pipe.to(device)
+    pipe = pipe.to(device)
+    if device == "cuda" and hasattr(pipe, "enable_vae_tiling"):
+        # Décodage VAE par tuiles : le pic de VRAM de la dernière étape
+        # (souvent le plus haut, surtout en 768 px) baisse nettement, pour
+        # un coût négligeable à ces tailles.
+        pipe.enable_vae_tiling()
+    return pipe
 
 
 def _generate_sync(req: GenerateRequest) -> bytes:
@@ -94,7 +101,10 @@ def _generate_sync(req: GenerateRequest) -> bytes:
         ).images[0]
         logger.info("Image générée sur %s (%s, %d pas)", device, MODEL_ID, STEPS)
     finally:
+        # Jamais gardé entre deux images : rendu tout de suite au GPU
+        # partagé (Ollama, Whisper, autres services), rechargé à la demande.
         del pipe
+        gc.collect()
         if device == "cuda":
             torch.cuda.empty_cache()
 
@@ -103,10 +113,16 @@ def _generate_sync(req: GenerateRequest) -> bytes:
     return buf.getvalue()
 
 
+# Une génération à la fois : deux pipelines chargés en même temps ne
+# tiennent pas sur 10 Go et feraient échouer les deux (repli CPU très lent).
+_generation_lock = asyncio.Lock()
+
+
 @app.post("/generate")
 async def generate(req: GenerateRequest):
     try:
-        image_bytes = await asyncio.to_thread(_generate_sync, req)
+        async with _generation_lock:
+            image_bytes = await asyncio.to_thread(_generate_sync, req)
     except Exception as e:
         logger.exception("Échec de la génération d'image")
         raise HTTPException(500, f"Échec de la génération d'image : {e}")
