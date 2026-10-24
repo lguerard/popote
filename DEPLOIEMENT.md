@@ -243,6 +243,35 @@ le script une fois le GPU réparé suffit à revenir au GPU.
 yt-dlp (lecture des vidéos) est mis à jour à chaque démarrage du backend :
 `docker compose restart backend` suffit quand Instagram ou TikTok changent.
 
+### Évaluer un modèle
+
+Popote sait noter un modèle Ollama sur **ses propres tâches**, avec ses
+prompts, ses requêtes (`think: false`, même `num_ctx`, schéma JSON,
+température 0) et ses analyseurs de production :
+
+```bash
+docker compose exec backend python -m app.scripts.model_eval --model gemma4:12b
+docker compose exec backend python -m app.scripts.model_eval --model gemma4:12b --cases-only
+```
+
+Sortie : un objet JSON (`app`, `model`, `tasks` → `score` sur 100, `n`,
+`failed`, `avg_seconds`, `notes`, puis `eval_tokens_per_s`). Le modèle doit
+déjà être téléchargé dans Ollama. `--cases-only` compte les cas sans appeler
+le modèle ; `--max-cases N` (12 par défaut) plafonne chaque tâche.
+
+| Tâche | Cas | Note |
+|---|---|---|
+| `extraction` | recettes enregistrées (notées, cuisinées ou corrigées d'abord, puis les plus récentes), remises en forme de page web bruitée ou de transcription | ingrédients retrouvés, quantités, étapes, titre, portions, durées, catégorie |
+| `photo_recipe` | 3 photos fournies (`app/scripts/model_eval/images/`) : les photos envoyées ne sont pas conservées | idem |
+| `nutrition` | recettes dont la nutrition a déjà été calculée | écart aux valeurs enregistrées (tolérance large) et cohérence calories/macros |
+| `description` | recettes enregistrées | une phrase anglaise non vide, de la bonne longueur |
+
+Moins de 3 cas en base pour une tâche : les cas fournis
+(`app/scripts/model_eval/eval_cases.json`) complètent. Sur le serveur, c'est
+la **veille des modèles** de `server_setup` (service `model-watch`) qui lance
+cette commande chaque mois sur les modèles candidats ; Popote ne choisit ni
+ne télécharge aucun modèle lui-même.
+
 ### Sauvegarder ses recettes
 
 Chaque compte télécharge sa sauvegarde complète (recettes, images, notes,

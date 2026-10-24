@@ -36,27 +36,38 @@ NUTRITION_JSON_SCHEMA = {
 _OLLAMA_TIMEOUT_SECONDS = 60
 
 
-async def analyze_nutrition(title: str, ingredients: list[dict], servings: int | None) -> dict:
+def nutrition_prompt(title: str, ingredients: list[dict], servings: int | None) -> str:
+    """Message envoyé au modèle, partagé avec l'évaluation des modèles."""
     ing_text = "\n".join(
         f"- {i.get('quantity', '')} {i.get('unit', '')} {i['name']}".strip()
         for i in ingredients
     )
-    user_msg = f"Recette: {title}\nPortions: {servings or '?'}\n\nIngrédients:\n{ing_text}"
+    return f"Recette: {title}\nPortions: {servings or '?'}\n\nIngrédients:\n{ing_text}"
+
+
+async def analyze_nutrition(title: str, ingredients: list[dict], servings: int | None) -> dict:
+    user_msg = nutrition_prompt(title, ingredients, servings)
 
     if settings.use_claude:
         return await _claude_nutrition(user_msg)
     return await _ollama_nutrition(user_msg)
 
 
-def build_nutrition_request(prompt: str, use_schema: bool = True) -> dict:
+def build_nutrition_request(prompt: str, use_schema: bool = True, model: str | None = None) -> dict:
     return ollama_chat_request(
         [
             {"role": "system", "content": NUTRITION_PROMPT},
             {"role": "user", "content": prompt},
         ],
+        model=model,
         num_predict=NUM_PREDICT_NUTRITION,
         format=NUTRITION_JSON_SCHEMA if use_schema else "json",
     )
+
+
+def parse_nutrition(text: str) -> dict:
+    """Réponse brute du modèle → valeurs nutritionnelles (lève si illisible)."""
+    return _parse(text)
 
 
 async def _ollama_nutrition(prompt: str) -> dict:

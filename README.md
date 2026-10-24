@@ -205,6 +205,10 @@ voir [`DEPLOIEMENT.md`](DEPLOIEMENT.md).
 | `SECRET_KEY` | `changeme` | Clé secrète FastAPI |
 | `PORT` | `80` | Port HTTP exposé |
 
+Pour noter un autre modèle Ollama sur tes propres recettes avant d'en
+changer : `python -m app.scripts.model_eval --model <modèle>` dans le
+conteneur backend (voir [`DEPLOIEMENT.md`](DEPLOIEMENT.md) §Évaluer un modèle).
+
 ---
 
 ## CI/CD

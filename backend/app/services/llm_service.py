@@ -199,7 +199,7 @@ def build_ollama_request(
     text: str, model: str | None = None, *, use_schema: bool = True,
     system: str = SYSTEM_PROMPT, temperature: float = 0,
 ) -> dict:
-    """Corps de requête /api/chat, partagé avec l'évaluation mensuelle des modèles."""
+    """Corps de requête /api/chat, partagé avec l'évaluation des modèles (app/scripts/model_eval)."""
     # Déterministe : la même page donne la même recette (un peu de hasard
     # seulement pour réessayer après une réponse illisible).
     return ollama_chat_request(
@@ -234,22 +234,28 @@ def prepare_image(image_bytes: bytes, mime_type: str) -> tuple[bytes, str]:
 
 def build_vision_request(
     image_b64: str, prompt: str, *, system: str | None = None, num_predict: int,
-    format: dict | str | None = None, temperature: float = 0,
+    format: dict | str | None = None, temperature: float = 0, model: str | None = None,
 ) -> dict:
-    """Corps /api/chat avec une image, pour le modèle de vision configuré."""
+    """Corps /api/chat avec une image, pour le modèle de vision configuré.
+
+    ``model`` remplace le modèle configuré : l'évaluation des modèles
+    (app/scripts/model_eval) envoie ainsi exactement la requête de la prod.
+    """
     messages = [{"role": "system", "content": system}] if system else []
     messages.append({"role": "user", "content": prompt, "images": [image_b64]})
     return ollama_chat_request(
-        messages, model=settings.vision_model, num_predict=num_predict,
+        messages, model=model or settings.vision_model, num_predict=num_predict,
         temperature=temperature, format=format,
     )
 
 
-def build_image_recipe_request(image_b64: str, *, use_schema: bool = True, temperature: float = 0) -> dict:
+def build_image_recipe_request(
+    image_b64: str, *, use_schema: bool = True, temperature: float = 0, model: str | None = None,
+) -> dict:
     return build_vision_request(
         image_b64, "Voici la photo à analyser.", system=IMAGE_RECIPE_PROMPT,
         num_predict=NUM_PREDICT_RECIPE, temperature=temperature,
-        format=RECIPE_JSON_SCHEMA if use_schema else "json",
+        format=RECIPE_JSON_SCHEMA if use_schema else "json", model=model,
     )
 
 
@@ -727,6 +733,19 @@ def clean_image_description(text: str) -> str:
     return text.rstrip(" ,;")
 
 
+def build_description_request(
+    recipe: str, *, model: str | None = None, temperature: float = 0.2,
+) -> dict:
+    """Corps /api/chat de la description du plat, partagé avec l'évaluation des modèles."""
+    return ollama_chat_request(
+        [
+            {"role": "system", "content": IMAGE_DESCRIPTION_PROMPT},
+            {"role": "user", "content": recipe},
+        ],
+        model=model, temperature=temperature, num_predict=NUM_PREDICT_DESCRIPTION,
+    )
+
+
 async def describe_dish_for_image(
     title: str, description: str | None, category: str | None,
     ingredients: list | None, steps: list | None,
@@ -741,13 +760,7 @@ async def describe_dish_for_image(
     if settings.use_claude:
         return clean_image_description(await ask_claude(recipe, system=IMAGE_DESCRIPTION_PROMPT, fast=True))
     async with httpx.AsyncClient(timeout=_IMAGE_DESCRIPTION_TIMEOUT_SECONDS) as client:
-        resp = await client.post(f"{settings.ollama_base_url}/api/chat", json=ollama_chat_request(
-            [
-                {"role": "system", "content": IMAGE_DESCRIPTION_PROMPT},
-                {"role": "user", "content": recipe},
-            ],
-            temperature=0.2, num_predict=NUM_PREDICT_DESCRIPTION,
-        ))
+        resp = await client.post(f"{settings.ollama_base_url}/api/chat", json=build_description_request(recipe))
         resp.raise_for_status()
         return clean_image_description(resp.json()["message"]["content"])
 
