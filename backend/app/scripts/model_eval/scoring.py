@@ -188,33 +188,53 @@ NUTRITION_FIELDS = ("calories", "proteins", "carbs", "fat", "fiber")
 _FLOORS = {"calories": 60.0, "proteins": 4.0, "carbs": 5.0, "fat": 4.0, "fiber": 2.0}
 
 
-def score_nutrition(values: dict, expected: dict) -> tuple[float, list[str]]:
-    """Estimation par portion contre des valeurs de référence, à tolérance large.
+# Bornes plausibles par portion : un modèle qui sort de là se trompe, quelle
+# que soit la référence.
+_PLAUSIBLE = {"calories": (40, 2000), "proteins": (0, 120), "carbs": (0, 250), "fat": (0, 150), "fiber": (0, 40)}
 
-    Pleine note jusqu'à 15 % d'écart, zéro à 60 %. Un cinquième de la note
-    vérifie la cohérence interne (calories ≈ 4 × protéines + 4 × glucides
-    + 9 × lipides), qui ne dépend pas de la référence.
+
+def atwater_error(values: dict) -> float | None:
+    """Écart relatif entre les calories et 4 × protéines + 4 × glucides + 9 × lipides."""
+    cal, p, c, f = (values.get(k) for k in ("calories", "proteins", "carbs", "fat"))
+    if None in (cal, p, c, f):
+        return None
+    return abs(4 * p + 4 * c + 9 * f - cal) / max(cal, _FLOORS["calories"])
+
+
+def reliable_reference(expected: dict) -> bool:
+    """Une référence de la base n'est qu'une ancienne estimation (et n'est pas
+    recalculée quand la recette change) : on l'écarte si elle n'est même pas
+    cohérente avec elle-même."""
+    err = atwater_error(expected)
+    return err is None or err <= 0.25
+
+
+def score_nutrition(values: dict, expected: dict) -> tuple[float, list[str]]:
+    """Estimation par portion : proximité d'une référence approximative, plus
+    deux contrôles qui ne dépendent pas d'elle.
+
+    - 60 % : écart à la référence, tolérance large (pleine note jusqu'à
+      25 %, zéro à 80 %) car la référence est elle-même une estimation ;
+    - 25 % : cohérence interne (calories ≈ 4 × P + 4 × G + 9 × L) ;
+    - 15 % : valeurs plausibles pour une portion.
     """
     if not isinstance(values, dict):
         return 0.0, ["réponse illisible"]
     criteria = []
-    for field in NUTRITION_FIELDS:
-        want = expected.get(field)
-        if want is None:
-            continue
-        got = values.get(field)
+    fields = [f for f in NUTRITION_FIELDS if expected.get(f) is not None]
+    for field in fields:
+        want, got = expected[field], values.get(field)
         if got is None:
-            criteria.append((16, 0.0, f"{field} absent"))
+            criteria.append((60 / len(fields), 0.0, f"{field} absent"))
             continue
         error = abs(got - want) / max(want, _FLOORS[field])
-        criteria.append((16, _ramp(error, 0.15, 0.6), f"{field} {got:g}, référence {want:g}"))
-    cal, p, c, f = (values.get(k) for k in ("calories", "proteins", "carbs", "fat"))
-    if None not in (cal, p, c, f):
-        atwater = 4 * p + 4 * c + 9 * f
-        error = abs(atwater - cal) / max(cal, _FLOORS["calories"])
-        criteria.append((20, _ramp(error, 0.15, 0.5), f"calories incohérentes avec les macros ({atwater:.0f})"))
-    else:
-        criteria.append((20, 0.0, "macros incomplètes"))
+        criteria.append((60 / len(fields), _ramp(error, 0.25, 0.8), f"{field} {got:g}, référence {want:g}"))
+    err = atwater_error(values)
+    criteria.append((25, 0.0 if err is None else _ramp(err, 0.15, 0.5),
+                     "macros incomplètes" if err is None else "calories incohérentes avec les macros"))
+    present = [f for f in NUTRITION_FIELDS if values.get(f) is not None]
+    ok = [f for f in present if _PLAUSIBLE[f][0] <= values[f] <= _PLAUSIBLE[f][1]]
+    criteria.append((15, len(ok) / len(NUTRITION_FIELDS), f"valeurs hors bornes : {sorted(set(present) - set(ok))}"))
     return _weighted(criteria)
 
 
