@@ -11,7 +11,7 @@ brut, ou photo — accompagnée d'une application Android native.
 ### Extraction intelligente
 
 - **Vidéos** (YouTube, TikTok, Instagram, et tout site supporté par yt-dlp)
-  via transcription Whisper `large-v3` sur GPU
+  via transcription Whisper `large-v3-turbo` sur GPU
 - **Sites web** via Playwright headless (Marmiton, 750g, etc.)
 - **Texte libre** en n'importe quelle langue — converti automatiquement en
   français
@@ -131,7 +131,7 @@ Internet / LAN
 |---|---|
 | Backend | Python 3.11, FastAPI, SQLAlchemy async, asyncpg |
 | Base de données | PostgreSQL 16, JSONB pour ingrédients/étapes/tags |
-| Transcription | faster-whisper `large-v3`, CUDA (RTX 3080) |
+| Transcription | faster-whisper `large-v3-turbo` (int8_float16), CUDA (RTX 3080) |
 | Scraping | yt-dlp (vidéos), Playwright (web) |
 | LLM | Ollama `qwen2.5:7b` + Claude `claude-sonnet-4-6` (fallback) |
 | Photos | Lecture directe de la recette par le modèle de vision (Gemma 4 via Ollama, ou Claude), Tesseract en secours |
@@ -196,7 +196,9 @@ voir [`DEPLOIEMENT.md`](DEPLOIEMENT.md).
 | `POSTGRES_PASSWORD` | `popote` | Mot de passe PostgreSQL |
 | `OLLAMA_MODEL` | `gemma4:12b` | Modèle LLM local (texte et photos) |
 | `CLAUDE_API_KEY` | *(vide)* | Active Claude en priorité sur Ollama |
-| `WHISPER_MODEL` | `large-v3` | Modèle Whisper |
+| `WHISPER_MODEL` | `large-v3-turbo` | Modèle Whisper |
+| `WHISPER_COMPUTE_TYPE` | `int8_float16` | Précision de Whisper sur GPU (`float16` possible) |
+| `WHISPER_IDLE_UNLOAD_SECONDS` | `300` | Libération du modèle Whisper CPU après inactivité (sur GPU : après chaque vidéo) |
 | `WHISPER_DEVICE` | `cuda` | `cuda` ou `cpu` |
 | `SECRET_KEY` | `changeme` | Clé secrète FastAPI |
 | `PORT` | `80` | Port HTTP exposé |

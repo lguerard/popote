@@ -14,11 +14,20 @@ class Settings(BaseSettings):
     ollama_vision_model: str = ""
     claude_api_key: str = ""
     secret_key: str = "changeme"
-    whisper_model: str = "large-v3"
+    # large-v3-turbo : décodeur réduit (4 couches au lieu de 32), plusieurs
+    # fois plus rapide que large-v3 pour une précision très proche, ~1 Go
+    # de VRAM en int8_float16.
+    whisper_model: str = "large-v3-turbo"
     whisper_device: str = "cuda"
+    # Précision sur GPU : int8_float16 (moitié moins de VRAM) ou float16.
+    whisper_compute_type: str = "int8_float16"
     # Utilisé seulement si le GPU est indisponible : large-v3 sur CPU est
     # trop lent pour tenir dans le délai d'extraction.
     whisper_cpu_model: str = "small"
+    # Modèle CPU gardé en mémoire ce temps (s) après la dernière vidéo, puis
+    # libéré ; 0 = libéré après chaque vidéo. Sur GPU, Whisper est toujours
+    # libéré dès la fin de la transcription (VRAM rendue à Ollama).
+    whisper_idle_unload_seconds: int = 300
     # Décharge le modèle Ollama du GPU avant une transcription Whisper.
     whisper_free_gpu: bool = True
     media_dir: str = "/app/media"

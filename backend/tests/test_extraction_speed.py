@@ -10,7 +10,7 @@ class _FakeWhisper:
     def __init__(self, name, device, compute_type):
         if device == "cuda" and self.fail_cuda_with:
             raise RuntimeError(self.fail_cuda_with)
-        self.name, self.device = name, device
+        self.name, self.device, self.compute_type = name, device, compute_type
 
 
 def _reset(monkeypatch, error):
@@ -36,6 +36,60 @@ def test_missing_cuda_libraries_disable_the_gpu_for_good(monkeypatch):
     _reset(monkeypatch, "Library libcublas.so.12 is not found")
     _, on_gpu = video_service._load_whisper()
     assert not on_gpu and video_service._cuda_unavailable is True
+
+
+def test_gpu_whisper_uses_turbo_in_int8_float16_by_default(monkeypatch):
+    _reset(monkeypatch, None)
+    assert video_service.settings.whisper_model == "large-v3-turbo"
+    model, on_gpu = video_service._load_whisper()
+    assert on_gpu and model.compute_type == "int8_float16"
+
+
+class _Segment:
+    text = "bonjour"
+
+
+class _TranscribingModel:
+    def __init__(self):
+        self.unloaded = False
+        outer = self
+
+        class _Ct2:
+            def unload_model(self):
+                outer.unloaded = True
+
+        self.model = _Ct2()
+
+    def transcribe(self, *args, **kwargs):
+        return [_Segment()], None
+
+
+def test_gpu_whisper_is_released_right_after_the_job(monkeypatch):
+    model = _TranscribingModel()
+    monkeypatch.setattr(video_service, "_load_whisper", lambda: (model, True))
+    assert video_service._transcribe("audio.m4a") == "bonjour"
+    assert model.unloaded
+
+
+def test_cpu_whisper_is_released_when_idle(monkeypatch):
+    _reset(monkeypatch, None)
+    monkeypatch.setattr(video_service.settings, "whisper_device", "cpu")
+    monkeypatch.setattr(video_service.settings, "whisper_idle_unload_seconds", 0)
+    monkeypatch.setattr(video_service, "_cpu_unload_timer", None)
+    model, on_gpu = video_service._load_whisper()
+    assert not on_gpu and video_service._cpu_whisper_model is model
+    video_service._schedule_cpu_unload()
+    assert video_service._cpu_whisper_model is None
+
+    monkeypatch.setattr(video_service.settings, "whisper_idle_unload_seconds", 300)
+    video_service._load_whisper()
+    video_service._schedule_cpu_unload()
+    timer = video_service._cpu_unload_timer
+    assert timer is not None and timer.interval == 300
+    assert video_service._cpu_whisper_model is not None  # gardé pendant le délai
+    video_service._load_whisper()  # réutilisé : le délai repart de zéro
+    assert video_service._cpu_unload_timer is None and timer.finished.is_set()
+    video_service._release_cpu_whisper()
 
 
 def test_ollama_is_unloaded_before_whisper_on_gpu(monkeypatch):

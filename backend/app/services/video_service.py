@@ -6,6 +6,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from typing import Awaitable, Callable
 
@@ -17,10 +18,15 @@ from . import recipe_parsing
 
 logger = logging.getLogger(__name__)
 
-# Cache the model only on CPU. On CUDA the model is freed after each
-# transcription: Whisper large-v3 (~5 GB) + the Ollama LLM (~9 GB) do not
-# fit together on a 10 GB GPU, so keeping it resident causes OOM.
+# Whisper n'est jamais gardé sur le GPU entre deux vidéos : sur une carte de
+# 10 Go partagée (Ollama, génération d'image, autres services), il est
+# chargé à la demande et libéré dès la fin de la transcription, l'analyse
+# de la recette par Ollama arrivant juste après. Sur CPU (RAM, pas VRAM),
+# le modèle est gardé WHISPER_IDLE_UNLOAD_SECONDS après le dernier usage
+# (rechargement lent), puis libéré lui aussi.
 _cpu_whisper_model: WhisperModel | None = None
+_cpu_model_lock = threading.Lock()
+_cpu_unload_timer: threading.Timer | None = None
 
 # Set once the GPU has failed to load: every later transcription goes
 # straight to CPU instead of raising the same error again.
@@ -29,16 +35,62 @@ _cuda_unavailable = False
 
 def _load_cpu_whisper() -> WhisperModel:
     global _cpu_whisper_model
-    if _cpu_whisper_model is None:
-        # Modèle plus petit sur CPU : large-v3 y transcrit à peine plus vite
-        # que le temps réel, un reel de 2 minutes suffisait à faire dépasser
-        # le délai de 5 minutes de l'extraction.
-        _cpu_whisper_model = WhisperModel(
-            settings.whisper_cpu_model,
-            device="cpu",
-            compute_type="int8",
-        )
-    return _cpu_whisper_model
+    with _cpu_model_lock:
+        _cancel_cpu_unload()
+        if _cpu_whisper_model is None:
+            # Modèle plus petit sur CPU : large-v3 y transcrit à peine plus vite
+            # que le temps réel, un reel de 2 minutes suffisait à faire dépasser
+            # le délai de 5 minutes de l'extraction.
+            _cpu_whisper_model = WhisperModel(
+                settings.whisper_cpu_model,
+                device="cpu",
+                compute_type="int8",
+            )
+        return _cpu_whisper_model
+
+
+def _cancel_cpu_unload() -> None:
+    global _cpu_unload_timer
+    if _cpu_unload_timer is not None:
+        _cpu_unload_timer.cancel()
+        _cpu_unload_timer = None
+
+
+def _release_cpu_whisper() -> None:
+    global _cpu_whisper_model
+    with _cpu_model_lock:
+        _cancel_cpu_unload()
+        if _cpu_whisper_model is None:
+            return
+        _cpu_whisper_model = None
+    gc.collect()
+    logger.info("Modèle Whisper CPU libéré (inutilisé)")
+
+
+def _schedule_cpu_unload() -> None:
+    """Libère le modèle CPU après WHISPER_IDLE_UNLOAD_SECONDS sans transcription."""
+    global _cpu_unload_timer
+    delay = settings.whisper_idle_unload_seconds
+    if delay <= 0:
+        _release_cpu_whisper()
+        return
+    with _cpu_model_lock:
+        _cancel_cpu_unload()
+        _cpu_unload_timer = threading.Timer(delay, _release_cpu_whisper)
+        _cpu_unload_timer.daemon = True
+        _cpu_unload_timer.start()
+
+
+def _release_gpu_whisper(model) -> None:
+    """Rend la VRAM tout de suite, sans attendre le ramasse-miettes."""
+    try:
+        # CTranslate2 libère les poids sur le GPU ; del seul attendait que
+        # plus rien ne référence le modèle (traceback d'une exception…).
+        model.model.unload_model()
+    except Exception:
+        logger.debug("unload_model indisponible pour Whisper", exc_info=True)
+    del model
+    gc.collect()
 
 
 def _is_out_of_memory(exc: Exception) -> bool:
@@ -61,7 +113,9 @@ def _load_whisper() -> tuple[WhisperModel, bool]:
         return WhisperModel(
             settings.whisper_model,
             device="cuda",
-            compute_type="float16",
+            # int8_float16 : poids en 8 bits, calculs en fp16. Moitié moins de
+            # VRAM que float16 pour une transcription équivalente.
+            compute_type=settings.whisper_compute_type,
         ), True
     except Exception as exc:
         # Missing libcublas/libcudnn in the image, driver too old, VRAM
@@ -94,17 +148,20 @@ def _transcribe(audio_file: str) -> str:
             # Materialize the generator before releasing the model
             return " ".join(seg.text for seg in segments).strip()
         except ValueError as exc:
-            # faster-whisper 1.0.3 : quand le filtre VAD ne garde aucune parole
-            # (reel en musique seule), la détection de langue appelle max() sur
-            # une liste vide. Aucune parole = transcription vide, pas une erreur.
-            if "empty sequence" not in str(exc):
+            # faster-whisper (encore en 1.1.1) : quand le filtre VAD ne garde
+            # aucune parole (reel en musique seule), la détection de langue
+            # appelle max() sur une liste vide. Aucune parole = transcription
+            # vide, pas une erreur. Le message dépend de la version de Python.
+            if "empty sequence" not in str(exc) and "iterable argument is empty" not in str(exc):
                 raise
             logger.info("Aucune parole détectée dans %s", audio_file)
             return ""
     finally:
         if on_gpu:
+            _release_gpu_whisper(model)
+        else:
             del model
-            gc.collect()
+            _schedule_cpu_unload()
 
 
 def _combine_sources(
@@ -390,7 +447,7 @@ async def _noop_progress(_message: str) -> None:
 async def _free_gpu_for_whisper() -> None:
     """Décharge le modèle Ollama pour que Whisper tienne sur le GPU.
 
-    Ollama (OLLAMA_KEEP_ALIVE=24h) occupe presque toute la VRAM : Whisper
+    Ollama (gardé chargé, OLLAMA_KEEP_ALIVE) occupe presque toute la VRAM : Whisper
     ne pouvait jamais y charger et transcrivait sur CPU, plusieurs fois
     plus lentement. Ollama recharge son modèle tout seul à l'étape suivante
     (analyse de la recette), en quelques secondes.

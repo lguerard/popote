@@ -113,9 +113,11 @@ services:
       # attend la validation d'un administrateur (page Comptes). Seul le
       # tout premier compte est approuve d'office et devient admin.
       ALLOW_SIGNUP: ${ALLOW_SIGNUP:-false}
-      WHISPER_MODEL: ${WHISPER_MODEL:-large-v3}
+      WHISPER_MODEL: ${WHISPER_MODEL:-large-v3-turbo}
       WHISPER_DEVICE: ${WHISPER_DEVICE:-cuda}
+      WHISPER_COMPUTE_TYPE: ${WHISPER_COMPUTE_TYPE:-int8_float16}
       WHISPER_CPU_MODEL: ${WHISPER_CPU_MODEL:-small}
+      WHISPER_IDLE_UNLOAD_SECONDS: ${WHISPER_IDLE_UNLOAD_SECONDS:-300}
       WHISPER_FREE_GPU: ${WHISPER_FREE_GPU:-true}
       # Met yt-dlp à jour à chaque démarrage (sites vidéo qui changent).
       YTDLP_AUTO_UPDATE: ${YTDLP_AUTO_UPDATE:-true}
