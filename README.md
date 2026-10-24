@@ -121,7 +121,7 @@ Internet / LAN
      ▼
 [FastAPI :8000]
      ├── PostgreSQL :5432   (recettes, planning, succès)
-     ├── Ollama :11434      (LLM qwen2.5:7b, GPU)
+     ├── Ollama :11434      (LLM gemma4:12b, GPU)
      └── faster-whisper     (transcription, GPU CUDA)
 ```
 
@@ -176,7 +176,7 @@ cp .env.example .env
 docker compose up -d
 ```
 
-Le premier démarrage télécharge `qwen2.5:7b` (~5 GB) — prévoir 10-15 min.
+Le premier démarrage télécharge `gemma4:12b` (~8 GB) — prévoir 10-15 min.
 
 ### 3. Accéder
 
@@ -194,7 +194,7 @@ voir [`DEPLOIEMENT.md`](DEPLOIEMENT.md).
 | Variable | Défaut | Description |
 |---|---|---|
 | `POSTGRES_PASSWORD` | `popote` | Mot de passe PostgreSQL |
-| `OLLAMA_MODEL` | `qwen2.5:7b` | Modèle LLM local |
+| `OLLAMA_MODEL` | `gemma4:12b` | Modèle LLM local (texte et photos) |
 | `CLAUDE_API_KEY` | *(vide)* | Active Claude en priorité sur Ollama |
 | `WHISPER_MODEL` | `large-v3` | Modèle Whisper |
 | `WHISPER_DEVICE` | `cuda` | `cuda` ou `cpu` |

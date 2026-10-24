@@ -273,6 +273,8 @@ def _normalize_recipe_shape(data: dict) -> None:
 # Part du modèle Ollama tournant sur CPU faute de VRAM (None : inconnu).
 # Mesurée pendant les extractions, reprise dans le message d'échec.
 cpu_offload_ratio: float | None = None
+# Suggéré quand le modèle configuré déborde du GPU : texte seul, ~5 Go.
+_LIGHT_FALLBACK_MODEL = "qwen2.5:7b"
 _OFFLOAD_CHECK_DELAY_SECONDS = 15
 
 
@@ -292,8 +294,9 @@ def offload_hint() -> str:
         return ""
     return (
         f"Le modèle {settings.ollama_model} ne tient pas sur le GPU "
-        f"({cpu_offload_ratio:.0%} tourne sur le processeur) : prendre un modèle "
-        "plus petit (OLLAMA_MODEL=qwen2.5:7b) ou baisser OLLAMA_NUM_CTX."
+        f"({cpu_offload_ratio:.0%} tourne sur le processeur) : libérer le GPU "
+        f"(autres services), prendre un modèle plus léger (OLLAMA_MODEL={_LIGHT_FALLBACK_MODEL}) "
+        "ou baisser OLLAMA_NUM_CTX."
     )
 
 
@@ -318,9 +321,10 @@ async def _check_offload() -> None:
     if ratio >= 0.02:
         logger.warning(
             "Le modèle %s déborde du GPU : %.0f%% tourne sur le processeur, "
-            "l'analyse sera très lente. Prendre un modèle plus petit "
-            "(OLLAMA_MODEL=qwen2.5:7b) ou baisser OLLAMA_NUM_CTX (actuellement %d).",
-            settings.ollama_model, ratio * 100, settings.ollama_num_ctx,
+            "l'analyse sera très lente. Libérer le GPU (autres services), prendre "
+            "un modèle plus léger (OLLAMA_MODEL=%s) ou baisser OLLAMA_NUM_CTX "
+            "(actuellement %d).",
+            settings.ollama_model, ratio * 100, _LIGHT_FALLBACK_MODEL, settings.ollama_num_ctx,
         )
 
 

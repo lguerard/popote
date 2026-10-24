@@ -85,7 +85,9 @@ def test_timeout_message_explains_an_offloaded_model(monkeypatch):
 
     monkeypatch.setattr(llm_service, "cpu_offload_ratio", 0.2)
     hint = llm_service.offload_hint()
-    assert "20% tourne sur le processeur" in hint and "qwen2.5:7b" in hint
+    assert "20% tourne sur le processeur" in hint
+    # Nomme le modèle en cause et propose le repli léger, texte seul.
+    assert llm_service.settings.ollama_model in hint and "OLLAMA_MODEL=qwen2.5:7b" in hint
     steps = StepTracker("x")
     steps.record("Analyse de la recette par l'IA…")
     assert steps.timeout_message(hint=hint).endswith(hint)
