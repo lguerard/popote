@@ -200,3 +200,16 @@ def test_photo_of_a_dish_goes_to_recipe_for_dish(monkeypatch):
         dish={"title": "Lasagnes"},
     )
     assert calls == ["vision", "ocr", "dish"] and recipe.title == "Lasagnes"
+
+
+def test_large_photos_are_downscaled_before_upload():
+    pytest.importorskip("PIL")
+    import io
+
+    from PIL import Image
+
+    big = io.BytesIO()
+    Image.new("RGB", (4000, 3000), "red").save(big, format="PNG")
+    data, mime = llm_service.prepare_image(big.getvalue(), "image/png")
+    assert mime == "image/jpeg" and max(Image.open(io.BytesIO(data)).size) == llm_service._MAX_IMAGE_SIDE
+    assert llm_service.prepare_image(b"pas une image", "image/jpeg") == (b"pas une image", "image/jpeg")
