@@ -550,36 +550,71 @@ async def _extract_ollama_image(image_b64: str, temperature: float = 0) -> dict:
         checker.cancel()
 
 
-async def _extract_claude_image(image_bytes: bytes, mime_type: str) -> dict:
+# Plafonds généreux : la réflexion adaptative des modèles Claude récents
+# compte dans max_tokens, une limite serrée tronquait la réponse.
+CLAUDE_MAX_TOKENS = 8192
+CLAUDE_FAST_MAX_TOKENS = 2048
+
+
+def claude_image_block(image_bytes: bytes, mime_type: str) -> dict:
     import base64
 
-    import anthropic
-    client = anthropic.AsyncAnthropic(api_key=settings.claude_api_key)
-    message = await client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=4096,
-        system=IMAGE_RECIPE_PROMPT,
-        messages=[{"role": "user", "content": [
-            {"type": "image", "source": {
-                "type": "base64", "media_type": mime_type,
-                "data": base64.standard_b64encode(image_bytes).decode(),
-            }},
-            {"type": "text", "text": "Voici la photo à analyser."},
-        ]}],
+    return {"type": "image", "source": {
+        "type": "base64", "media_type": mime_type,
+        "data": base64.standard_b64encode(image_bytes).decode(),
+    }}
+
+
+def claude_request(
+    content: str | list, *, system: str | None = None, fast: bool = False,
+) -> dict:
+    """Paramètres de messages.create, communs à tous les appels Claude.
+
+    Un seul réglage de modèle (CLAUDE_MODEL, ou CLAUDE_FAST_MODEL pour les
+    tâches courtes). Ni temperature, ni top_p, ni top_k : l'API les refuse
+    désormais.
+    """
+    params = {
+        "model": settings.claude_fast_model if fast else settings.claude_model,
+        "max_tokens": CLAUDE_FAST_MAX_TOKENS if fast else CLAUDE_MAX_TOKENS,
+        "messages": [{"role": "user", "content": content}],
+    }
+    if system:
+        params["system"] = system
+    return params
+
+
+def claude_text(message) -> str:
+    """Texte de la réponse : seulement les blocs « text ».
+
+    Avec la réflexion adaptative, le premier bloc peut être un bloc
+    « thinking » vide : content[0].text n'est alors pas la réponse.
+    """
+    return "".join(
+        getattr(block, "text", "") or "" for block in message.content
+        if getattr(block, "type", None) == "text"
     )
-    return parse_llm_content(message.content[0].text)
+
+
+async def ask_claude(content: str | list, *, system: str | None = None, fast: bool = False) -> str:
+    import anthropic
+
+    client = anthropic.AsyncAnthropic(api_key=settings.claude_api_key)
+    message = await client.messages.create(**claude_request(content, system=system, fast=fast))
+    return claude_text(message)
+
+
+async def _extract_claude_image(image_bytes: bytes, mime_type: str) -> dict:
+    return parse_llm_content(await ask_claude(
+        [claude_image_block(image_bytes, mime_type), {"type": "text", "text": "Voici la photo à analyser."}],
+        system=IMAGE_RECIPE_PROMPT,
+    ))
 
 
 async def _extract_claude(text: str, system: str = SYSTEM_PROMPT) -> dict:
-    import anthropic
-    client = anthropic.AsyncAnthropic(api_key=settings.claude_api_key)
-    message = await client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=4096,
-        system=system,
-        messages=[{"role": "user", "content": f"Voici le texte à analyser :\n\n{text[:30000]}"}],
-    )
-    return parse_llm_content(message.content[0].text)
+    return parse_llm_content(await ask_claude(
+        f"Voici le texte à analyser :\n\n{text[:30000]}", system=system,
+    ))
 
 
 def _parse_json(text: str) -> dict:
@@ -704,15 +739,7 @@ async def describe_dish_for_image(
     """
     recipe = image_description_input(title, description, category, ingredients, steps)
     if settings.use_claude:
-        import anthropic
-        client = anthropic.AsyncAnthropic(api_key=settings.claude_api_key)
-        message = await client.messages.create(
-            model="claude-sonnet-4-6",
-            max_tokens=200,
-            system=IMAGE_DESCRIPTION_PROMPT,
-            messages=[{"role": "user", "content": recipe}],
-        )
-        return clean_image_description(message.content[0].text)
+        return clean_image_description(await ask_claude(recipe, system=IMAGE_DESCRIPTION_PROMPT, fast=True))
     async with httpx.AsyncClient(timeout=_IMAGE_DESCRIPTION_TIMEOUT_SECONDS) as client:
         resp = await client.post(f"{settings.ollama_base_url}/api/chat", json=ollama_chat_request(
             [

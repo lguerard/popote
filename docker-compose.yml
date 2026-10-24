@@ -104,7 +104,10 @@ services:
       OLLAMA_NUM_CTX: ${OLLAMA_NUM_CTX:-8192}
       IMAGEGEN_BASE_URL: http://imagegen:8001
       IMAGE_GEN_FREE_GPU: ${IMAGE_GEN_FREE_GPU:-true}
+      # Si définie, Claude remplace Ollama pour toutes les tâches IA.
       CLAUDE_API_KEY: ${CLAUDE_API_KEY:-}
+      CLAUDE_MODEL: ${CLAUDE_MODEL:-claude-sonnet-5-5}
+      CLAUDE_FAST_MODEL: ${CLAUDE_FAST_MODEL:-claude-haiku-5-5}
       # Signe les jetons de session : le backend refuse de demarrer si
       # elle est absente, trop courte ou laissee par defaut.
       #   python3 -c "import secrets; print(secrets.token_urlsafe(48))"

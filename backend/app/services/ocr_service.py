@@ -5,7 +5,9 @@ import logging
 import httpx
 
 from ..config import settings
-from .llm_service import NUM_PREDICT_TRANSCRIPTION, build_vision_request, prepare_image
+from .llm_service import (
+    NUM_PREDICT_TRANSCRIPTION, ask_claude, build_vision_request, claude_image_block, prepare_image,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -41,24 +43,10 @@ async def extract_text_from_image(image_bytes: bytes, mime_type: str = "image/jp
 
 
 async def _claude_ocr(image_bytes: bytes, mime_type: str) -> str:
-    import anthropic
-    client = anthropic.AsyncAnthropic(api_key=settings.claude_api_key)
-    b64 = base64.standard_b64encode(image_bytes).decode()
-    msg = await client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=4096,
-        messages=[{
-            "role": "user",
-            "content": [
-                {
-                    "type": "image",
-                    "source": {"type": "base64", "media_type": mime_type, "data": b64},
-                },
-                {"type": "text", "text": OCR_PROMPT},
-            ],
-        }],
-    )
-    return msg.content[0].text
+    return await ask_claude([
+        claude_image_block(image_bytes, mime_type),
+        {"type": "text", "text": OCR_PROMPT},
+    ])
 
 
 async def _ollama_ocr(image_bytes: bytes) -> str:

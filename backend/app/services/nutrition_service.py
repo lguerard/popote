@@ -2,7 +2,7 @@ import httpx
 
 from ..config import settings
 from .llm_service import (
-    NUM_PREDICT_NUTRITION, _parse_json, ollama_chat_request, post_ollama_chat,
+    NUM_PREDICT_NUTRITION, _parse_json, ask_claude, ollama_chat_request, post_ollama_chat,
 )
 
 NUTRITION_PROMPT = """Tu es un nutritionniste expert.
@@ -66,15 +66,7 @@ async def _ollama_nutrition(prompt: str) -> dict:
 
 
 async def _claude_nutrition(prompt: str) -> dict:
-    import anthropic
-    client = anthropic.AsyncAnthropic(api_key=settings.claude_api_key)
-    msg = await client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=512,
-        system=NUTRITION_PROMPT,
-        messages=[{"role": "user", "content": prompt}],
-    )
-    return _parse(msg.content[0].text)
+    return _parse(await ask_claude(prompt, system=NUTRITION_PROMPT, fast=True))
 
 
 def _number(value) -> float | None:

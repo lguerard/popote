@@ -12,7 +12,13 @@ class Settings(BaseSettings):
     # Vide : OLLAMA_MODEL, à condition qu'il accepte les images (gemma4).
     # Un modèle à part double la VRAM nécessaire s'ils tournent ensemble.
     ollama_vision_model: str = ""
+    # Si définie, Claude REMPLACE Ollama pour toutes les tâches IA.
     claude_api_key: str = ""
+    # Extraction des recettes et lecture des photos.
+    claude_model: str = "claude-sonnet-5-5"
+    # Tâches courtes (nutrition, description du plat pour l'image) : plus
+    # rapide et bien moins cher, largement suffisant pour quelques lignes.
+    claude_fast_model: str = "claude-haiku-5-5"
     secret_key: str = "changeme"
     # large-v3-turbo : décodeur réduit (4 couches au lieu de 32), plusieurs
     # fois plus rapide que large-v3 pour une précision très proche, ~1 Go
