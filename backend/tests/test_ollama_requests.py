@@ -46,3 +46,53 @@ def test_dish_description_request_uses_shared_options(monkeypatch):
     _assert_common_options(bodies[0])
     assert bodies[0]["options"]["num_predict"] > 120
     assert "format" not in bodies[0]
+
+
+def test_unrelated_400_does_not_disable_the_schema(monkeypatch):
+    monkeypatch.setattr(llm_service, "_schema_supported", True)
+    monkeypatch.setattr(llm_service.settings, "claude_api_key", "")
+    formats = []
+
+    def handler(request):
+        formats.append(json.loads(request.content)["format"])
+        return httpx.Response(400, json={"error": "input length exceeds the context length"})
+
+    _patch_http(monkeypatch, llm_service, handler)
+    try:
+        asyncio.run(llm_service._chat_ollama("recette"))
+    except RuntimeError as e:
+        assert "context length" in str(e)
+    else:
+        raise AssertionError("un 400 doit remonter")
+    assert len(formats) == 1 and isinstance(formats[0], dict)
+    assert llm_service._schema_supported is True
+
+
+def test_schema_stays_enabled_when_the_json_fallback_fails_too(monkeypatch):
+    monkeypatch.setattr(llm_service, "_schema_supported", True)
+
+    def handler(request):
+        return httpx.Response(400, json={"error": "invalid format: bad image format"})
+
+    _patch_http(monkeypatch, llm_service, handler)
+    try:
+        asyncio.run(llm_service._chat_ollama("recette"))
+    except RuntimeError:
+        pass
+    assert llm_service._schema_supported is True
+
+
+def test_old_ollama_refusing_the_schema_switches_to_json(monkeypatch):
+    monkeypatch.setattr(llm_service, "_schema_supported", True)
+    content = json.dumps({"found": True, "title": "Pâtes", "ingredients": ["200 g de pâtes"], "steps": ["Cuire."]})
+
+    def handler(request):
+        if isinstance(json.loads(request.content)["format"], dict):
+            return httpx.Response(400, json={
+                "error": "json: cannot unmarshal object into Go struct field ChatRequest.format of type string",
+            })
+        return httpx.Response(200, json={"message": {"content": content}})
+
+    _patch_http(monkeypatch, llm_service, handler)
+    assert asyncio.run(llm_service._chat_ollama("recette"))["title"] == "Pâtes"
+    assert llm_service._schema_supported is False

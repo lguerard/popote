@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import re
+from typing import Callable
 
 import httpx
 
@@ -377,24 +378,60 @@ async def _extract_ollama(text: str, system: str = SYSTEM_PROMPT, temperature: f
         checker.cancel()
 
 
-async def _chat_ollama(text: str, system: str = SYSTEM_PROMPT, temperature: float = 0) -> dict:
+def _ollama_error(resp: httpx.Response) -> str:
+    """Message d'erreur renvoyé par Ollama ({"error": "..."}), sinon le corps brut."""
+    try:
+        body = resp.json()
+    except ValueError:
+        return resp.text
+    return str(body.get("error") or body) if isinstance(body, dict) else str(body)
+
+
+def _is_format_error(resp: httpx.Response) -> bool:
+    """Ce 400 vient-il du `format` (schéma JSON refusé) et non d'autre chose ?
+
+    Un vieil Ollama répond par exemple « json: cannot unmarshal object into
+    Go struct field ChatRequest.format of type string » ou « invalid
+    format ». Un 400 sans rapport (contexte trop long, image illisible,
+    option inconnue…) ne doit PAS désactiver le schéma pour toute la vie du
+    processus : les extractions suivantes perdraient les sorties
+    structurées sans raison.
+    """
+    message = _ollama_error(resp).lower()
+    return "format" in message or "schema" in message
+
+
+async def post_ollama_chat(
+    client: httpx.AsyncClient, make_body: Callable[[bool], dict],
+) -> httpx.Response:
+    """POST /api/chat, avec repli sur format="json" si le schéma est refusé.
+
+    make_body(use_schema) construit la requête. Le repli n'est retenu pour
+    les appels suivants que s'il a réussi : sinon le 400 venait d'ailleurs.
+    """
     global _schema_supported
+    url = f"{settings.ollama_base_url}/api/chat"
+    resp = await client.post(url, json=make_body(_schema_supported))
+    if resp.status_code == 400 and _schema_supported and _is_format_error(resp):
+        logger.warning(
+            "Ollama refuse le schéma JSON (%s) — repli sur format=json. "
+            "Mettre à jour l'image ollama pour les sorties structurées.", _ollama_error(resp)[:200],
+        )
+        resp = await client.post(url, json=make_body(False))
+        if resp.is_success:
+            _schema_supported = False
+    if resp.status_code == 400:
+        raise RuntimeError(f"Ollama a refusé la requête : {_ollama_error(resp)[:300]}")
+    resp.raise_for_status()
+    return resp
+
+
+async def _chat_ollama(text: str, system: str = SYSTEM_PROMPT, temperature: float = 0) -> dict:
     try:
         async with httpx.AsyncClient(timeout=_OLLAMA_TIMEOUT_SECONDS) as client:
-            url = f"{settings.ollama_base_url}/api/chat"
-            resp = await client.post(url, json=build_ollama_request(
-                text, use_schema=_schema_supported, system=system, temperature=temperature,
+            resp = await post_ollama_chat(client, lambda use_schema: build_ollama_request(
+                text, use_schema=use_schema, system=system, temperature=temperature,
             ))
-            if resp.status_code == 400 and _schema_supported:
-                logger.warning(
-                    "Ollama refuse le schéma JSON (%s) — repli sur format=json. "
-                    "Mettre à jour l'image ollama pour les sorties structurées.", resp.text[:200],
-                )
-                _schema_supported = False
-                resp = await client.post(url, json=build_ollama_request(
-                    text, use_schema=False, system=system, temperature=temperature,
-                ))
-            resp.raise_for_status()
             return parse_llm_content(resp.json()["message"]["content"])
     except httpx.TimeoutException:
         # httpx.TimeoutException se transforme souvent en message vide
