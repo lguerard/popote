@@ -120,33 +120,74 @@ _OLLAMA_TIMEOUT_SECONDS = 280
 # (versions antérieures à 0.5) : on retombe alors sur format="json".
 _schema_supported = True
 
+# Tokens générés au plus, par tâche. Garde-fou : en mode JSON certains
+# modèles bouclent sur des espaces jusqu'au délai maximal au lieu de
+# s'arrêter.
+NUM_PREDICT_RECIPE = 3072
+# Une phrase de 35 mots : 120 tokens coupaient parfois la phrase en plein
+# milieu (mots longs, tokenizer différent selon le modèle).
+NUM_PREDICT_DESCRIPTION = 200
+NUM_PREDICT_NUTRITION = 256
+
+
+def ollama_options(num_predict: int, temperature: float = 0) -> dict:
+    """Options communes à TOUS les appels Ollama de l'appli.
+
+    num_ctx est toujours le même (settings.ollama_num_ctx) : Ollama recharge
+    entièrement le modèle dès qu'une requête demande une autre fenêtre de
+    contexte que celle avec laquelle il est chargé — plusieurs secondes
+    perdues, et un pic de VRAM, à chaque alternance extraction/description.
+    La même valeur doit être utilisée par les autres clients de ce serveur
+    Ollama (Paperless…), voir OLLAMA_CONTEXT_LENGTH dans docker-compose.yml.
+    """
+    return {
+        "temperature": temperature,
+        # Sans ça, Ollama travaille sur 2048-4096 tokens et TRONQUE en
+        # silence une page longue (souvent la partie recette, en bas) :
+        # d'où certains « Aucune recette trouvée ».
+        "num_ctx": settings.ollama_num_ctx,
+        "num_predict": num_predict,
+    }
+
+
+def ollama_chat_request(
+    messages: list[dict], *, num_predict: int, model: str | None = None,
+    temperature: float = 0, format: dict | str | None = None,
+) -> dict:
+    """Corps de requête /api/chat commun (extraction, photo, nutrition, description).
+
+    "think": False : les modèles à raisonnement (Gemma 4, Qwen 3…) écrivent
+    sinon des centaines de tokens de réflexion avant de répondre, ce qui
+    multiplie la durée d'une extraction sans gain mesurable pour recopier
+    une recette dans un schéma.
+    """
+    body = {
+        "model": model or settings.ollama_model,
+        "messages": messages,
+        "stream": False,
+        "think": False,
+        "options": ollama_options(num_predict, temperature),
+    }
+    if format is not None:
+        body["format"] = format
+    return body
+
 
 def build_ollama_request(
     text: str, model: str | None = None, *, use_schema: bool = True,
     system: str = SYSTEM_PROMPT, temperature: float = 0,
 ) -> dict:
     """Corps de requête /api/chat, partagé avec l'évaluation mensuelle des modèles."""
-    return {
-        "model": model or settings.ollama_model,
-        "messages": [
+    # Déterministe : la même page donne la même recette (un peu de hasard
+    # seulement pour réessayer après une réponse illisible).
+    return ollama_chat_request(
+        [
             {"role": "system", "content": system},
             {"role": "user", "content": f"Voici le texte à analyser :\n\n{text[:_MAX_INPUT_CHARS]}"},
         ],
-        "stream": False,
-        "format": RECIPE_JSON_SCHEMA if use_schema else "json",
-        "options": {
-            # Déterministe : la même page donne la même recette (un peu de
-            # hasard seulement pour réessayer après une réponse illisible).
-            "temperature": temperature,
-            # Sans ça, Ollama travaille sur 2048-4096 tokens et TRONQUE en
-            # silence une page longue (souvent la partie recette, en bas) :
-            # d'où certains « Aucune recette trouvée ».
-            "num_ctx": settings.ollama_num_ctx,
-            # Garde-fou : en mode JSON certains modèles bouclent sur des
-            # espaces jusqu'au délai maximal au lieu de s'arrêter.
-            "num_predict": 3072,
-        },
-    }
+        model=model, temperature=temperature, num_predict=NUM_PREDICT_RECIPE,
+        format=RECIPE_JSON_SCHEMA if use_schema else "json",
+    )
 
 
 def parse_llm_content(content: str) -> dict:
@@ -486,15 +527,13 @@ async def describe_dish_for_image(
         )
         return clean_image_description(message.content[0].text)
     async with httpx.AsyncClient(timeout=_IMAGE_DESCRIPTION_TIMEOUT_SECONDS) as client:
-        resp = await client.post(f"{settings.ollama_base_url}/api/chat", json={
-            "model": settings.ollama_model,
-            "stream": False,
-            "messages": [
+        resp = await client.post(f"{settings.ollama_base_url}/api/chat", json=ollama_chat_request(
+            [
                 {"role": "system", "content": IMAGE_DESCRIPTION_PROMPT},
                 {"role": "user", "content": recipe},
             ],
-            "options": {"temperature": 0.2, "num_predict": 120},
-        })
+            temperature=0.2, num_predict=NUM_PREDICT_DESCRIPTION,
+        ))
         resp.raise_for_status()
         return clean_image_description(resp.json()["message"]["content"])
 
