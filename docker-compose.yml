@@ -66,6 +66,11 @@ services:
     environment:
       IMAGE_GEN_MODEL: ${IMAGE_GEN_MODEL:-stabilityai/sdxl-turbo}
       IMAGE_GEN_DEVICE: ${IMAGE_GEN_DEVICE:-cuda}
+      # Vides par défaut : imagegen applique alors le réglage propre au
+      # modèle (4 pas sans guidance pour les « turbo », voir imagegen/app.py).
+      IMAGE_GEN_STEPS: ${IMAGE_GEN_STEPS:-}
+      IMAGE_GEN_GUIDANCE: ${IMAGE_GEN_GUIDANCE:-}
+      IMAGE_GEN_SIZE: ${IMAGE_GEN_SIZE:-}
     deploy:
       resources:
         reservations:
