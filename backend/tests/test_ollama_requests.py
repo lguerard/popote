@@ -132,3 +132,28 @@ def test_nutrition_parse_reads_fenced_json_and_rejects_garbage():
         assert "illisible" in str(e)
     else:
         raise AssertionError("une réponse illisible doit lever")
+
+
+def test_model_is_installed_needs_an_exact_name():
+    installed = ["gemma4:12b-it-qat", "qwen2.5:7b-instruct", "llava:latest"]
+    assert not llm_service.model_is_installed("gemma4:12b", installed)
+    assert not llm_service.model_is_installed("qwen2.5:7b", installed)
+    assert llm_service.model_is_installed("llava", installed)
+    assert llm_service.model_is_installed("llava:latest", ["llava"])
+    assert llm_service.model_is_installed("gemma4:12b", ["gemma4:12b"])
+
+
+def test_missing_model_is_pulled_with_the_model_key(monkeypatch):
+    monkeypatch.setattr(llm_service.settings, "claude_api_key", "")
+    monkeypatch.setattr(llm_service.settings, "ollama_model", "gemma4:12b")
+    pulls = []
+
+    def handler(request):
+        if request.url.path == "/api/tags":
+            return httpx.Response(200, json={"models": [{"name": "gemma4:12b-it-qat", "model": "gemma4:12b-it-qat"}]})
+        pulls.append(json.loads(request.content))
+        return httpx.Response(200, json={"status": "success"})
+
+    _patch_http(monkeypatch, llm_service, handler)
+    asyncio.run(llm_service.ensure_model_available())
+    assert pulls == [{"model": "gemma4:12b", "stream": False}]

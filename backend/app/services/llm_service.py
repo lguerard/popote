@@ -469,6 +469,23 @@ def _parse_json(text: str) -> dict:
     return json.loads(text)
 
 
+def _full_model_name(name: str) -> str:
+    """« gemma4 » et « gemma4:latest » désignent le même modèle pour Ollama."""
+    name = name.strip()
+    return name if ":" in name.rsplit("/", 1)[-1] else f"{name}:latest"
+
+
+def model_is_installed(model: str, installed: list[str]) -> bool:
+    """Correspondance exacte (au :latest implicite près).
+
+    Une simple sous-chaîne prenait « gemma4:12b-it-qat » ou
+    « qwen2.5:7b-instruct » pour le modèle demandé : il n'était alors
+    jamais téléchargé, et chaque extraction échouait sur « model not found ».
+    """
+    wanted = _full_model_name(model)
+    return any(_full_model_name(name) == wanted for name in installed)
+
+
 async def ensure_model_available():
     """Pull Ollama model if not present."""
     if settings.use_claude:
@@ -476,14 +493,14 @@ async def ensure_model_available():
     try:
         async with httpx.AsyncClient(timeout=10) as client:
             resp = await client.get(f"{settings.ollama_base_url}/api/tags")
-            models = [m["name"] for m in resp.json().get("models", [])]
-        if not any(settings.ollama_model in m for m in models):
+            models = [m.get("model") or m.get("name") or "" for m in resp.json().get("models", [])]
+        if not model_is_installed(settings.ollama_model, models):
             logger.info("Téléchargement du modèle Ollama %s…", settings.ollama_model)
-            # ~5 Go : laisser largement le temps du téléchargement
+            # ~8 Go : laisser largement le temps du téléchargement
             async with httpx.AsyncClient(timeout=3600) as pull_client:
                 resp = await pull_client.post(
                     f"{settings.ollama_base_url}/api/pull",
-                    json={"name": settings.ollama_model, "stream": False},
+                    json={"model": settings.ollama_model, "stream": False},
                 )
                 resp.raise_for_status()
             logger.info("Modèle %s prêt", settings.ollama_model)
