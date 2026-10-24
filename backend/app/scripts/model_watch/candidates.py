@@ -18,6 +18,7 @@ parameter count.
 """
 
 import logging
+import os
 import re
 import subprocess
 
@@ -32,15 +33,47 @@ LIBRARY_URL = "https://ollama.com/library"
 # des modeles generalistes/instruct couramment cites comme bons pour du
 # suivi d'instructions strict (extraction JSON), la tache de cette app.
 CURATED_FAMILIES = [
-    "qwen2.5", "qwen3", "llama3.1", "llama3.2", "llama3.3",
-    "mistral", "mistral-nemo", "gemma2", "gemma3", "phi3.5", "phi4",
+    "gemma4", "qwen3.5", "qwen3", "qwen2.5", "llama3.1", "llama3.2", "llama3.3",
+    "mistral", "mistral-nemo", "gemma3", "gemma2", "phi3.5", "phi4",
     "deepseek-r1", "command-r",
 ]
 
 # Tags a essayer par famille, du plus petit au plus gros : on s'arrete au
 # premier qui existe pour chaque taille listee ici plutot que de tout
 # essayer (Ollama liste souvent des dizaines de variantes de quantization).
-CANDIDATE_SIZE_TAGS = ["7b", "8b", "9b", "13b", "14b", "27b", "32b"]
+# e4b : Gemma « effective 4B » (variante légère de gemma3n/gemma4).
+CANDIDATE_SIZE_TAGS = ["4b", "e4b", "7b", "8b", "9b", "12b", "13b", "14b", "27b", "32b"]
+
+# VRAM en plus des poids, à la fenêtre de contexte de l'appli (8192 tokens)
+# avec le cache KV en q8_0 et la flash attention (docker-compose.yml) :
+# cache KV + tampons de calcul, ~0,5-1 Go pour un modèle de 7 à 14B.
+VRAM_OVERHEAD_GB = float(os.environ.get("MODEL_WATCH_VRAM_OVERHEAD_GB", "0.7"))
+# Marge laissée libre sur la VRAM totale mesurée (pilote, autres services).
+VRAM_HEADROOM_GB = float(os.environ.get("MODEL_WATCH_VRAM_HEADROOM_GB", "0.5"))
+
+
+def vram_budget_gb(total_gb: float) -> float:
+    """VRAM disponible pour le modèle candidat.
+
+    MODEL_WATCH_VRAM_BUDGET_GB, s'il est défini, fixe le budget directement :
+    utile sur une carte partagée avec d'autres services (Immich, Frigate…)
+    dont la part ne se mesure pas au moment du test. Sinon : VRAM totale
+    moins MODEL_WATCH_VRAM_HEADROOM_GB.
+    """
+    explicit = os.environ.get("MODEL_WATCH_VRAM_BUDGET_GB", "").strip()
+    if explicit:
+        return float(explicit)
+    return total_gb - VRAM_HEADROOM_GB
+
+
+def estimated_vram_gb(disk_size_gb: float) -> float:
+    """VRAM réellement occupée une fois chargé : poids (+5 %) et contexte.
+
+    L'ancienne estimation (×1,15 + 0,5 Go) comptait le contexte comme une
+    part des poids : un modèle de ~8 Go, qui tient sur une carte de 10 Go
+    avec le cache KV quantifié, était écarté d'office.
+    """
+    return disk_size_gb * 1.05 + VRAM_OVERHEAD_GB
 
 
 def get_gpu_vram_gb() -> float | None:
@@ -109,10 +142,7 @@ def find_best_fitting_tag(name: str, vram_budget_gb: float) -> tuple[str, float]
             if size_bytes is None:
                 continue
             size_gb = size_bytes / (1024 ** 3)
-            # La VRAM utile en usage reel depasse un peu la taille sur
-            # disque (cache KV, buffers d'activation) : marge de 15 % + 0.5 Go.
-            estimated_vram_gb = size_gb * 1.15 + 0.5
-            if estimated_vram_gb <= vram_budget_gb:
+            if estimated_vram_gb(size_gb) <= vram_budget_gb:
                 if best is None or size_gb > best[1]:
                     best = (f"{name}:{tag}", size_gb)
             break  # un tag de cette taille existe, pas besoin des variantes

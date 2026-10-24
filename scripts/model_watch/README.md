@@ -2,8 +2,10 @@
 
 Vérifie une fois par mois si un nouveau modèle Ollama ferait mieux que
 celui utilisé pour l'extraction de recettes (`OLLAMA_MODEL`), tout en
-tenant dans la VRAM du GPU. Si oui, bascule dessus automatiquement et
-t'envoie un email ; sinon, t'envoie un rapport "rien de nouveau".
+tenant dans la VRAM du GPU, et t'envoie le rapport par email. Par défaut
+**rien n'est changé** : le meilleur candidat est seulement signalé, avec
+la marche à suivre pour l'adopter. La bascule automatique est réservée à
+`MODEL_WATCH_AUTO_SWITCH=true`.
 
 ## Comment ça marche
 
@@ -15,7 +17,8 @@ t'envoie un email ; sinon, t'envoie un rapport "rien de nouveau".
    ```
 2. `run_eval.py` (dans `backend/app/scripts/model_watch/`) :
    - mesure la VRAM du GPU en direct (`nvidia-smi`), moins une marge de
-     sécurité (`MODEL_WATCH_VRAM_HEADROOM_GB`) ;
+     sécurité (`MODEL_WATCH_VRAM_HEADROOM_GB`, 0,5 Go) — ou prend le budget
+     fixé par `MODEL_WATCH_VRAM_BUDGET_GB` sur une carte partagée ;
    - construit une liste de modèles candidats : une petite liste de
      familles reconnues (`candidates.py:CURATED_FAMILIES`) plus une
      tentative de récupérer les nouveautés sur `ollama.com/library` (best
@@ -25,8 +28,9 @@ t'envoie un email ; sinon, t'envoie un rapport "rien de nouveau".
      dans le budget VRAM, d'après la taille **réelle** du manifest Ollama
      (pas une estimation à partir du nombre de paramètres) ;
    - `ollama pull` le modèle actuel et chaque candidat, puis fait tourner
-     **le même prompt système et le même code de normalisation JSON que la
-     vraie app** (`app.services.llm_service`) sur 3 recettes de test
+     **la même requête (schéma JSON, `num_ctx`, température 0,
+     `"think": false`) et le même code de normalisation JSON que la vraie
+     app** (`app.services.llm_service`) sur 3 recettes de test
      (`eval_cases.json` : une propre, une bruitée façon page web, une
      façon transcription orale) ;
    - note chaque extraction avec `scoring.py` (JSON valide, bons
@@ -35,13 +39,16 @@ t'envoie un email ; sinon, t'envoie un rapport "rien de nouveau".
      points) ;
    - un candidat "gagne" s'il dépasse le score du modèle actuel d'au moins
      `MODEL_WATCH_MIN_IMPROVEMENT` points (5 par défaut, pour éviter de
-     changer de modèle sur du bruit de mesure) ;
+     changer de modèle sur du bruit de mesure). Si `OLLAMA_MODEL` lit aussi
+     les photos (`OLLAMA_VISION_MODEL` vide), un candidat sans vision
+     (d'après `/api/show`) ne peut pas gagner : il est seulement signalé ;
    - supprime (`ollama rm`) les candidats testés qui n'ont pas gagné, pour
      ne pas accumuler des dizaines de Go de modèles inutilisés. **Le
      modèle précédent n'est PAS supprimé** en cas de changement, pour que
      revenir en arrière soit instantané (pas besoin de re-télécharger).
    - imprime un seul objet JSON sur stdout (les logs vont sur stderr).
-3. `check_model.sh` lit ce JSON. S'il y a un gagnant :
+3. `check_model.sh` lit ce JSON. S'il y a un gagnant, il est signalé dans
+   le rapport. Seulement avec `MODEL_WATCH_AUTO_SWITCH=true`, le script :
    - modifie `OLLAMA_MODEL=` dans `.env` ;
    - `docker compose up -d --no-deps backend` (recrée le conteneur avec la
      nouvelle variable d'env — un simple `restart` ne suffit pas, Compose
@@ -90,6 +97,10 @@ d'un changement), donc ce redémarrage est immédiat.
 - Chaque run peut télécharger plusieurs Go par candidat testé — surveiller
   `MODEL_WATCH_MAX_CANDIDATES` si la bande passante ou le disque sont
   limités.
-- L'estimation VRAM (taille sur disque × 1.15 + 0.5 Go) est une marge
+- L'estimation VRAM (taille sur disque × 1,05 + `MODEL_WATCH_VRAM_OVERHEAD_GB`,
+  0,7 Go pour le contexte de 8192 tokens en cache KV q8_0) est une marge
   raisonnable mais pas une garantie absolue ; `MODEL_WATCH_VRAM_HEADROOM_GB`
-  existe pour ajuster la prudence.
+  et `MODEL_WATCH_VRAM_BUDGET_GB` existent pour ajuster la prudence.
+- Les réglages `MODEL_WATCH_VRAM_*`, `MODEL_WATCH_MAX_CANDIDATES` et
+  `MODEL_WATCH_MIN_IMPROVEMENT` de `.env` sont transmis au conteneur
+  backend par `check_model.sh` (ils n'en font pas partie autrement).
