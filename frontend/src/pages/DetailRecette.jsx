@@ -12,6 +12,7 @@ import Historique from '../components/Historique'
 import ChoixCarnets from '../components/ChoixCarnets'
 import EnvoiCompte from '../components/EnvoiCompte'
 import ExportMfp from '../components/ExportMfp'
+import { BoutonAssistant } from '../assistant/Assistant'
 import { sectionStart, SectionTitle } from '../components/Sections'
 
 const SOURCE_ICONS = { video: '🎬', web: '🌐', text: '📝', manual: '✏️' }
@@ -156,6 +157,7 @@ export default function DetailRecette() {
           <Link to={`/recettes/${id}/cuisine`} className="px-3 py-2 text-sm bg-orange-600 text-white hover:bg-orange-700 rounded-lg transition-colors">
             👨‍🍳 Cuisiner
           </Link>
+          <BoutonAssistant recipe={recipe} />
           <Link to={`/recettes/${id}/modifier`} className="px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors">Modifier</Link>
           <button onClick={() => setPanneau(p => p === 'carnets' ? null : 'carnets')} title="Ajouter à un carnet"
             className={`px-3 py-2 text-sm rounded-lg transition-colors ${panneau === 'carnets' ? 'bg-orange-100 text-orange-700' : 'bg-gray-100 hover:bg-gray-200'}`}>📚</button>

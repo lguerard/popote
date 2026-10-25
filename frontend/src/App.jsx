@@ -16,6 +16,7 @@ import Partage from './pages/Partage'
 import PartageComptes from './pages/PartageComptes'
 import Sauvegarde from './pages/Sauvegarde'
 import { useAuth } from './auth'
+import { AssistantProvider } from './assistant/Assistant'
 
 export default function App() {
   const { user, chargement } = useAuth()
@@ -45,32 +46,35 @@ export default function App() {
   if (!user) return <Connexion />
 
   return (
-    <div className="min-h-screen flex flex-col">
-      <Navigation />
-      <main className="flex-1 max-w-7xl mx-auto w-full px-4 py-8">
+    <AssistantProvider>
+      <div className="min-h-screen flex flex-col">
+        <Navigation />
+        {/* pb-28 : le bouton flottant de l'assistant ne cache pas le bas des pages. */}
+        <main className="flex-1 max-w-7xl mx-auto w-full px-4 pt-8 pb-28">
+          <Routes>
+            <Route path="/" element={<Accueil />} />
+            <Route path="/recettes/:id" element={<DetailRecette />} />
+            <Route path="/recettes/:id/modifier" element={<ModifierRecette />} />
+            <Route path="/courses" element={<ListeCourses />} />
+            <Route path="/planning" element={<Planning />} />
+            <Route path="/ajouter" element={<AjouterRecette />} />
+            <Route path="/succes" element={<Succes />} />
+            <Route path="/frigo" element={<Frigo />} />
+            <Route path="/carnets" element={<Carnets />} />
+            <Route path="/carnets/:id" element={<Carnet />} />
+            <Route path="/partager" element={<PartageComptes />} />
+            <Route path="/sauvegarde" element={<Sauvegarde />} />
+            {/* Route montee seulement pour un administrateur : sans ça,
+                un non-admin verrait la page avant son erreur 403. */}
+            {user.is_admin && <Route path="/comptes" element={<Comptes />} />}
+            <Route path="*" element={<IntrouvablePage />} />
+          </Routes>
+        </main>
         <Routes>
-          <Route path="/" element={<Accueil />} />
-          <Route path="/recettes/:id" element={<DetailRecette />} />
-          <Route path="/recettes/:id/modifier" element={<ModifierRecette />} />
-          <Route path="/courses" element={<ListeCourses />} />
-          <Route path="/planning" element={<Planning />} />
-          <Route path="/ajouter" element={<AjouterRecette />} />
-          <Route path="/succes" element={<Succes />} />
-          <Route path="/frigo" element={<Frigo />} />
-          <Route path="/carnets" element={<Carnets />} />
-          <Route path="/carnets/:id" element={<Carnet />} />
-          <Route path="/partager" element={<PartageComptes />} />
-          <Route path="/sauvegarde" element={<Sauvegarde />} />
-          {/* Route montee seulement pour un administrateur : sans ça,
-              un non-admin verrait la page avant son erreur 403. */}
-          {user.is_admin && <Route path="/comptes" element={<Comptes />} />}
-          <Route path="*" element={<IntrouvablePage />} />
+          <Route path="/recettes/:id/cuisine" element={<ModeCuisine />} />
         </Routes>
-      </main>
-      <Routes>
-        <Route path="/recettes/:id/cuisine" element={<ModeCuisine />} />
-      </Routes>
-    </div>
+      </div>
+    </AssistantProvider>
   )
 }
 

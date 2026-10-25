@@ -4,7 +4,7 @@ from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db
@@ -15,6 +15,7 @@ from ..models.shopping import ShoppingItem as ShoppingItemRow
 from ..models.user import User
 from ..schemas.recipe import ShoppingItem, ShoppingListRequest
 from ..services import achievement_service, grocery
+from ..services.shopping_list import add_merged, last_position, list_items
 
 router = APIRouter(tags=["shopping"])
 
@@ -84,21 +85,6 @@ class ItemPatch(BaseModel):
     checked: bool | None = None
 
 
-def _aisle_rank(aisle: str) -> int:
-    try:
-        return grocery.AISLES.index(aisle)
-    except ValueError:
-        return len(grocery.AISLES)
-
-
-async def list_items(db: AsyncSession, owner_id: uuid.UUID) -> list[ShoppingItemRow]:
-    rows = (await db.execute(
-        select(ShoppingItemRow).where(ShoppingItemRow.owner_id == owner_id)
-        .order_by(ShoppingItemRow.position, ShoppingItemRow.created_at)
-    )).scalars().all()
-    return sorted(rows, key=lambda r: (_aisle_rank(r.aisle), r.name.lower()))
-
-
 async def _list_out(db: AsyncSession, user: User) -> ShoppingListOut:
     return ShoppingListOut(
         items=[ShoppingItemOut.model_validate(r) for r in await list_items(db, user.id)],
@@ -144,36 +130,10 @@ async def generate_items(
     ]
     if req.replace:
         await db.execute(delete(ShoppingItemRow).where(ShoppingItemRow.owner_id == user.id))
-    position = (await db.execute(
-        select(func.coalesce(func.max(ShoppingItemRow.position), 0))
-        .where(ShoppingItemRow.owner_id == user.id)
-    )).scalar_one()
-    for item in merged:
-        target = _find_mergeable(existing, item)
-        if target:
-            total = grocery.parse_quantity(target.quantity) + grocery.parse_quantity(item["quantity"])
-            target.quantity, target.unit = grocery.format_quantity(total, target.unit)
-            target.recipes = list(dict.fromkeys([*(target.recipes or []), *item["recipes"]]))
-            continue
-        position += 1
-        db.add(ShoppingItemRow(owner_id=user.id, position=position, **item))
+    await add_merged(db, user.id, merged, existing)
     await db.commit()
     await achievement_service.on_shopping_generated(db)
     return await _list_out(db, user)
-
-
-def _find_mergeable(existing: list[ShoppingItemRow], item: dict) -> ShoppingItemRow | None:
-    """Article déjà sur la liste auquel ajouter la quantité, s'il y en a un."""
-    key = grocery.ingredient_key(item["name"])
-    for row in existing:
-        if (
-            grocery.ingredient_key(row.name) == key
-            and (row.unit or None) == (item["unit"] or None)
-            and grocery.parse_quantity(row.quantity) is not None
-            and grocery.parse_quantity(item["quantity"]) is not None
-        ):
-            return row
-    return None
 
 
 @router.post("/shopping/items", response_model=ShoppingItemOut, status_code=201)
@@ -182,10 +142,7 @@ async def add_item(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(current_user),
 ):
-    position = (await db.execute(
-        select(func.coalesce(func.max(ShoppingItemRow.position), 0))
-        .where(ShoppingItemRow.owner_id == user.id)
-    )).scalar_one()
+    position = await last_position(db, user.id)
     row = ShoppingItemRow(
         owner_id=user.id, name=data.name.strip(), quantity=data.quantity, unit=data.unit,
         aisle=grocery.guess_aisle(data.name), recipes=[], position=position + 1,

@@ -64,7 +64,8 @@ jobs:
   # ── Backend tests — every push & PR ─────────────────────────────────────────
   # Parsing et logique d'extraction uniquement : Chromium, yt-dlp et Whisper
   # sont remplacés par des modules vides (tests/conftest.py), inutile de les
-  # installer ici.
+  # installer ici. aiosqlite : base SQLite en mémoire pour les outils de
+  # l'assistant (tests/test_assistant.py), dépendance de test seulement.
   backend-tests:
     name: Backend tests
     runs-on: ubuntu-latest
@@ -78,7 +79,7 @@ jobs:
       - run: >
           pip install beautifulsoup4==4.12.3 httpx==0.27.2 pydantic==2.9.2
           pydantic-settings==2.5.2 "sqlalchemy[asyncio]==2.0.36" asyncpg==0.29.0
-          recipe-scrapers==15.12.0 pytest
+          recipe-scrapers==15.12.0 aiosqlite==0.20.0 pytest
 
       - run: python -m pytest tests -q
         working-directory: backend

@@ -18,6 +18,7 @@ from .api.meal_plan import router as meal_plan_router
 from .api.achievements import router as achievements_router
 from .api.sharing import router as sharing_router
 from .api.backup import router as backup_router
+from .api.assistant import router as assistant_router
 from .services.llm_service import ensure_model_available
 from .services.achievement_service import init_achievements
 from .services.web_scraper import close_browser
@@ -112,6 +113,7 @@ app.include_router(collections_router, prefix="/api")
 app.include_router(public_router, prefix="/api")
 app.include_router(sharing_router, prefix="/api")
 app.include_router(backup_router, prefix="/api")
+app.include_router(assistant_router, prefix="/api")
 
 
 @app.get("/api/health")

@@ -42,6 +42,25 @@ brut, ou photo — accompagnée d'une application Android native.
 - **Planning des repas** : calendrier hebdomadaire (matin/midi/soir/snack)
 - Export PDF via l'impression du navigateur
 
+### Assistant culinaire
+
+Bouton 💬 sur toutes les pages de l'interface web (et « Demander à
+l'assistant » sur une fiche recette) : on lui parle en français, il répond
+mot à mot et **agit sur ses données** :
+
+- cherche dans ses recettes (« Qu'est-ce que je peux cuisiner avec… ? »),
+  lit une recette, adapte les quantités (« Adapte cette recette pour 6 ») ;
+- lit et complète le **planning** (« Planifie mes dîners de la semaine ») et
+  la **liste de courses** (articles, ou ingrédients d'une recette) ; chaque
+  ajout apparaît en pastille dans la conversation ;
+- ne voit que le compte connecté, et ne supprime ni ne modifie jamais rien.
+
+Il tourne sur le **même modèle local** que l'extraction (Ollama, aucun
+modèle en plus en VRAM), ou sur Claude si `CLAUDE_API_KEY` est définie. La
+conversation reste dans le navigateur (effacée à la déconnexion). Pas encore
+dans l'application Android native. Délais : voir
+[`DEPLOIEMENT.md`](DEPLOIEMENT.md#assistant-culinaire).
+
 ### Partage
 
 - **Entre comptes** : envoyer une recette, ou toute sa bibliothèque, à un autre

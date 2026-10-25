@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState } from 'react'
 import { api, setAuthToken } from './api'
+import { clearConversations } from './assistant/storage'
 
 const CLE = 'popote.token'
 const AuthContext = createContext(null)
@@ -34,6 +35,9 @@ export function AuthProvider({ children }) {
 
   function deconnexion() {
     try { localStorage.removeItem(CLE) } catch { /* mode privé */ }
+    // Conversations de l'assistant : elles citent recettes, planning et
+    // courses du compte, à ne pas laisser au suivant sur cet appareil.
+    clearConversations()
     setToken(null)
     setUser(null)
   }
