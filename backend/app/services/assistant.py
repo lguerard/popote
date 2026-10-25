@@ -583,7 +583,11 @@ async def run_claude(
             if outcome.error:
                 result["is_error"] = True
             results.append(result)
-        content = [blocks[i] for i in sorted(blocks)]
+        # Un bloc de texte vide est refusé par l'API au tour suivant.
+        content = [
+            blocks[i] for i in sorted(blocks)
+            if not (blocks[i].get("type") == "text" and not blocks[i].get("text"))
+        ]
         # Tous les résultats dans UN message, comme l'API l'attend.
         messages.append({"role": "assistant", "content": content})
         messages.append({"role": "user", "content": results})

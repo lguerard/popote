@@ -617,6 +617,7 @@ def test_claude_path_streams_and_runs_tools(monkeypatch):
                 _ev("content_block_delta", index=0, delta=_delta("signature_delta", signature="sig-123")),
                 _ev("content_block_start", index=1, content_block=_Block(type="text", text="")),
                 _ev("content_block_delta", index=1, delta=_delta("text_delta", text="Je regarde.")),
+                _ev("content_block_start", index=3, content_block=_Block(type="text", text="")),
                 _ev("content_block_start", index=2, content_block=_Block(type="tool_use", id="tu_1",
                                                                           name="ajouter_aux_courses", input={})),
                 _ev("content_block_delta", index=2, delta=_delta("input_json_delta",
@@ -649,6 +650,7 @@ def test_claude_path_streams_and_runs_tools(monkeypatch):
     # Bloc de réflexion renvoyé intact, signature comprise, sans champ parasite.
     assert assistant_turn["content"][0] == {"type": "thinking", "thinking": "", "signature": "sig-123"}
     assert assistant_turn["content"][2]["input"] == {"elements": [{"nom": "riz"}]}
+    assert len(assistant_turn["content"]) == 3  # bloc de texte vide retiré
     assert results["role"] == "user"
     assert [r["tool_use_id"] for r in results["content"]] == ["tu_1"]
 
