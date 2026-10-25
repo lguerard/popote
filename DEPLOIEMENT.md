@@ -272,6 +272,52 @@ la **veille des modèles** de `server_setup` (service `model-watch`) qui lance
 cette commande chaque mois sur les modèles candidats ; Popote ne choisit ni
 ne télécharge aucun modèle lui-même.
 
+### Assistant culinaire
+
+L'assistant (bouton 💬 de l'interface web) utilise **le même modèle
+qu'Ollama sert déjà** (`OLLAMA_MODEL`, gemma4:12b par défaut) avec les mêmes
+options (`think: false`, même `OLLAMA_NUM_CTX`) : aucun modèle de plus en
+VRAM, aucun rechargement en passant de l'extraction au chat. Aucune variable
+à ajouter. Avec `CLAUDE_API_KEY`, c'est `CLAUDE_MODEL` qui répond.
+
+Ce qu'il sait faire, par des « outils » que le serveur exécute pour lui :
+chercher dans les recettes du compte (recherche plein texte PostgreSQL en
+français, puis repli sur les mots partiels), proposer des recettes selon ce
+qu'il y a dans le frigo, lire une recette, adapter ses quantités, lire et
+compléter le planning et la liste de courses. Tout est limité au compte
+connecté ; rien n'est jamais supprimé.
+
+**Délais à prévoir** :
+
+- Sur un GPU partagé, Ollama traite **une requête à la fois**
+  (`OLLAMA_NUM_PARALLEL=1`, réglé par `server_setup`) : une question posée
+  pendant une extraction, ou pendant une requête d'un autre service
+  (Paperless…), attend la fin de celle-ci ; l'appli affiche alors « le
+  modèle est occupé… ».
+- Avec `OLLAMA_KEEP_ALIVE=5m`, le modèle est déchargé après 5 minutes sans
+  appel : la question suivante attend son rechargement, **environ 10 s**,
+  avant le premier mot. Même chose après une transcription Whisper ou une
+  génération d'image, qui libèrent le GPU.
+- Une question qui utilise des outils fait plusieurs passages par le modèle
+  (5 tours d'outils au plus).
+- Au-delà de **180 s** au total, la réponse s'arrête avec un message
+  d'erreur ; une seule question à la fois par compte (une seconde est
+  refusée tant que la première n'est pas finie ou arrêtée).
+
+**Fenêtre de contexte** : avec 8192 tokens, les plus anciens échanges d'une
+longue conversation sont oubliés (la recette ouverte et la dernière question
+restent) ; un message de plus de 4000 caractères est refusé. « Nouvelle
+conversation » repart de zéro.
+
+**Mise en tampon** : la réponse arrive en flux (`application/x-ndjson`). Le
+backend envoie `X-Accel-Buffering: no` pour que nginx la transmette au fil
+de l'eau ; un autre proxy devant Popote doit faire de même (pas de mise en
+tampon, pas de compression de ce type de réponse), sinon la réponse
+s'affiche d'un bloc à la fin.
+
+Le verrou « une question à la fois » vit en mémoire du backend : il suppose
+un seul processus uvicorn, ce que lance `backend/entrypoint.sh`.
+
 ### Sauvegarder ses recettes
 
 Chaque compte télécharge sa sauvegarde complète (recettes, images, notes,
