@@ -12,7 +12,8 @@ NDJSON, une ligne JSON par événement :
 - {"type": "status", "text": …}   ce que fait l'assistant (outil, attente) ;
 - {"type": "delta", "text": …}    morceau de réponse, au fil de l'eau ;
 - {"type": "recipes", "recipes": [{id, title, thumbnail_url, minutes}]} ;
-- {"type": "action", "kind": "courses"|"planning", "label": …} : écriture ;
+- {"type": "action", "kind": "courses"|"planning"|"recette", "label": …}
+  écriture (« recette » porte aussi recipe_id) ;
 - {"type": "error", "message": …} ;
 - {"type": "done", "trimmed": n}  toujours en dernier ; n = messages anciens
   laissés de côté pour tenir dans la fenêtre du modèle.
@@ -46,8 +47,9 @@ TIMEOUT_SECONDS = 180
 # ou en cours de chargement.
 SLOW_NOTICE_SECONDS = 8
 
-# Tokens générés au plus par tour : une réponse de chat, pas une recette.
-NUM_PREDICT_CHAT = 1024
+# Tokens générés au plus par tour : de quoi rédiger une recette complète
+# dans un appel à creer_recette (~800 tokens pour 12 ingrédients, 8 étapes).
+NUM_PREDICT_CHAT = 1536
 TEMPERATURE = 0.3
 # Estimation grossière (~4 caractères par token) : on garde une marge.
 CHARS_PER_TOKEN = 4
@@ -211,6 +213,13 @@ def build_system_prompt(today: date, recipe: dict | None = None, page: str | Non
         "Cite une recette de sa bibliothèque par un lien [Titre](/recettes/ID), ID renvoyé par un outil.",
         "Tu peux ajouter au planning et à la liste de courses quand il le demande ; "
         "tu ne peux rien supprimer ni modifier une recette.",
+        "Remplacer un ingrédient : appelle remplacer_ingredient (avec recette_id si une recette est en jeu), "
+        "puis donne 1 à 3 options avec les quantités pour cette recette et l'effet sur le résultat.",
+        "Recettes proches : recettes_similaires pour sa bibliothèque ; tu peux aussi suggérer des idées "
+        "qui n'y sont pas, en le disant clairement.",
+        "S'il demande de créer, générer ou inventer une recette, ou de garder une version adaptée : "
+        "rédige-la complète (quantités, étapes, portions, temps) et enregistre-la UNE fois avec creer_recette, "
+        "puis réponds avec son lien et 2 lignes, sans la recopier. Pour de simples idées, n'enregistre rien.",
         "Pour les questions générales de cuisine, réponds directement.",
     ]
     if page and not recipe:

@@ -6,8 +6,8 @@ destinataire (services/sharing.py) : filtrer sur le propriétaire couvre
 donc aussi les recettes reçues, sans jamais exposer celles d'autrui.
 
 Aucun outil ne supprime ni ne modifie une recette : les seules écritures
-sont des AJOUTS au planning et à la liste de courses, signalés à
-l'interface par une « action ».
+sont des AJOUTS (au planning, à la liste de courses, et une nouvelle
+recette rédigée par l'assistant), signalés à l'interface par une « action ».
 
 Les arguments viennent du modèle : ils sont validés strictement (champs
 inconnus refusés, bornes de longueur), et toute erreur revient au modèle
@@ -27,8 +27,8 @@ from sqlalchemy import Text, and_, cast, func, literal_column, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models.meal_plan import MealPlan, MealType
-from ..models.recipe import ExtractionStatus, Recipe
-from . import achievement_service, grocery, shopping_list
+from ..models.recipe import ExtractionStatus, Recipe, SourceType
+from . import achievement_service, grocery, recipe_parsing, sharing, shopping_list, substitutions
 from .recipe_parsing import CATEGORIES, as_list
 
 logger = logging.getLogger(__name__)
@@ -39,6 +39,9 @@ MAX_PANTRY_RESULTS = 6
 MAX_SHOPPING_LINES = 60
 MAX_TOOL_RESULT_CHARS = 2500
 MAX_STEP_CHARS = 400
+MAX_SIMILAR_RESULTS = 5
+# En tête de la description d'une recette rédigée par l'assistant.
+GENERATED_NOTICE = "Recette créée par l'assistant : quantités et temps à vérifier."
 
 JOURS = ("lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche")
 MOIS = (
@@ -187,6 +190,69 @@ class ShoppingEntry(_Args):
         if isinstance(value, (int, float)) and not isinstance(value, bool):
             return f"{value:g}"
         raise ValueError("texte attendu")
+
+
+class SubstituteArgs(_Args):
+    ingredient: str = Field(..., min_length=1, max_length=80)
+    recette_id: str | None = None
+
+    @field_validator("recette_id")
+    @classmethod
+    def _id(cls, value):
+        return None if value is None else str(_recipe_uuid(value))
+
+
+def _as_text(value):
+    """« 2 » arrive souvent en nombre."""
+    if value is None or isinstance(value, str):
+        return value or None
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return f"{value:g}"
+    raise ValueError("texte attendu")
+
+
+class NewIngredient(_Args):
+    nom: str = Field(..., min_length=1, max_length=200)
+    quantite: str | None = Field(None, max_length=30)
+    unite: str | None = Field(None, max_length=30)
+    precision: str | None = Field(None, max_length=200)
+    section: str | None = Field(None, max_length=60)
+
+    @field_validator("quantite", "unite", mode="before")
+    @classmethod
+    def _text(cls, value):
+        return _as_text(value)
+
+
+StepText = Annotated[str, Field(min_length=1, max_length=1000)]
+
+
+class CreateArgs(_Args):
+    titre: str = Field(..., min_length=1, max_length=200)
+    description: str | None = Field(None, max_length=500)
+    portions: int | None = Field(None, ge=1, le=100)
+    preparation_min: int | None = Field(None, ge=0, le=1440)
+    cuisson_min: int | None = Field(None, ge=0, le=2880)
+    categorie: str | None = None
+    ingredients: list[NewIngredient] = Field(..., min_length=1, max_length=40)
+    etapes: list[StepText] = Field(..., min_length=1, max_length=30)
+    tags: list[ShortText] | None = Field(None, max_length=5)
+
+    @field_validator("etapes", mode="before")
+    @classmethod
+    def _drop_blank_steps(cls, value):
+        # Une ligne vide entre deux étapes ne doit pas faire refuser la recette.
+        if isinstance(value, list):
+            return [v for v in value if not (isinstance(v, str) and not v.strip())]
+        return value
+
+    @field_validator("categorie")
+    @classmethod
+    def _category(cls, value):
+        # Indulgent : une catégorie hors liste est devinée d'après le titre
+        # plutôt que de coûter un tour au modèle.
+        value = (value or "").strip().lower()
+        return value if value in CATEGORIES else None
 
 
 class AddShoppingArgs(_Args):
@@ -366,6 +432,149 @@ async def cook_with(ctx: ToolContext, args: PantryArgs) -> ToolOutcome:
     if not found:
         result["remarque"] = "Aucune recette de la bibliothèque n'utilise ces ingrédients."
     return ToolOutcome(result, recipes=[card(by_id[r["recipe"]["id"]]) for r in ranked])
+
+
+def _ingredient_sets(recipe: Recipe) -> list[frozenset[str]]:
+    """Ingrédients principaux (hors sel, poivre, huile, eau) en ensembles de mots."""
+    sets = []
+    for ing in as_list(recipe.ingredients):
+        name = ing.get("name") if isinstance(ing, dict) else str(ing)
+        tokens = frozenset(grocery.ingredient_tokens(name or ""))
+        if tokens and not grocery.is_staple(name or ""):
+            sets.append(tokens)
+    return sets
+
+
+def _shared_ingredients(a: list[frozenset[str]], b: list[frozenset[str]]) -> list[str]:
+    """Ingrédients de a présents dans b (« poulet » ≈ « blancs de poulet »)."""
+    return [" ".join(sorted(x)) for x in a if any(x <= y or y <= x for y in b)]
+
+
+async def similar_recipes(ctx: ToolContext, args: RecipeArgs) -> ToolOutcome:
+    """Recettes de la bibliothèque proches d'une recette : mêmes ingrédients
+    principaux, même catégorie, tags communs."""
+    source = await owned_recipe(ctx, args.recette_id)
+    rows = (await ctx.db.execute(
+        select(Recipe).where(_owned_done(ctx.user_id), Recipe.id != source.id)
+    )).scalars().all()
+    mine = _ingredient_sets(source)
+    tags = {str(t).lower() for t in as_list(source.tags)}
+    scored = []
+    for recipe in rows:
+        shared = _shared_ingredients(mine, _ingredient_sets(recipe))
+        same_category = bool(source.category) and recipe.category == source.category
+        common_tags = tags & {str(t).lower() for t in as_list(recipe.tags)}
+        score = 2 * len(shared) + 3 * same_category + len(common_tags)
+        if shared or (same_category and common_tags):
+            scored.append((score, recipe, shared))
+    scored.sort(key=lambda item: (-item[0], item[1].title))
+    best = scored[:MAX_SIMILAR_RESULTS]
+    result = {
+        "recette": source.title,
+        "similaires": [{**summary(r), "en_commun": shared[:5]} for _, r, shared in best],
+    }
+    if not best:
+        result["remarque"] = (
+            "Aucune recette proche dans sa bibliothèque. Propose des idées de plats en disant "
+            "qu'elles n'y sont pas, et offre de les créer avec creer_recette."
+        )
+    return ToolOutcome(result, recipes=[card(r) for _, r, _ in best])
+
+
+async def substitute(ctx: ToolContext, args: SubstituteArgs) -> ToolOutcome:
+    """Remplacements éprouvés d'un ingrédient (table substitutions.py), avec
+    la quantité utilisée dans la recette quand elle est donnée."""
+    result: dict = {"ingredient": args.ingredient}
+    recipes = []
+    if args.recette_id:
+        recipe = await owned_recipe(ctx, args.recette_id)
+        recipes.append(recipe)
+        wanted = frozenset(grocery.ingredient_tokens(args.ingredient))
+        lines = [
+            ingredient_line(i) for i in as_list(recipe.ingredients)
+            if isinstance(i, dict) and wanted
+            and (wanted <= (t := frozenset(grocery.ingredient_tokens(i.get("name") or ""))) or t and t <= wanted)
+        ]
+        result["dans_la_recette"] = lines or "absent de la recette"
+        result["recette"] = recipe.title
+    found = substitutions.lookup(args.ingredient)
+    if found:
+        result["reconnu"], result["remplacements"] = found
+    else:
+        result["remplacements"] = []
+        result["remarque"] = "Pas dans la table : propose d'après tes connaissances, en le précisant."
+    return ToolOutcome(result, recipes=[card(r) for r in recipes])
+
+
+def _new_ingredient(entry: NewIngredient) -> dict:
+    ingredient = {
+        "quantity": entry.quantite,
+        "unit": recipe_parsing.canonical_unit(entry.unite),
+        "name": entry.nom,
+        "notes": entry.precision,
+    }
+    if not ingredient["quantity"] and not ingredient["unit"]:
+        # « 200 g de farine » tout dans le nom : découpé comme à l'extraction.
+        parsed = recipe_parsing.parse_ingredient_line(entry.nom)
+        if parsed["quantity"] or parsed["unit"]:
+            ingredient = {**parsed, "notes": entry.precision or parsed["notes"]}
+    section = (entry.section or "").strip().rstrip(" :")
+    if section:
+        ingredient["section"] = section[: recipe_parsing.MAX_SECTION_LENGTH]
+    return ingredient
+
+
+async def create_recipe(ctx: ToolContext, args: CreateArgs) -> ToolOutcome:
+    """Enregistre dans la bibliothèque une recette rédigée par l'assistant."""
+    title = " ".join(args.titre.split())
+    ingredients = [_new_ingredient(i) for i in args.ingredients]
+    steps = [s for s in (recipe_parsing.clean_step(t) for t in args.etapes) if s]
+    if not steps:
+        raise ToolError("Étapes vides : rédige les étapes de la recette.")
+
+    # Même appel rejoué (le modèle répète parfois un outil) : pas de doublon.
+    names = sorted(i["name"].lower() for i in ingredients)
+    for existing in (await ctx.db.execute(
+        select(Recipe).where(_owned_done(ctx.user_id), func.lower(Recipe.title) == title.lower())
+    )).scalars():
+        if sorted(str(i.get("name", "")).lower() for i in as_list(existing.ingredients) if isinstance(i, dict)) == names:
+            return ToolOutcome(
+                {"id": str(existing.id), "titre": existing.title, "lien": f"/recettes/{existing.id}",
+                 "remarque": "Déjà enregistrée : ne la crée pas une deuxième fois."},
+                recipes=[card(existing)],
+            )
+
+    description = " ".join((args.description or "").split())
+    recipe = Recipe(
+        owner_id=ctx.user_id,
+        status=ExtractionStatus.done,
+        source_type=SourceType.manual,
+        title=title,
+        description=f"{GENERATED_NOTICE} {description}".strip(),
+        language="fr",
+        category=recipe_parsing.normalize_category(args.categorie, title),
+        servings=args.portions,
+        prep_time=args.preparation_min or None,
+        cook_time=args.cuisson_min or None,
+        ingredients=ingredients,
+        steps=recipe_parsing.steps_from_pairs((None, s) for s in steps),
+        tags=recipe_parsing.normalize_tags(["assistant"] + list(args.tags or [])),
+    )
+    ctx.db.add(recipe)
+    await ctx.db.commit()
+    try:
+        await achievement_service.on_recipe_added(ctx.db, SourceType.manual.value)
+    except Exception:
+        await ctx.db.rollback()
+        logger.warning("Succès non mis à jour après une recette de l'assistant", exc_info=True)
+    await sharing.auto_share(ctx.db, recipe)
+
+    return ToolOutcome(
+        {"id": str(recipe.id), "titre": title, "lien": f"/recettes/{recipe.id}",
+         "remarque": "Enregistrée. Donne le lien et un résumé de 2 lignes, sans recopier la recette."},
+        recipes=[card(recipe)],
+        action={"kind": "recette", "label": f"Recette ajoutée : {title}", "recipe_id": str(recipe.id)},
+    )
 
 
 async def read_recipe(ctx: ToolContext, args: RecipeArgs) -> ToolOutcome:
@@ -612,6 +821,40 @@ TOOLS: dict[str, Tool] = {t.name: t for t in (
         "Recalcule les quantités d'une recette pour un nombre de portions.",
         _obj({"recette_id": _ID, "portions": {"type": "integer"}}, ["recette_id", "portions"]),
         ScaleArgs, scale_recipe, "Calcul des quantités…",
+    ),
+    Tool(
+        "recettes_similaires",
+        "Recettes de sa bibliothèque proches d'une recette (ingrédients, catégorie, tags).",
+        _obj({"recette_id": _ID}, ["recette_id"]),
+        RecipeArgs, similar_recipes, "Je cherche des recettes proches…",
+    ),
+    Tool(
+        "remplacer_ingredient",
+        "Remplacements éprouvés d'un ingrédient, avec proportions. "
+        "Avec recette_id : quantité utilisée dans cette recette.",
+        _obj({"ingredient": {"type": "string"}, "recette_id": _ID}, ["ingredient"]),
+        SubstituteArgs, substitute, "Je cherche par quoi le remplacer…",
+    ),
+    Tool(
+        "creer_recette",
+        "Enregistre dans sa bibliothèque une recette complète que tu as rédigée "
+        "(demandée par l'utilisateur : générer, inventer, version adaptée).",
+        _obj({
+            "titre": {"type": "string"},
+            "description": {"type": "string", "description": "1-2 phrases"},
+            "portions": {"type": "integer"},
+            "preparation_min": {"type": "integer"},
+            "cuisson_min": {"type": "integer"},
+            "categorie": {"type": "string", "enum": list(CATEGORIES)},
+            "ingredients": {"type": "array", "items": _obj({
+                "nom": {"type": "string"}, "quantite": {"type": "string"},
+                "unite": {"type": "string"}, "precision": {"type": "string"},
+                "section": {"type": "string", "description": "partie (Pâte, Sauce…), sinon vide"},
+            }, ["nom"])},
+            "etapes": {"type": "array", "items": {"type": "string"}},
+            "tags": {"type": "array", "items": {"type": "string"}},
+        }, ["titre", "ingredients", "etapes"]),
+        CreateArgs, create_recipe, "J'enregistre la recette…", writes=True,
     ),
     Tool(
         "planning",

@@ -762,3 +762,137 @@ def test_chat_route_streams_ndjson_and_enforces_limits(monkeypatch):
     assert too_long.status_code == 413 and "Message trop long" in too_long.json()["detail"]
     assert busy.status_code == 409 and "déjà en cours" in busy.json()["detail"]
     assert bad.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# Recettes proches, remplacements, recette rédigée par l'assistant
+# ---------------------------------------------------------------------------
+
+from app.services import substitutions  # noqa: E402
+
+
+def test_similar_recipes_share_main_ingredients_and_stay_in_the_account():
+    async def scenario(db):
+        mine = await call(db, db.alice, "recettes_similaires", {"recette_id": str(db.curry)})
+        other = await call(db, db.alice, "recettes_similaires", {"recette_id": str(db.bob_curry)})
+        return db, mine, other
+
+    db, mine, other = run(scenario)
+    # L'oignon en commun ; ni la recette elle-même, ni le curry de Bob, ni la tarte.
+    assert [r["id"] for r in mine.result["similaires"]] == [str(db.soupe)]
+    assert mine.result["similaires"][0]["en_commun"] == ["oignon"]
+    assert [c["id"] for c in mine.recipes] == [str(db.soupe)]
+    assert other.error and "introuvable" in other.result["erreur"]
+
+
+@pytest.mark.parametrize("ingredient, recognised", [
+    ("œufs", "œuf"),
+    ("lait de coco", "lait de coco"),          # avant « lait »
+    ("crème fraîche épaisse", "crème fraîche"),  # avant « crème »
+    ("Maïzena", "maïzena"),
+    ("beurre doux", "beurre"),
+    ("safran", None),
+])
+def test_substitution_table_prefers_the_most_precise_name(ingredient, recognised):
+    found = substitutions.lookup(ingredient)
+    assert (found[0] if found else None) == recognised
+    if found:
+        assert found[1] and all(isinstance(o, str) and o for o in found[1])
+
+
+def test_substitute_gives_the_amount_used_in_the_recipe():
+    async def scenario(db):
+        in_recipe = await call(db, db.alice, "remplacer_ingredient",
+                               {"ingredient": "lait de coco", "recette_id": str(db.curry)})
+        unknown = await call(db, db.alice, "remplacer_ingredient", {"ingredient": "safran"})
+        other = await call(db, db.alice, "remplacer_ingredient",
+                           {"ingredient": "poulet", "recette_id": str(db.bob_curry)})
+        return in_recipe, unknown, other
+
+    in_recipe, unknown, other = run(scenario)
+    assert in_recipe.result["dans_la_recette"] == ["400 ml lait de coco"]
+    assert in_recipe.result["reconnu"] == "lait de coco"
+    assert any("crème" in o for o in in_recipe.result["remplacements"])
+    assert unknown.result["remplacements"] == [] and "connaissances" in unknown.result["remarque"]
+    assert other.error and "introuvable" in other.result["erreur"]
+
+
+GENERATED = {
+    "titre": "Cookies  vegan au beurre de cacahuète",
+    "description": "Moelleux, sans œufs.",
+    "portions": 12, "preparation_min": 15, "cuisson_min": 10, "categorie": "Dessert",
+    "ingredients": [
+        {"nom": "farine", "quantite": 200, "unite": "grammes", "section": "Pâte"},
+        {"nom": "beurre de cacahuète", "quantite": "120", "unite": "g", "section": "Pâte"},
+        {"nom": "100 g de sucre", "section": "Pâte"},
+        {"nom": "chocolat noir", "quantite": "80", "unite": "g", "precision": "en pépites"},
+    ],
+    "etapes": ["1. Mélanger la farine et le sucre.", "Ajouter le beurre de cacahuète.", " ",
+               "Cuire 10 min à 180 °C."],
+    "tags": ["vegan", "goûter"],
+}
+
+
+def test_create_recipe_saves_a_clean_recipe_once():
+    async def scenario(db):
+        first = await call(db, db.alice, "creer_recette", GENERATED)
+        again = await call(db, db.alice, "creer_recette", GENERATED)
+        return db, first, again, await db.all(Recipe, owner_id=db.alice)
+
+    db, first, again, recipes = run(scenario)
+    created = [r for r in recipes if r.title == "Cookies vegan au beurre de cacahuète"]
+    assert len(created) == 1  # appel rejoué : pas de doublon
+    recipe = created[0]
+    assert first.action == {"kind": "recette", "label": "Recette ajoutée : Cookies vegan au beurre de cacahuète",
+                            "recipe_id": str(recipe.id)}
+    assert first.result["lien"] == f"/recettes/{recipe.id}" and [c["id"] for c in first.recipes] == [str(recipe.id)]
+    assert again.action is None and "Déjà enregistrée" in again.result["remarque"]
+
+    assert recipe.status == ExtractionStatus.done and recipe.category == "dessert"
+    assert recipe.description.startswith(tools.GENERATED_NOTICE) and "sans œufs" in recipe.description
+    assert (recipe.servings, recipe.prep_time, recipe.cook_time) == (12, 15, 10)
+    assert recipe.tags[0] == "assistant" and "vegan" in recipe.tags
+    assert recipe.ingredients[0] == {"quantity": "200", "unit": "g", "name": "farine", "notes": None, "section": "Pâte"}
+    assert recipe.ingredients[2]["quantity"] == "100" and recipe.ingredients[2]["name"] == "sucre"
+    assert recipe.ingredients[3]["notes"] == "en pépites" and "section" not in recipe.ingredients[3]
+    assert recipe.steps == [
+        {"order": 1, "text": "Mélanger la farine et le sucre."},
+        {"order": 2, "text": "Ajouter le beurre de cacahuète."},
+        {"order": 3, "text": "Cuire 10 min à 180 °C."},
+    ]
+
+
+@pytest.mark.parametrize("arguments, message", [
+    ({**GENERATED, "ingredients": []}, "ingredients"),
+    ({**GENERATED, "etapes": []}, "etapes"),
+    ({**GENERATED, "titre": ""}, "titre"),
+    ({**GENERATED, "portions": 0}, "portions"),
+    ({**GENERATED, "ingredients": [{"nom": "x", "poids": 3}]}, "champ inconnu"),
+    ({**GENERATED, "etapes": ["  ", "\n"]}, "etapes"),
+    ({**GENERATED, "etapes": ["Étape 1 :"]}, "Étapes vides"),  # rien après le numéro
+])
+def test_create_recipe_rejects_incomplete_recipes(arguments, message):
+    async def scenario(db):
+        outcome = await call(db, db.alice, "creer_recette", arguments)
+        return outcome, await db.all(Recipe, owner_id=db.alice)
+
+    outcome, recipes = run(scenario)
+    assert outcome.error and outcome.action is None and message in outcome.result["erreur"]
+    assert len(recipes) == 4  # rien d'ajouté
+
+
+def test_generated_recipe_is_streamed_as_an_action(monkeypatch):
+    async def scenario(db):
+        bodies = fake_ollama(monkeypatch, [
+            tool_reply(("creer_recette", GENERATED)),
+            text_reply("C'est enregistré !"),
+        ])
+        return bodies, await chat(db, "Invente-moi des cookies vegan")
+
+    bodies, events = run(scenario)
+    action = next(e for e in events if e["type"] == "action")
+    assert action["kind"] == "recette" and action["recipe_id"]
+    assert text_of(events) == "C'est enregistré !"
+    prompt = bodies[0]["messages"][0]["content"]
+    assert "creer_recette" in prompt and "remplacer_ingredient" in prompt
+    assert bodies[0]["options"]["num_predict"] == assistant.NUM_PREDICT_CHAT

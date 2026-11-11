@@ -53,7 +53,17 @@ mot à mot et **agit sur ses données** :
 - lit et complète le **planning** (« Planifie mes dîners de la semaine ») et
   la **liste de courses** (articles, ou ingrédients d'une recette) ; chaque
   ajout apparaît en pastille dans la conversation ;
-- ne voit que le compte connecté, et ne supprime ni ne modifie jamais rien.
+- conseille des **remplacements d'ingrédients** avec les bonnes proportions
+  (« Par quoi remplacer les œufs ? »), d'après une table d'équivalences
+  éprouvées et la quantité de la recette ;
+- trouve des **recettes similaires** dans la bibliothèque (ingrédients
+  principaux, catégorie, tags), ou propose des idées qui n'y sont pas ;
+- **rédige une recette complète** à la demande (« Invente-moi un curry
+  végé pour 4 ») ou une version adaptée (« garde la version sans œufs ») et
+  l'enregistre dans la bibliothèque, marquée « assistant », quantités à
+  vérifier ;
+- ne voit que le compte connecté, et ne supprime ni ne modifie jamais une
+  recette existante.
 
 Il tourne sur le **même modèle local** que l'extraction (Ollama, aucun
 modèle en plus en VRAM), ou sur Claude si `CLAUDE_API_KEY` est définie. La

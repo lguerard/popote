@@ -280,6 +280,11 @@ def _is_staple(tokens: list[str]) -> bool:
     return tuple(tokens) in _STAPLES or bool(_TAP_WATER.match(" ".join(tokens)))
 
 
+def is_staple(name: str) -> bool:
+    """Sel, poivre, eau, huile : présents partout, ils ne rapprochent pas deux recettes."""
+    return _is_staple(ingredient_tokens(name))
+
+
 def _pantry_has(ingredient: list[str], pantry: list[list[str]]) -> bool:
     ing = set(ingredient)
     for item in pantry:
