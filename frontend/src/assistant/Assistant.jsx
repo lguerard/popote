@@ -51,9 +51,18 @@ export function BoutonAssistant({ recipe, className = '' }) {
   )
 }
 
+// Écritures de l'assistant : pastille, lien « Voir » et données à recharger.
+const ACTION_STYLES = {
+  planning: { icon: '📅', to: '/planning', cls: 'bg-sky-50 text-sky-700 border-sky-200' },
+  courses: { icon: '🛒', to: '/courses', cls: 'bg-green-50 text-green-700 border-green-200' },
+  recette: { icon: '📗', to: '/', cls: 'bg-orange-50 text-orange-700 border-orange-200' },
+}
+const ACTION_QUERIES = { planning: ['meal-plans'], courses: ['shopping-items'], recette: ['recipes'] }
+
 function suggestions(recipe) {
   const list = [
     { label: "Qu'est-ce que je peux cuisiner avec… ?", fill: "Qu'est-ce que je peux cuisiner avec " },
+    { label: 'Invente-moi une recette…', fill: 'Invente-moi une recette de ' },
     { label: 'Planifie mes dîners de la semaine', send: 'Planifie mes dîners de la semaine avec mes recettes.' },
     { label: 'Que reste-t-il sur ma liste de courses ?', send: 'Que reste-t-il sur ma liste de courses ?' },
   ]
@@ -61,6 +70,8 @@ function suggestions(recipe) {
     list.unshift(
       { label: 'Adapte cette recette pour 6', send: 'Adapte cette recette pour 6 personnes.' },
       { label: 'Ajoute ses ingrédients aux courses', send: 'Ajoute les ingrédients de cette recette à ma liste de courses.' },
+      { label: 'Par quoi remplacer… ?', fill: 'Dans cette recette, par quoi remplacer ' },
+      { label: 'Des recettes similaires ?', send: "J'ai d'autres recettes proches de celle-ci ? Sinon, des idées dans le même esprit ?" },
     )
   }
   return list
@@ -114,8 +125,8 @@ function AssistantPanel() {
           if (ev.type === 'delta') update(reply.id, m => ({ ...m, content: m.content + ev.text, status: null }))
           else if (ev.type === 'status') update(reply.id, m => ({ ...m, status: ev.text }))
           else if (ev.type === 'action') {
-            update(reply.id, m => ({ ...m, actions: [...m.actions, { kind: ev.kind, label: ev.label }] }))
-            qc.invalidateQueries({ queryKey: ev.kind === 'planning' ? ['meal-plans'] : ['shopping-items'] })
+            update(reply.id, m => ({ ...m, actions: [...m.actions, { kind: ev.kind, label: ev.label, recipeId: ev.recipe_id }] }))
+            qc.invalidateQueries({ queryKey: ACTION_QUERIES[ev.kind] ?? ['shopping-items'] })
           } else if (ev.type === 'recipes') {
             update(reply.id, m => {
               const seen = new Set(m.recipes.map(r => r.id))
@@ -269,14 +280,16 @@ function Reponse({ message: m, onRecipe }) {
           <span className="inline-block w-2 h-2 rounded-full bg-orange-400 animate-pulse" />{m.status}
         </p>
       )}
-      {m.actions?.map((a, i) => (
-        <span key={i} className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border ${
-          a.kind === 'planning' ? 'bg-sky-50 text-sky-700 border-sky-200' : 'bg-green-50 text-green-700 border-green-200'
-        }`}>
-          {a.kind === 'planning' ? '📅' : '🛒'} {a.label}
-          <Link to={a.kind === 'planning' ? '/planning' : '/courses'} onClick={onRecipe} className="underline ml-1">Voir</Link>
-        </span>
-      ))}
+      {m.actions?.map((a, i) => {
+        const style = ACTION_STYLES[a.kind] ?? ACTION_STYLES.courses
+        const to = a.kind === 'recette' && a.recipeId ? `/recettes/${a.recipeId}` : style.to
+        return (
+          <span key={i} className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border ${style.cls}`}>
+            {style.icon} {a.label}
+            <Link to={to} onClick={onRecipe} className="underline ml-1">Voir</Link>
+          </span>
+        )
+      })}
       {m.recipes?.length > 0 && (
         <div className="w-full">
           <p className="text-[11px] uppercase tracking-wide text-gray-400 mb-1">Recettes trouvées</p>

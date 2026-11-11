@@ -284,8 +284,12 @@ Ce qu'il sait faire, par des « outils » que le serveur exécute pour lui :
 chercher dans les recettes du compte (recherche plein texte PostgreSQL en
 français, puis repli sur les mots partiels), proposer des recettes selon ce
 qu'il y a dans le frigo, lire une recette, adapter ses quantités, lire et
-compléter le planning et la liste de courses. Tout est limité au compte
-connecté ; rien n'est jamais supprimé.
+compléter le planning et la liste de courses, trouver des recettes proches,
+proposer des remplacements d'ingrédients (table d'équivalences dans
+`backend/app/services/substitutions.py`) et enregistrer une recette qu'il a
+rédigée. Tout est limité au compte connecté ; rien n'est jamais supprimé ni
+modifié. Une recette complète demande jusqu'à ~1 500 tokens générés : compter
+une trentaine de secondes à une minute sur le GPU.
 
 **Délais à prévoir** :
 
