@@ -6,8 +6,11 @@ alembic==1.13.3
 pydantic==2.9.2
 pydantic-settings==2.5.2
 httpx==0.27.2
-# yt-dlp non épinglé : YouTube casse régulièrement les vieilles versions
-yt-dlp
+# yt-dlp non épinglé : YouTube casse régulièrement les vieilles versions.
+# curl-cffi : TikTok ne répond plus qu'à un vrai navigateur (« Unexpected
+# response from webpage request ») ; yt-dlp l'imite avec curl_cffi, dans une
+# version qu'il choisit lui-même (même extra dans entrypoint.sh).
+yt-dlp[default,curl-cffi]
 # Images des posts (carrousels Instagram, mode photo TikTok), lues par OCR.
 # Non épinglé pour la même raison que yt-dlp (mis à jour au démarrage).
 gallery-dl
