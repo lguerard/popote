@@ -401,6 +401,13 @@ proposée par l'IA, marquée « à vérifier ».)
 
 - **yt-dlp / gallery-dl trop anciens** (la plateforme a changé) : ils se
   mettent à jour à chaque démarrage, `docker compose restart backend` suffit.
+- **TikTok : « Unexpected response from webpage request »**, précédé de
+  « no impersonate target is available » : TikTok ne répond plus qu'aux
+  requêtes qui imitent un vrai navigateur, ce que yt-dlp fait avec
+  `curl_cffi`. L'image l'installe depuis la v0.21.1 : reconstruire
+  (`./scripts/demarrer.sh --build`). Vérifier avec
+  `docker compose exec backend python -m yt_dlp --list-impersonate-targets` :
+  la liste doit contenir des cibles « curl_cffi ».
 - **Instagram exige une connexion** (« login required », « rate-limit » ;
   presque toujours pour les carrousels) : donner à Popote les cookies d'un
   compte Instagram (idéalement un compte secondaire), utilisés par yt-dlp et

@@ -5,7 +5,9 @@
 # conteneur (désactivable avec YTDLP_AUTO_UPDATE=false) ; sans réseau, les
 # versions de l'image sont gardées.
 if [ "${YTDLP_AUTO_UPDATE:-true}" = "true" ]; then
-    if timeout 180 pip install --quiet --no-cache-dir --upgrade yt-dlp gallery-dl >/dev/null 2>&1; then
+    # Extra curl-cffi : garde curl_cffi dans les versions que ce yt-dlp sait
+    # utiliser pour imiter un navigateur (TikTok l'exige).
+    if timeout 180 pip install --quiet --no-cache-dir --upgrade "yt-dlp[default,curl-cffi]" gallery-dl >/dev/null 2>&1; then
         echo "yt-dlp $(python -m yt_dlp --version), gallery-dl $(gallery-dl --version) : à jour"
     else
         echo "yt-dlp / gallery-dl : mise à jour impossible, versions de l'image conservées"
