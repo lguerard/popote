@@ -1,13 +1,20 @@
 package com.popote.ui.screens
 
 import android.app.Application
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.MoreVert
@@ -16,6 +23,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -172,7 +181,7 @@ fun ShoppingListScreen(onBack: () -> Unit, vm: ShoppingListViewModel = viewModel
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("🛒 Courses") },
+                title = { Text("Courses", fontWeight = FontWeight.Black) },
                 actions = {
                     IconButton(onClick = { vm.share { link -> shareText(context, "Notre liste de courses : $link", "Partager la liste") } }) {
                         Icon(Icons.Default.Share, "Partager avec le foyer")
@@ -221,10 +230,17 @@ fun ShoppingListScreen(onBack: () -> Unit, vm: ShoppingListViewModel = viewModel
                 }
             }
 
-            OutlinedTextField(
+            TextField(
                 value = newItem,
                 onValueChange = { newItem = it },
-                placeholder = { Text("Ajouter un article (lessive, pain…)") },
+                placeholder = { Text("Ajouter : « 2 kg de pommes », lessive…") },
+                shape = CircleShape,
+                colors = TextFieldDefaults.colors(
+                    focusedIndicatorColor = Color.Transparent,
+                    unfocusedIndicatorColor = Color.Transparent,
+                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                ),
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                 keyboardActions = KeyboardActions(onDone = { vm.add(newItem); newItem = "" }),
@@ -254,21 +270,52 @@ fun ShoppingListScreen(onBack: () -> Unit, vm: ShoppingListViewModel = viewModel
                     val groups = list.groupBy { it.aisle ?: "Autres" }
                         .toList()
                         .sortedBy { (aisle, _) -> order.indexOf(aisle).let { if (it < 0) order.size else it } }
-                    LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 96.dp)) {
+                    // Une couleur par recette : la pastille d'un article dit d'où il vient.
+                    val recipeNames = list.flatMap { it.recipes.orEmpty() }.distinct()
+                    val dot = recipeDotColors()
+                    val recipeColor = recipeNames.withIndex().associate { (i, name) -> name to dot[i % dot.size] }
+                    LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 96.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         item {
-                            Text("$remaining article${if (remaining > 1) "s" else ""} restant${if (remaining > 1) "s" else ""}",
-                                style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Column(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(bottom = 4.dp)) {
+                                Text("${list.size - remaining} sur ${list.size} dans le panier",
+                                    style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                LinearProgressIndicator(
+                                    progress = { if (list.isEmpty()) 0f else (list.size - remaining).toFloat() / list.size },
+                                    modifier = Modifier.fillMaxWidth().height(10.dp).clip(CircleShape),
+                                    trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                                )
+                                if (recipeNames.isNotEmpty()) Row(
+                                    Modifier.horizontalScroll(rememberScrollState()),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    recipeNames.forEach { name ->
+                                        Surface(shape = CircleShape, color = MaterialTheme.colorScheme.surfaceContainerHigh) {
+                                            Row(Modifier.padding(start = 10.dp, end = 14.dp).height(36.dp),
+                                                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                                Box(Modifier.size(12.dp).clip(CircleShape).background(recipeColor.getValue(name)))
+                                                Text(name, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, maxLines = 1)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
-                        groups.forEach { (aisle, rows) ->
+                        groups.forEachIndexed { index, (aisle, rows) ->
                             val left = rows.count { !it.checked }
                             item(key = "aisle-$aisle") {
-                                Text("${AISLE_EMOJI[aisle] ?: "🛍️"} $aisle  ${if (left > 0) "$left/${rows.size}" else "✓"}",
-                                    style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold,
-                                    color = if (left > 0) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.padding(top = 16.dp, bottom = 4.dp))
+                                val (bg, fg) = aisleColors(index)
+                                Surface(shape = RoundedCornerShape(14.dp), color = bg, contentColor = fg,
+                                    modifier = Modifier.fillMaxWidth().padding(top = 12.dp)) {
+                                    Row(Modifier.padding(horizontal = 14.dp).height(40.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        Text(aisle, Modifier.weight(1f), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.ExtraBold)
+                                        Text(if (left > 0) "$left à prendre" else "tout est pris", style = MaterialTheme.typography.labelLarge)
+                                    }
+                                }
                             }
                             items(rows.sortedBy { it.checked }, key = { it.id }) { entry ->
-                                ShoppingRow(entry, onToggle = { vm.toggle(entry) }, onDelete = { vm.delete(entry) })
+                                ShoppingRow(entry, entry.recipes.orEmpty().mapNotNull { recipeColor[it] },
+                                    onToggle = { vm.toggle(entry) }, onDelete = { vm.delete(entry) })
                             }
                         }
                     }
@@ -278,30 +325,60 @@ fun ShoppingListScreen(onBack: () -> Unit, vm: ShoppingListViewModel = viewModel
     }
 }
 
+/** Couleurs des bandeaux de rayon, tirées du thème, en alternance. */
 @Composable
-private fun ShoppingRow(item: ShoppingEntry, onToggle: () -> Unit, onDelete: () -> Unit) {
-    Card(
+private fun aisleColors(index: Int): Pair<Color, Color> {
+    val cs = MaterialTheme.colorScheme
+    return when (index % 4) {
+        0 -> cs.tertiaryContainer to cs.onTertiaryContainer
+        1 -> cs.secondaryContainer to cs.onSecondaryContainer
+        2 -> cs.primaryContainer to cs.onPrimaryContainer
+        else -> cs.surfaceContainerHighest to cs.onSurface
+    }
+}
+
+/** Pastilles des recettes : nettement différentes, y compris en clarté. */
+@Composable
+private fun recipeDotColors(): List<Color> {
+    val cs = MaterialTheme.colorScheme
+    return listOf(cs.primary, Color(0xFF3E7CB1), cs.tertiary, Color(0xFF6F8F3E), Color(0xFFB0457A), cs.secondary)
+}
+
+@Composable
+private fun ShoppingRow(item: ShoppingEntry, dots: List<Color>, onToggle: () -> Unit, onDelete: () -> Unit) {
+    val cs = MaterialTheme.colorScheme
+    Surface(
         onClick = onToggle,
-        modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = if (item.checked) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.surface,
-        ),
+        shape = RoundedCornerShape(18.dp),
+        color = cs.surfaceContainerLow,
+        modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp),
     ) {
-        Row(Modifier.padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            Checkbox(checked = item.checked, onCheckedChange = { onToggle() })
+        Row(Modifier.padding(start = 12.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
+            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            // Case arrondie, pleine une fois cochée.
+            Box(
+                Modifier.size(28.dp).clip(RoundedCornerShape(9.dp))
+                    .then(if (item.checked) Modifier.background(cs.primary) else Modifier.border(2.dp, cs.outline, RoundedCornerShape(9.dp))),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (item.checked) Icon(Icons.Default.Check, null, Modifier.size(18.dp), tint = cs.onPrimary)
+            }
             Column(Modifier.weight(1f)) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(item.name, fontWeight = FontWeight.Medium,
-                        textDecoration = if (item.checked) TextDecoration.LineThrough else null)
-                    val qty = listOfNotNull(item.quantity, item.unit).joinToString(" ")
-                    if (qty.isNotBlank()) Text(qty, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
-                }
+                Text(item.name, fontWeight = FontWeight.Bold,
+                    color = if (item.checked) cs.onSurfaceVariant else cs.onSurface,
+                    textDecoration = if (item.checked) TextDecoration.LineThrough else null)
                 val from = item.recipes.orEmpty()
                 if (from.isNotEmpty()) Text(from.take(2).joinToString(", "), style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    color = cs.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
+            if (dots.isNotEmpty()) Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                dots.distinct().take(3).forEach { Box(Modifier.size(10.dp).clip(CircleShape).background(it)) }
+            }
+            val qty = listOfNotNull(item.quantity, item.unit).joinToString(" ")
+            if (qty.isNotBlank()) Text(qty, color = cs.onSurfaceVariant, fontWeight = FontWeight.Bold,
+                style = MaterialTheme.typography.bodyMedium)
             IconButton(onClick = onDelete) {
-                Icon(Icons.Default.Close, "Retirer", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                Icon(Icons.Default.Close, "Retirer ${item.name}", tint = cs.onSurfaceVariant)
             }
         }
     }

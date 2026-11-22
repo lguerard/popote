@@ -18,11 +18,13 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
@@ -67,8 +69,13 @@ import kotlin.math.roundToInt
 fun RecipeDetailScreen(
     recipeId: String,
     onBack: () -> Unit,
-    // Ouvre l'assistant avec cette recette comme sujet (« cette recette »).
-    onAskAssistant: (Recipe) -> Unit = {},
+    // Ouvre l'assistant avec cette recette comme sujet (« cette recette »),
+    // avec ou sans question déjà posée (ex. « par quoi remplacer les œufs ? »).
+    onAskAssistant: (Recipe, String?) -> Unit = { _, _ -> },
+    // Ouverte depuis « Cuisiner » sur l'accueil : directement en mode cuisine,
+    // pour ce nombre de portions.
+    startCooking: Boolean = false,
+    startServings: Int? = null,
     vm: RecipeDetailViewModel = viewModel(),
 ) {
     val recipe by vm.recipe.collectAsState()
@@ -87,7 +94,8 @@ fun RecipeDetailScreen(
     var showReextractDialog by remember { mutableStateOf(false) }
     var showCollections by remember { mutableStateOf(false) }
     var menuOpen by remember { mutableStateOf(false) }
-    var cookingMode by remember { mutableStateOf(false) }
+    var cookingMode by rememberSaveable { mutableStateOf(startCooking) }
+    var askIngredient by remember { mutableStateOf<Ingredient?>(null) }
     var editing by remember { mutableStateOf(false) }
     var showRename by remember { mutableStateOf(false) }
     val saving by vm.saving.collectAsState()
@@ -104,6 +112,15 @@ fun RecipeDetailScreen(
     }
 
     LaunchedEffect(recipeId) { vm.load(recipeId) }
+    // Portions choisies sur l'accueil : appliquées une fois la recette chargée.
+    var servingsApplied by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(recipe?.servings) {
+        val base = recipe?.servings
+        if (!servingsApplied && startServings != null && base != null && base > 0) {
+            scale = startServings.toDouble() / base
+            servingsApplied = true
+        }
+    }
 
     if (cookingMode && recipe != null) {
         CookingModeOverlay(
@@ -116,6 +133,21 @@ fun RecipeDetailScreen(
             },
         )
         return
+    }
+
+    askIngredient?.let { ing ->
+        recipe?.let { r ->
+            IngredientAssistSheet(
+                ingredient = ing,
+                amount = listOfNotNull(scaleQty(ing.quantity, scale), ing.unit).joinToString(" "),
+                servings = r.servings?.let { (it * scale).roundToInt() },
+                onDismiss = { askIngredient = null },
+                onAsk = { question ->
+                    askIngredient = null
+                    onAskAssistant(r, question)
+                },
+            )
+        }
     }
 
     if (editing && recipe != null) {
@@ -322,7 +354,8 @@ fun RecipeDetailScreen(
                 notesSaving = notesSaving,
                 onSaveNotes = vm::saveNotes,
                 onStartCooking = { cookingMode = true },
-                onAskAssistant = { recipe?.let(onAskAssistant) },
+                onAskAssistant = { recipe?.let { onAskAssistant(it, null) } },
+                onIngredientClick = { askIngredient = it },
                 history = history,
                 onRate = vm::setRating,
                 onToggleCookAgain = vm::toggleCookAgain,
@@ -629,6 +662,7 @@ private fun RecipeContent(
     onSaveNotes: () -> Unit,
     onStartCooking: () -> Unit,
     onAskAssistant: () -> Unit = {},
+    onIngredientClick: (Ingredient) -> Unit = {},
     history: List<CookLog>,
     onRate: (Int) -> Unit,
     onToggleCookAgain: () -> Unit,
@@ -886,6 +920,8 @@ private fun RecipeContent(
                 val scaledQty = scaleQty(ing.quantity, scale)
                 val adjustable = parseFraction(ing.quantity) != null
                 ListItem(
+                    // Toucher l'ingrédient : le remplacer, l'adapter… avec l'assistant.
+                    modifier = Modifier.clickable(onClickLabel = "Demander à l'assistant") { onIngredientClick(ing) },
                     headlineContent = { Text(ing.name) },
                     leadingContent = {
                         Text(
@@ -1009,4 +1045,57 @@ private fun MetaChip(label: String, value: String) {
 private fun SectionTitle(text: String) {
     Text(text, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold,
         modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 24.dp, bottom = 8.dp))
+}
+
+/**
+ * Toucher un ingrédient : l'assistant propose de le remplacer, d'adapter la
+ * recette ou d'en faire une version plus légère ; la question part avec la
+ * recette en contexte.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun IngredientAssistSheet(
+    ingredient: Ingredient,
+    amount: String,
+    servings: Int?,
+    onDismiss: () -> Unit,
+    onAsk: (String) -> Unit,
+) {
+    val what = listOf(amount, ingredient.name).filter { it.isNotBlank() }.joinToString(" ")
+    val hero = com.popote.ui.components.heroColors()
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(
+            Modifier.padding(horizontal = 20.dp).padding(bottom = 28.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Surface(shape = MaterialTheme.shapes.medium, color = hero.container, contentColor = hero.accent,
+                    modifier = Modifier.size(40.dp)) {
+                    Box(contentAlignment = Alignment.Center) { Icon(Icons.Default.AutoAwesome, null, Modifier.size(20.dp)) }
+                }
+                Column {
+                    Text("À propos de : $what", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.ExtraBold)
+                    Text("L'assistant répond avec cette recette en tête", style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            val portions = servings?.let { " pour $it portion${if (it > 1) "s" else ""}" } ?: ""
+            val asks = listOf(
+                "Remplacer" to "Par quoi remplacer $what dans cette recette$portions ? Donne les proportions.",
+                "Sans cet ingrédient" to "Comment faire cette recette sans ${ingredient.name} ?",
+                "Version plus légère" to "Comment alléger cette recette, en particulier ${ingredient.name} ?",
+                "Où le trouver, comment le choisir" to "Comment bien choisir ${ingredient.name} pour cette recette ?",
+            )
+            asks.forEach { (label, question) ->
+                OutlinedButton(
+                    onClick = { onAsk(question) },
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
+                    shape = MaterialTheme.shapes.extraLarge,
+                ) {
+                    Text(label, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
+                    Icon(Icons.AutoMirrored.Filled.ArrowForward, null, Modifier.size(18.dp))
+                }
+            }
+        }
+    }
 }

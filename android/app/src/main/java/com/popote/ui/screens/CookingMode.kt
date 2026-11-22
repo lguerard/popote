@@ -5,7 +5,16 @@ import android.media.AudioManager
 import android.media.ToneGenerator
 import android.os.VibrationEffect
 import android.os.Vibrator
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.ShoppingBasket
+import com.popote.ui.components.heroColors
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -61,7 +70,7 @@ private fun alarm(context: Context) {
     } catch (_: Exception) { }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun CookingModeOverlay(
     recipe: Recipe,
@@ -109,33 +118,71 @@ fun CookingModeOverlay(
         timers.add(CookTimer(nextId++, label, seconds, System.currentTimeMillis() + seconds * 1000L, seconds))
     }
 
-    Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-        Column(Modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 16.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onExit) { Icon(Icons.Default.Close, "Quitter") }
-                Text(recipe.title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f),
-                    maxLines = 1, overflow = TextOverflow.Ellipsis)
-                if (ingredients.isNotEmpty()) {
-                    TextButton(onClick = { showAllIngredients = true }) { Text("🧺 Ingrédients") }
+    val hero = heroColors()
+    val cs = MaterialTheme.colorScheme
+    Surface(Modifier.fillMaxSize(), color = hero.container, contentColor = hero.content) {
+        Column(Modifier.fillMaxSize().systemBarsPadding().padding(horizontal = 20.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                FilledIconButton(onClick = onExit, modifier = Modifier.size(48.dp),
+                    colors = IconButtonDefaults.filledIconButtonColors(containerColor = hero.raised, contentColor = hero.content)) {
+                    Icon(Icons.Default.Close, "Quitter le mode cuisine")
                 }
-                if (steps.isNotEmpty() && stepIdx >= 0) Text("${stepIdx + 1}/${steps.size}", style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(recipe.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.ExtraBold,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(
+                        (servings?.let { "$it portion${if (it > 1) "s" else ""} · " } ?: "") + "écran toujours allumé",
+                        style = MaterialTheme.typography.labelMedium, color = hero.muted,
+                    )
+                }
+                if (ingredients.isNotEmpty()) {
+                    FilledIconButton(onClick = { showAllIngredients = true }, modifier = Modifier.size(48.dp),
+                        colors = IconButtonDefaults.filledIconButtonColors(containerColor = hero.raised, contentColor = hero.content)) {
+                        Icon(Icons.Default.ShoppingBasket, "Tous les ingrédients")
+                    }
+                } else Spacer(Modifier.size(48.dp))
             }
-            LinearProgressIndicator(
-                progress = { if (pageCount == 0) 1f else (page + 1).toFloat() / pageCount },
-                modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
-            )
+
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (pageCount in 1..24) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                        repeat(pageCount) { i ->
+                            Box(
+                                Modifier.weight(1f).height(8.dp).clip(CircleShape).background(
+                                    when {
+                                        i < page -> hero.accent
+                                        i == page -> hero.content
+                                        else -> hero.raised
+                                    }
+                                )
+                            )
+                        }
+                    }
+                } else {
+                    LinearProgressIndicator(
+                        progress = { if (pageCount == 0) 1f else (page + 1).toFloat() / pageCount },
+                        color = hero.accent, trackColor = hero.raised,
+                        modifier = Modifier.fillMaxWidth().height(8.dp).clip(CircleShape),
+                    )
+                }
+                Text(
+                    if (stepIdx < 0) "Mise en place" else "Étape ${stepIdx + 1} sur ${steps.size}",
+                    style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.ExtraBold,
+                    letterSpacing = 1.sp, color = hero.accent,
+                )
+            }
 
             // Minuteurs en cours (plusieurs à la fois)
-            Row(
+            if (timers.isNotEmpty()) Row(
                 Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 timers.toList().forEachIndexed { i, t ->
                     val left = t.remainingAt(now)
-                    InputChip(
-                        selected = t.endsAt != null || t.done,
+                    // Toucher la pastille met en pause ou relance ; la croix la retire.
+                    Surface(
                         onClick = {
                             timers[i] = when {
                                 t.done -> t
@@ -143,97 +190,111 @@ fun CookingModeOverlay(
                                 else -> t.copy(endsAt = System.currentTimeMillis() + t.remaining * 1000L)
                             }
                         },
-                        label = { Text(if (t.done) "${t.label} : prêt !" else "${t.label} ${formatSeconds(left)}${if (t.endsAt == null) " ⏸" else ""}") },
-                        colors = InputChipDefaults.inputChipColors(
-                            selectedContainerColor = if (t.done) MaterialTheme.colorScheme.tertiaryContainer
-                            else MaterialTheme.colorScheme.primaryContainer,
-                        ),
-                    )
-                    // Le chip complet met en pause/reprend ; un bouton séparé le retire.
-                    IconButton(onClick = { timers.removeAt(i) }, modifier = Modifier.size(28.dp)) {
-                        Icon(Icons.Default.Close, "Retirer le minuteur", Modifier.size(14.dp))
+                        shape = CircleShape,
+                        color = if (t.done) cs.tertiaryContainer else hero.accent,
+                        contentColor = if (t.done) cs.onTertiaryContainer else hero.onAccent,
+                    ) {
+                        Row(Modifier.padding(start = 14.dp, end = 4.dp).height(44.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                if (t.done) "${t.label} : prêt !" else "${t.label} ${formatSeconds(left)}${if (t.endsAt == null) " ⏸" else ""}",
+                                fontWeight = FontWeight.Bold,
+                            )
+                            IconButton(onClick = { timers.removeAt(i) }, modifier = Modifier.size(40.dp)) {
+                                Icon(Icons.Default.Close, "Retirer le minuteur", Modifier.size(16.dp))
+                            }
+                        }
                     }
                 }
-                AssistChip(
-                    onClick = { startTimer("Minuteur ${timers.size + 1}", 5 * 60) },
-                    label = { Text("+ 5 min") },
-                    leadingIcon = { Icon(Icons.Default.Timer, null, Modifier.size(16.dp)) },
-                )
             }
 
             if (stepIdx < 0) {
                 Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState())) {
-                    Text("Mise en place", style = MaterialTheme.typography.headlineSmall)
                     Text(
-                        (servings?.let { "Pour $it portion${if (it > 1) "s" else ""} · " } ?: "") +
-                            "cochez au fur et à mesure",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        (servings?.let { "Pour $it portion${if (it > 1) "s" else ""} · " } ?: "") + "coche au fur et à mesure",
+                        style = MaterialTheme.typography.bodyLarge, color = hero.muted,
                         modifier = Modifier.padding(bottom = 8.dp),
                     )
                     ingredients.forEachIndexed { i, ing ->
-                        sectionStart(ingredients, i) { it.section }?.let { RecipePartTitle(it) }
+                        sectionStart(ingredients, i) { it.section }?.let { PartTitle(it, hero.accent) }
                         IngredientLine(ing, scale, checked = i in ready, onToggle = { toggleReady(i) })
                     }
                 }
             } else if (step != null) {
                 Column(
                     Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(20.dp, Alignment.CenterVertically),
-                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(18.dp),
                 ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        // Partie de la recette en cours (« Pâte », « Glaçage »).
-                        step.section?.takeIf { it.isNotBlank() }?.let { RecipePartTitle(it) }
-                        Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.primary) {
-                            Text("Étape ${stepIdx + 1}", Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                                style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onPrimary)
-                        }
-                    }
-                    Text(step.text, style = MaterialTheme.typography.headlineSmall, textAlign = TextAlign.Center,
-                        modifier = Modifier.fillMaxWidth())
-                    if (stepSeconds != null) {
-                        FilledTonalButton(onClick = { startTimer("Étape ${stepIdx + 1}", stepSeconds) }) {
-                            Icon(Icons.Default.Timer, null, Modifier.size(18.dp))
-                            Spacer(Modifier.width(6.dp))
-                            Text("Lancer ${formatSeconds(stepSeconds)}")
-                        }
-                    }
+                    // Partie de la recette en cours (« Pâte », « Glaçage »).
+                    step.section?.takeIf { it.isNotBlank() }?.let { PartTitle(it, hero.accent) }
+                    Text(step.text, fontSize = 28.sp, lineHeight = 35.sp, fontWeight = FontWeight.ExtraBold)
                     // Les étapes disent « ajouter la farine », rarement combien :
                     // les quantités des ingrédients cités, sous les yeux.
                     if (stepIngredients.isNotEmpty()) {
-                        Card(Modifier.fillMaxWidth()) {
-                            Column(Modifier.padding(12.dp)) {
-                                Text("Pour cette étape", style = MaterialTheme.typography.labelLarge,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                stepIngredients.forEach { ing -> IngredientLine(ing, scale) }
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            stepIngredients.forEach { ing ->
+                                Row(
+                                    Modifier.clip(CircleShape).background(hero.raised).padding(start = 6.dp, end = 14.dp).height(42.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    val amount = ingredientAmount(ing, scale)
+                                    if (amount.isNotBlank()) Surface(shape = CircleShape, color = hero.accent, contentColor = hero.onAccent) {
+                                        Text(amount, Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                                            style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Black)
+                                    } else Spacer(Modifier.width(6.dp))
+                                    Text(ing.name, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    }
+                    if (stepSeconds != null) {
+                        Surface(shape = RoundedCornerShape(28.dp), color = cs.tertiaryContainer, contentColor = cs.onTertiaryContainer) {
+                            Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                                Icon(Icons.Default.Timer, null, Modifier.size(36.dp))
+                                Column(Modifier.weight(1f)) {
+                                    Text(formatSeconds(stepSeconds), fontSize = 28.sp, fontWeight = FontWeight.Black)
+                                    Text("pour cette étape", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                                }
+                                Button(
+                                    onClick = { startTimer("Étape ${stepIdx + 1}", stepSeconds) },
+                                    colors = ButtonDefaults.buttonColors(containerColor = cs.onTertiaryContainer, contentColor = cs.tertiaryContainer),
+                                    modifier = Modifier.height(48.dp),
+                                ) { Text("Lancer", fontWeight = FontWeight.ExtraBold) }
                             }
                         }
                     }
                 }
             } else {
                 Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                    Text("Cette recette n'a pas d'étapes.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("Cette recette n'a pas d'étapes.", color = hero.muted)
                 }
             }
 
-            Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                FilledTonalButton(onClick = { if (page > 0) page-- }, enabled = page > 0,
-                    modifier = Modifier.weight(1f).height(56.dp)) { Text("←", fontSize = 22.sp) }
-                if (page < pageCount - 1) {
-                    Button(onClick = { page++ }, modifier = Modifier.weight(1f).height(56.dp)) {
-                        Text(if (stepIdx < 0) "C'est parti →" else "→", fontSize = if (stepIdx < 0) 18.sp else 22.sp)
-                    }
-                } else {
-                    Button(
-                        onClick = { finished = true },
-                        modifier = Modifier.weight(1f).height(56.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.tertiary),
-                    ) {
-                        Icon(Icons.Default.Check, null, Modifier.size(18.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text("Terminé !")
-                    }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedButton(
+                    onClick = { if (page > 0) page-- }, enabled = page > 0,
+                    shape = RoundedCornerShape(32.dp),
+                    border = BorderStroke(1.5.dp, hero.outline),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = hero.content),
+                    modifier = Modifier.width(88.dp).height(112.dp),
+                ) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Étape précédente", Modifier.size(28.dp)) }
+                val last = page >= pageCount - 1
+                Button(
+                    onClick = { if (last) finished = true else page++ },
+                    shape = RoundedCornerShape(40.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = hero.accent, contentColor = hero.onAccent),
+                    modifier = Modifier.weight(1f).height(112.dp),
+                ) {
+                    if (last) Icon(Icons.Default.Check, null, Modifier.size(28.dp).padding(end = 6.dp))
+                    Text(
+                        when {
+                            last -> "Terminé !"
+                            stepIdx < 0 -> "C'est parti"
+                            else -> "Étape suivante"
+                        },
+                        fontSize = 26.sp, fontWeight = FontWeight.Black,
+                    )
                 }
             }
         }
@@ -289,19 +350,33 @@ private fun IngredientLine(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        if (checked != null) Checkbox(checked = checked, onCheckedChange = { onToggle?.invoke() })
+        if (checked != null) Checkbox(
+            checked = checked, onCheckedChange = { onToggle?.invoke() },
+            colors = CheckboxDefaults.colors(
+                checkedColor = heroColors().accent, checkmarkColor = heroColors().onAccent,
+                uncheckedColor = LocalContentColor.current.copy(alpha = 0.7f),
+            ),
+        )
         Text(
             ingredientAmount(ing, scale),
             Modifier.widthIn(min = 72.dp),
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.Bold,
-            color = if (done) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary,
+            color = if (done) LocalContentColor.current.copy(alpha = 0.5f) else heroColors().accent,
         )
         Column(Modifier.weight(1f)) {
             Text(ing.name, style = MaterialTheme.typography.titleMedium,
-                color = if (done) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface)
+                color = LocalContentColor.current.copy(alpha = if (done) 0.5f else 1f),
+                textDecoration = if (done) TextDecoration.LineThrough else null)
             if (!ing.notes.isNullOrBlank()) Text(ing.notes, style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                color = LocalContentColor.current.copy(alpha = 0.7f))
         }
     }
+}
+
+/** Titre d'une partie de la recette (« Pâte », « Glaçage ») sur le fond sombre. */
+@Composable
+private fun PartTitle(text: String, color: androidx.compose.ui.graphics.Color) {
+    Text(text.uppercase(), style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Black,
+        letterSpacing = 1.sp, color = color, modifier = Modifier.padding(top = 8.dp, bottom = 2.dp))
 }

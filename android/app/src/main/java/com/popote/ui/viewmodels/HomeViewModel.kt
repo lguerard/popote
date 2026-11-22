@@ -5,11 +5,51 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.popote.data.Recipe
 import com.popote.data.RecipeRepository
+import java.time.LocalDate
+import java.time.LocalTime
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
+/** Le haut de l'accueil : le repas prévu, les courses, la semaine. */
+data class Dashboard(
+    /** Recette prévue au planning pour le prochain repas du jour (midi, puis soir). */
+    val tonight: Recipe? = null,
+    /** « déjeuner » ou « dîner ». */
+    val tonightMeal: String? = null,
+    /** Articles de la liste de courses pas encore cochés (null : liste pas lue). */
+    val shoppingLeft: Int? = null,
+    /** Pour les 7 jours à venir : un dîner est-il prévu ? */
+    val weekDinners: List<Boolean> = emptyList(),
+)
+
 class HomeViewModel(app: Application) : AndroidViewModel(app) {
     private val repo = RecipeRepository(app)
+
+    private val _dashboard = MutableStateFlow(Dashboard())
+    val dashboard: StateFlow<Dashboard> = _dashboard.asStateFlow()
+
+    /** Relu à chaque retour sur l'accueil : le planning ou les courses ont pu changer. */
+    fun loadDashboard() {
+        viewModelScope.launch {
+            val today = LocalDate.now()
+            val plans = runCatching { repo.getMealPlans(today.toString(), today.plusDays(6).toString()) }.getOrNull()
+            val todays = plans.orEmpty().filter { it.date == today.toString() }
+            // Avant 14 h, le déjeuner d'abord ; ensuite le dîner.
+            val order = if (LocalTime.now().hour < 14) listOf("déjeuner", "dîner") else listOf("dîner")
+            val plan = order.firstNotNullOfOrNull { meal -> todays.firstOrNull { it.meal_type == meal } }
+            val recipe = plan?.let { runCatching { repo.getRecipe(it.recipe_id) }.getOrNull() }
+            val shopping = runCatching { repo.getShoppingItems() }.getOrNull()
+            _dashboard.value = Dashboard(
+                tonight = recipe,
+                tonightMeal = plan?.meal_type,
+                shoppingLeft = shopping?.items?.count { !it.checked },
+                weekDinners = if (plans == null) emptyList() else (0L..6L).map { d ->
+                    val day = today.plusDays(d).toString()
+                    plans.any { it.date == day && it.meal_type == "dîner" }
+                },
+            )
+        }
+    }
 
     private val _recipes = MutableStateFlow<List<Recipe>>(emptyList())
     val recipes: StateFlow<List<Recipe>> = _recipes.asStateFlow()
