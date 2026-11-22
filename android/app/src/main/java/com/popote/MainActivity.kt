@@ -28,7 +28,9 @@ import com.popote.data.RecipeRepository
 import com.popote.ui.assistant.AssistantSheet
 import com.popote.ui.assistant.AssistantViewModel
 import com.popote.ui.assistant.RecipeContext
+import com.popote.ui.components.FloatingNavBar
 import com.popote.ui.components.LocalServerUrl
+import com.popote.ui.components.NavItem
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.popote.ui.screens.*
@@ -126,11 +128,11 @@ class MainActivity : ComponentActivity() {
         }
 
         val tabs = listOf(
-            Triple("home", "Recettes", Icons.Default.MenuBook),
-            Triple("fridge", "Frigo", Icons.Default.Kitchen),
-            Triple("planning", "Planning", Icons.Default.CalendarMonth),
-            Triple("shopping", "Courses", Icons.Default.ShoppingCart),
-            Triple("collections", "Carnets", Icons.Default.CollectionsBookmark),
+            NavItem("home", "Recettes", Icons.Default.MenuBook),
+            NavItem("fridge", "Frigo", Icons.Default.Kitchen),
+            NavItem("planning", "Planning", Icons.Default.CalendarMonth),
+            NavItem("shopping", "Courses", Icons.Default.ShoppingCart),
+            NavItem("collections", "Carnets", Icons.Default.CollectionsBookmark),
         )
 
         CompositionLocalProvider(LocalServerUrl provides serverUrl) {
@@ -140,17 +142,9 @@ class MainActivity : ComponentActivity() {
         Scaffold(
             contentWindowInsets = WindowInsets(0, 0, 0, 0),
             bottomBar = {
-                if (currentRoute in tabs.map { it.first }) {
-                    NavigationBar {
-                        tabs.forEach { (route, label, icon) ->
-                            NavigationBarItem(
-                                selected = currentRoute == route,
-                                onClick = { openTab(route) },
-                                icon = { Icon(icon, null) },
-                                label = { Text(label) },
-                            )
-                        }
-                    }
+                // Barre flottante : une pilule, l'onglet ouvert s'élargit avec son nom.
+                if (currentRoute in tabs.map { it.route }) {
+                    FloatingNavBar(tabs, currentRoute, onSelect = { openTab(it) })
                 }
             }
         ) { innerPadding ->
@@ -161,6 +155,8 @@ class MainActivity : ComponentActivity() {
                 composable("home") {
                     HomeScreen(
                         onRecipeClick = { id -> navController.navigate("recipe/$id") },
+                        onCook = { id, servings -> navController.navigate("recipe/$id?cook=true&servings=$servings") },
+                        onOpenTab = { route -> openTab(route) },
                         onAddClick = { navController.navigate("add") },
                         onSettingsClick = { navController.navigate("settings") },
                         onAchievementsClick = { navController.navigate("achievements") },
@@ -194,13 +190,24 @@ class MainActivity : ComponentActivity() {
                     )
                 }
                 composable(
-                    "recipe/{id}",
-                    arguments = listOf(navArgument("id") { type = NavType.StringType }),
+                    "recipe/{id}?cook={cook}&servings={servings}",
+                    arguments = listOf(
+                        navArgument("id") { type = NavType.StringType },
+                        navArgument("cook") { type = NavType.BoolType; defaultValue = false },
+                        navArgument("servings") { type = NavType.IntType; defaultValue = 0 },
+                    ),
                 ) { backStack ->
+                    val args = backStack.arguments!!
                     RecipeDetailScreen(
-                        recipeId = backStack.arguments!!.getString("id")!!,
+                        recipeId = args.getString("id")!!,
                         onBack = { navController.popBackStack() },
-                        onAskAssistant = { r -> openAssistant(RecipeContext(r.id, r.title)) },
+                        onAskAssistant = { r, question ->
+                            openAssistant(RecipeContext(r.id, r.title))
+                            // Question choisie sur la fiche (un ingrédient) : posée d'emblée.
+                            question?.let { assistant.send(it) }
+                        },
+                        startCooking = args.getBoolean("cook"),
+                        startServings = args.getInt("servings").takeIf { it > 0 },
                     )
                 }
                 composable("add") {
