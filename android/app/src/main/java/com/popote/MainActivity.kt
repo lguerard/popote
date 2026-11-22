@@ -4,7 +4,11 @@ import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.SystemBarStyle
 import androidx.activity.enableEdgeToEdge
+import com.popote.data.ThemeSettings
+import com.popote.data.themeSettings
+import com.popote.ui.theme.isDark
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.consumeWindowInsets
@@ -29,6 +33,10 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.popote.ui.screens.*
 import com.popote.ui.theme.PopoteTheme
+
+// Voile de la barre de navigation à 3 boutons (mêmes valeurs qu'androidx.activity).
+private val LIGHT_SCRIM = android.graphics.Color.argb(0xe6, 0xFF, 0xFF, 0xFF)
+private val DARK_SCRIM = android.graphics.Color.argb(0x80, 0x1b, 0x1b, 0x1b)
 
 class MainActivity : ComponentActivity() {
     // Texte reçu via « Partager → Popote » (lien Instagram, TikTok, page web…)
@@ -57,7 +65,22 @@ class MainActivity : ComponentActivity() {
         val repo = RecipeRepository(applicationContext)
 
         setContent {
-            PopoteTheme {
+            // Thème choisi dans les paramètres (clair / sombre / système, couleurs).
+            // Valeurs par défaut le temps de la première lecture (quelques ms).
+            val themeFlow = remember { applicationContext.themeSettings() }
+            val theme by themeFlow.collectAsState(initial = ThemeSettings())
+            val dark = theme.isDark()
+            // Icônes de la barre d'état claires sur fond sombre, et inversement :
+            // d'après le thème de l'appli, plus seulement celui du téléphone.
+            DisposableEffect(dark) {
+                enableEdgeToEdge(
+                    statusBarStyle = SystemBarStyle.auto(android.graphics.Color.TRANSPARENT,
+                        android.graphics.Color.TRANSPARENT) { dark },
+                    navigationBarStyle = SystemBarStyle.auto(LIGHT_SCRIM, DARK_SCRIM) { dark },
+                )
+                onDispose {}
+            }
+            PopoteTheme(theme) {
                 val loggedIn by repo.isLoggedIn.collectAsState(initial = null)
                 when (loggedIn) {
                     null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {

@@ -31,6 +31,8 @@ brut, ou photo — accompagnée d'une application Android native.
 - Détection de doublons à l'ajout
 - Analyse nutritionnelle par portion (IA)
 - Notes personnelles par recette
+- Appli Android : thème clair, sombre ou celui du téléphone ; couleurs Material You
+  (fond d'écran, Android 12+), orange Popote ou une couleur au choix
 - **Sauvegarde** : toutes les recettes (images, notes, avis, historique,
   carnets) dans un .zip, restaurable sur ce serveur ou un autre (💾 sur le web,
   Paramètres sur Android)

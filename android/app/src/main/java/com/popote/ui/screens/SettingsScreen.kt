@@ -100,6 +100,9 @@ fun SettingsScreen(
             }
 
             HorizontalDivider()
+            AppearanceSection()
+
+            HorizontalDivider()
             SharingSection()
 
             HorizontalDivider()
