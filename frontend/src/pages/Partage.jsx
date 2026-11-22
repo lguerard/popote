@@ -15,7 +15,7 @@ export default function Partage() {
     <div className="min-h-screen flex flex-col">
       <header className="bg-white shadow-sm border-b border-orange-100">
         <div className="max-w-4xl mx-auto px-4 h-14 flex items-center gap-2 text-lg font-bold text-orange-600">
-          <span>🍳</span><span>Popote</span>
+          <span>🥘</span><span>Popote</span>
         </div>
       </header>
       <main className="flex-1 max-w-4xl mx-auto w-full px-4 py-8">

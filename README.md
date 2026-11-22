@@ -67,8 +67,9 @@ mot à mot et **agit sur ses données** :
 
 Il tourne sur le **même modèle local** que l'extraction (Ollama, aucun
 modèle en plus en VRAM), ou sur Claude si `CLAUDE_API_KEY` est définie. La
-conversation reste dans le navigateur (effacée à la déconnexion). Pas encore
-dans l'application Android native. Délais : voir
+conversation reste dans le navigateur (effacée à la déconnexion). Sur
+Android : bouton 💬 en haut de l'accueil et « Demander à l'assistant » sur une
+fiche recette ; la conversation y dure le temps de la session de l'appli. Délais : voir
 [`DEPLOIEMENT.md`](DEPLOIEMENT.md#assistant-culinaire).
 
 ### Partage

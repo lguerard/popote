@@ -21,7 +21,12 @@ import androidx.navigation.compose.*
 import androidx.navigation.navArgument
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import com.popote.data.RecipeRepository
+import com.popote.ui.assistant.AssistantSheet
+import com.popote.ui.assistant.AssistantViewModel
+import com.popote.ui.assistant.RecipeContext
 import com.popote.ui.components.LocalServerUrl
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.popote.ui.screens.*
 import com.popote.ui.theme.PopoteTheme
 
@@ -88,6 +93,15 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+        // Assistant culinaire : un seul, au niveau de l'appli, pour garder la
+        // conversation d'un écran à l'autre.
+        val assistant: AssistantViewModel = viewModel()
+        var assistantOpen by rememberSaveable { mutableStateOf(false) }
+        fun openAssistant(recipe: RecipeContext? = null) {
+            assistant.setContext(recipe)
+            assistantOpen = true
+        }
+
         val tabs = listOf(
             Triple("home", "Recettes", Icons.Default.MenuBook),
             Triple("fridge", "Frigo", Icons.Default.Kitchen),
@@ -127,6 +141,7 @@ class MainActivity : ComponentActivity() {
                         onAddClick = { navController.navigate("add") },
                         onSettingsClick = { navController.navigate("settings") },
                         onAchievementsClick = { navController.navigate("achievements") },
+                        onAssistantClick = { openAssistant() },
                     )
                 }
                 composable("fridge") {
@@ -162,6 +177,7 @@ class MainActivity : ComponentActivity() {
                     RecipeDetailScreen(
                         recipeId = backStack.arguments!!.getString("id")!!,
                         onBack = { navController.popBackStack() },
+                        onAskAssistant = { r -> openAssistant(RecipeContext(r.id, r.title)) },
                     )
                 }
                 composable("add") {
@@ -182,6 +198,20 @@ class MainActivity : ComponentActivity() {
                     SettingsScreen(onBack = { navController.popBackStack() })
                 }
             }
+        }
+        if (assistantOpen) {
+            AssistantSheet(
+                vm = assistant,
+                onDismiss = { assistantOpen = false },
+                onOpenRecipe = { id ->
+                    assistantOpen = false
+                    navController.navigate("recipe/$id")
+                },
+                onOpenTab = { route ->
+                    assistantOpen = false
+                    openTab(route)
+                },
+            )
         }
         }
     }

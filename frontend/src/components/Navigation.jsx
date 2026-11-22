@@ -18,7 +18,7 @@ export default function Navigation() {
     <nav className="bg-white shadow-sm border-b border-orange-100 sticky top-0 z-40">
       <div className="max-w-7xl mx-auto px-4 h-14 flex items-center justify-between gap-2 sm:gap-4">
         <Link to="/" className="flex items-center gap-2 text-lg font-bold text-orange-600 flex-shrink-0">
-          <span>🍳</span>
+          <span>🥘</span>
           <span className="hidden sm:block">Popote</span>
         </Link>
         <div className="flex items-center gap-0.5 sm:gap-1 overflow-x-auto scrollbar-hide min-w-0">
