@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Téléphone en mode sombre : fond sombre dès le lancement, avant le
+         premier écran (le thème choisi dans l'appli s'applique ensuite). -->
+    <style name="Theme.Popote" parent="android:Theme.Material.NoActionBar" />
+</resources>
