@@ -3,6 +3,11 @@ export default {
   content: ['./index.html', './src/**/*.{js,jsx}'],
   theme: {
     extend: {
+      // Titres du tableau de bord : police arrondie du système, sans
+      // dépendance externe (serveur auto-hébergé).
+      fontFamily: {
+        display: ['ui-rounded', '"SF Pro Rounded"', 'system-ui', 'sans-serif'],
+      },
       colors: {
         brand: {
           50: '#fff7ed',

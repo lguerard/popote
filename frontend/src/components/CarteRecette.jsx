@@ -1,53 +1,53 @@
 import { Link } from 'react-router-dom'
 
-const ICONS = { video: '🎬', web: '🌐', text: '📝', manual: '✏️' }
 
+const SOURCES = { video: 'Vidéo', web: 'Site', text: 'Texte', manual: 'Maison' }
+
+/** Carte d'une recette : grande photo arrondie avec sa source et le favori, puis titre et durée. */
 export default function CarteRecette({ recipe }) {
   const totalTime = (recipe.prep_time || 0) + (recipe.cook_time || 0)
+  const source = SOURCES[recipe.source_type]
+  const meta = [totalTime > 0 && `${totalTime} min`, recipe.category && recipe.category[0].toUpperCase() + recipe.category.slice(1)]
+    .filter(Boolean).join(' · ')
 
   return (
-    <Link
-      to={`/recettes/${recipe.id}`}
-      className="group bg-white rounded-2xl shadow-sm hover:shadow-md transition-shadow overflow-hidden flex flex-col"
-    >
-      <div className="aspect-video bg-orange-50 relative overflow-hidden">
+    <Link to={`/recettes/${recipe.id}`} className="group flex flex-col gap-2.5 rounded-3xl focus-visible:outline focus-visible:outline-2 focus-visible:outline-orange-500">
+      <div className="aspect-[1.1] rounded-[22px] bg-orange-100 relative overflow-hidden">
         {recipe.thumbnail_url ? (
           <img
             src={recipe.thumbnail_url}
-            alt={recipe.title}
+            alt=""
             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
           />
         ) : (
-          <div className="w-full h-full flex items-center justify-center text-5xl">🍽️</div>
+          <div className="w-full h-full flex items-center justify-center text-5xl" aria-hidden="true">🍽️</div>
         )}
         {recipe.shared_by_name && (
-          <span className="absolute top-2 left-2 px-2 py-0.5 bg-white/90 text-sky-700 text-xs font-medium rounded-full shadow-sm max-w-[70%] truncate"
+          <span className="absolute top-2.5 left-2.5 px-2.5 py-1 bg-gray-900 text-white text-xs font-extrabold rounded-full max-w-[70%] truncate"
             title={`Partagée par ${recipe.shared_by_name}`}>
-            👥 {recipe.shared_by_name}
+            De {recipe.shared_by_name}
           </span>
         )}
-        <span className="absolute top-2 right-2 text-lg" title={recipe.source_type}>
-          {ICONS[recipe.source_type] || '📄'}
-        </span>
+        {recipe.is_favorite && (
+          <span className="absolute top-2.5 right-2.5 w-8 h-8 rounded-full bg-white text-orange-700 flex items-center justify-center" title="Favori">
+            <span aria-hidden="true">♥</span><span className="sr-only">Favori</span>
+          </span>
+        )}
+        {source && (
+          <span className="absolute bottom-2.5 left-2.5 px-2.5 py-1 bg-white/90 text-gray-900 text-xs font-extrabold rounded-full">
+            {source}
+          </span>
+        )}
       </div>
-      <div className="p-4 flex flex-col flex-1">
-        <h3 className="font-semibold text-gray-900 line-clamp-2 mb-2 group-hover:text-orange-600 transition-colors">
+      <div className="px-1">
+        <h3 className="font-extrabold text-gray-900 leading-snug line-clamp-2 group-hover:text-orange-700 transition-colors">
           {recipe.title}
         </h3>
-        {recipe.description && (
-          <p className="text-sm text-gray-500 line-clamp-2 mb-3">{recipe.description}</p>
-        )}
-        <div className="mt-auto flex items-center gap-3 text-xs text-gray-400">
-          {totalTime > 0 && <span>⏱ {totalTime} min</span>}
-          {recipe.servings && <span>👥 {recipe.servings} pers.</span>}
-          {recipe.rating > 0 && <span className="text-amber-500" title={`${recipe.rating}/5`}>★ {recipe.rating}</span>}
+        <p className="mt-0.5 flex items-center gap-2 text-sm font-semibold text-gray-500">
+          {meta && <span>{totalTime > 0 && '⏱ '}{meta}</span>}
+          {recipe.rating > 0 && <span className="text-orange-700" title={`${recipe.rating}/5`}>★ {recipe.rating}</span>}
           {recipe.cook_again && <span title="À refaire">🔁</span>}
-          {recipe.tags?.slice(0, 2).map(tag => (
-            <span key={tag} className="bg-orange-50 text-orange-600 px-2 py-0.5 rounded-full">
-              {tag}
-            </span>
-          ))}
-        </div>
+        </p>
       </div>
     </Link>
   )

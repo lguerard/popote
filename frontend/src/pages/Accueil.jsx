@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { getRecipes } from '../api'
 import CarteRecette from '../components/CarteRecette'
+import Tableau from '../components/Tableau'
 
 const CATEGORIES = [
   { value: 'favoris', label: 'Favoris', emoji: '❤️' },
@@ -95,8 +96,23 @@ export default function Accueil() {
   return (
     <div>
       <div className="mb-6">
-        <h1 className="text-3xl font-bold text-gray-900 mb-1">Mes Recettes</h1>
-        <p className="text-gray-400 text-sm">{recipes.length} recette{recipes.length !== 1 ? 's' : ''}</p>
+        <p className="text-sm font-semibold text-gray-500 first-letter:uppercase">
+          {new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}
+        </p>
+        <h1 className="font-display text-4xl sm:text-5xl font-extrabold tracking-tight text-gray-900">On mange quoi ?</h1>
+      </div>
+
+      <Tableau />
+
+      <div className="mb-4 flex items-end justify-between gap-3 flex-wrap">
+        <div>
+          <h2 className="font-display text-3xl font-extrabold tracking-tight text-gray-900">Recettes</h2>
+          <p className="text-gray-500 text-sm">{recipes.length} recette{recipes.length !== 1 ? 's' : ''}</p>
+        </div>
+        <Link to="/ajouter"
+          className="h-12 inline-flex items-center gap-2 rounded-full bg-orange-700 text-white px-5 font-extrabold hover:bg-orange-800 transition-colors">
+          + Importer
+        </Link>
       </div>
 
       {/* Recherche */}
@@ -106,7 +122,8 @@ export default function Accueil() {
           placeholder="Rechercher une recette…"
           value={search}
           onChange={(e) => handleSearch(e.target.value)}
-          className="w-full max-w-lg px-4 py-2.5 rounded-xl border border-gray-200 bg-white shadow-sm focus:outline-none focus:ring-2 focus:ring-orange-400 focus:border-transparent"
+          aria-label="Rechercher une recette"
+          className="w-full max-w-lg h-12 px-5 rounded-full border-0 bg-orange-100/70 placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-orange-400"
         />
       </div>
 
@@ -116,10 +133,11 @@ export default function Accueil() {
           <button
             key={cat.value ?? 'all'}
             onClick={() => setCategory(cat.value)}
-            className={`flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
+            aria-pressed={category === cat.value}
+            className={`flex-shrink-0 flex items-center gap-1.5 h-11 px-4 rounded-full text-sm font-bold transition-colors ${
               category === cat.value
-                ? 'bg-orange-600 text-white shadow-sm'
-                : 'bg-white text-gray-600 border border-gray-200 hover:border-orange-300 hover:text-orange-600'
+                ? 'bg-[#2B1608] text-white'
+                : 'bg-white text-gray-700 border-2 border-orange-100 hover:border-orange-300'
             }`}
           >
             <span>{cat.emoji}</span>
@@ -135,7 +153,7 @@ export default function Accueil() {
             <button
               key={t.value ?? 'all'}
               onClick={() => setMaxTime(t.value)}
-              className={`px-3 py-1 rounded-lg text-xs font-medium transition-colors ${
+              className={`h-9 px-3.5 rounded-full text-xs font-bold transition-colors ${
                 maxTime === t.value
                   ? 'bg-amber-100 text-amber-800 border border-amber-300'
                   : 'bg-white text-gray-500 border border-gray-200 hover:border-amber-200'
@@ -150,7 +168,7 @@ export default function Accueil() {
             <button
               key={s.value ?? 'all'}
               onClick={() => setSourceType(s.value)}
-              className={`px-3 py-1 rounded-lg text-xs font-medium transition-colors ${
+              className={`h-9 px-3.5 rounded-full text-xs font-bold transition-colors ${
                 sourceType === s.value
                   ? 'bg-blue-50 text-blue-700 border border-blue-200'
                   : 'bg-white text-gray-500 border border-gray-200 hover:border-blue-200'
@@ -165,7 +183,7 @@ export default function Accueil() {
             <button
               key={h.value ?? 'all'}
               onClick={() => setHistory(h.value)}
-              className={`px-3 py-1 rounded-lg text-xs font-medium transition-colors ${
+              className={`h-9 px-3.5 rounded-full text-xs font-bold transition-colors ${
                 history === h.value
                   ? 'bg-green-50 text-green-700 border border-green-200'
                   : 'bg-white text-gray-500 border border-gray-200 hover:border-green-200'
@@ -231,7 +249,7 @@ export default function Accueil() {
           <p className="mt-2 text-sm">Essayez d'autres filtres ou ajoutez une nouvelle recette.</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+        <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-x-4 gap-y-6">
           {recipes.map((r) => (
             <CarteRecette key={r.id} recipe={r} />
           ))}
