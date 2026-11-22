@@ -31,6 +31,12 @@ interface PopoteApi {
     @POST("api/extract")
     suspend fun extract(@Body body: ExtractionRequest): ExtractionResponse
 
+    // Réponse diffusée mot à mot (une ligne JSON par événement) : Response
+    // pour lire le message d'erreur du serveur (409, 413…).
+    @Streaming
+    @POST("api/assistant/chat")
+    suspend fun assistantChat(@Body body: ChatRequest): retrofit2.Response<okhttp3.ResponseBody>
+
     // Fichier potentiellement gros : lu au fil de l'eau, jamais en mémoire.
     @Streaming
     @GET("api/backup")

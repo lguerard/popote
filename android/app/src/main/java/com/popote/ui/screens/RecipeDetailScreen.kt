@@ -67,6 +67,8 @@ import kotlin.math.roundToInt
 fun RecipeDetailScreen(
     recipeId: String,
     onBack: () -> Unit,
+    // Ouvre l'assistant avec cette recette comme sujet (« cette recette »).
+    onAskAssistant: (Recipe) -> Unit = {},
     vm: RecipeDetailViewModel = viewModel(),
 ) {
     val recipe by vm.recipe.collectAsState()
@@ -320,6 +322,7 @@ fun RecipeDetailScreen(
                 notesSaving = notesSaving,
                 onSaveNotes = vm::saveNotes,
                 onStartCooking = { cookingMode = true },
+                onAskAssistant = { recipe?.let(onAskAssistant) },
                 history = history,
                 onRate = vm::setRating,
                 onToggleCookAgain = vm::toggleCookAgain,
@@ -625,6 +628,7 @@ private fun RecipeContent(
     notesSaving: Boolean,
     onSaveNotes: () -> Unit,
     onStartCooking: () -> Unit,
+    onAskAssistant: () -> Unit = {},
     history: List<CookLog>,
     onRate: (Int) -> Unit,
     onToggleCookAgain: () -> Unit,
@@ -771,6 +775,15 @@ private fun RecipeContent(
                     Spacer(Modifier.width(6.dp))
                     Text("Je l'ai cuisinée")
                 }
+            }
+        }
+        item {
+            // Remplacer un ingrédient, adapter, recettes proches… sur cette recette.
+            FilledTonalButton(
+                onClick = onAskAssistant,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+            ) {
+                Text("💬  Demander à l'assistant")
             }
         }
 

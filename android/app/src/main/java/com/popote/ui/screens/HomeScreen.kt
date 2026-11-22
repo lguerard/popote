@@ -6,6 +6,7 @@ import androidx.compose.foundation.lazy.grid.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.Search
@@ -66,6 +67,7 @@ fun HomeScreen(
     onAddClick: () -> Unit,
     onSettingsClick: () -> Unit,
     onAchievementsClick: () -> Unit = {},
+    onAssistantClick: () -> Unit = {},
     vm: HomeViewModel = viewModel(),
 ) {
     val recipes by vm.recipes.collectAsState()
@@ -85,8 +87,11 @@ fun HomeScreen(
         topBar = {
             // Barre compacte, masquée en défilant : l'écran est pour les recettes.
             TopAppBar(
-                title = { Text("🍳 Popote") },
+                title = { Text("🥘 Popote") },
                 actions = {
+                    IconButton(onClick = onAssistantClick) {
+                        Icon(Icons.AutoMirrored.Filled.Chat, "Assistant culinaire")
+                    }
                     Box {
                         IconButton(onClick = { sortMenu = true }) {
                             Icon(Icons.Default.SwapVert, contentDescription = "Trier")

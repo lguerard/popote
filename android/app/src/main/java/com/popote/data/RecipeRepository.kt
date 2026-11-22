@@ -3,7 +3,11 @@ package com.popote.data
 import android.content.Context
 import androidx.datastore.preferences.core.edit
 import com.google.gson.GsonBuilder
+import com.google.gson.JsonObject
 import com.google.gson.JsonParser
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -16,6 +20,9 @@ import okio.source
 
 /** Extraction terminée en échec côté serveur (message lisible du serveur). */
 class ExtractionFailedException(message: String) : Exception(message)
+
+/** Refus de l'assistant (question déjà en cours, message trop long…), message du serveur. */
+class AssistantException(message: String) : Exception(message)
 
 /** Connexion perdue trop longtemps pendant le suivi d'une extraction, qui continue sur le serveur. */
 class ConnectionLostException(cause: Exception) : Exception(cause)
@@ -119,6 +126,40 @@ class RecipeRepository(private val context: Context) {
         val part = okhttp3.MultipartBody.Part.createFormData("file", "sauvegarde.zip", body)
         return api().importBackup(part)
     }
+
+    /**
+     * Question à l'assistant : événements du serveur au fil de l'eau
+     * (status, delta, recipes, action, error, done), un objet JSON par ligne.
+     * Annuler la collecte ferme la connexion, ce qui arrête la réponse.
+     */
+    fun assistantChat(messages: List<ChatMessage>, recipeId: String?): Flow<JsonObject> = flow {
+        val response = api().assistantChat(ChatRequest(
+            messages, ChatContext(recipe_id = recipeId, page = recipeId?.let { "/recettes/$it" } ?: "/"),
+        ))
+        if (!response.isSuccessful) {
+            val detail = try {
+                JsonParser.parseString(response.errorBody()?.string() ?: "").asJsonObject.get("detail")
+                    ?.takeIf { it.isJsonPrimitive }?.asString
+            } catch (_: Exception) { null }
+            throw AssistantException(detail ?: when (response.code()) {
+                401 -> "Session expirée : reconnecte-toi."
+                409 -> "Une réponse est déjà en cours : attends-la ou arrête-la."
+                413 -> "Message trop long : raccourcis ta question."
+                502, 503, 504 -> "Le serveur Popote redémarre ou est arrêté. Réessaie dans un instant."
+                else -> "Erreur du serveur (${response.code()})"
+            })
+        }
+        val body = response.body() ?: throw AssistantException("Réponse vide du serveur.")
+        body.use {
+            val source = it.source()
+            while (true) {
+                val line = source.readUtf8Line() ?: break
+                if (line.isBlank()) continue
+                val event = try { JsonParser.parseString(line).asJsonObject } catch (_: Exception) { null }
+                if (event != null) emit(event)
+            }
+        }
+    }.flowOn(Dispatchers.IO)
 
     suspend fun extractBatch(text: String): BatchExtractionResponse = api().extractBatch(BatchExtractionRequest(text))
     suspend fun getTasks(ids: List<String>): List<Recipe> = api().getTasks(ids.joinToString(","))

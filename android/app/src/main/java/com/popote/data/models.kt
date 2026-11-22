@@ -166,6 +166,11 @@ data class ExtractionResponse(
     val message: String,
 )
 
+// Assistant culinaire (POST /api/assistant/chat, réponse en NDJSON)
+data class ChatMessage(val role: String, val content: String)
+data class ChatContext(val recipe_id: String? = null, val page: String? = null)
+data class ChatRequest(val messages: List<ChatMessage>, val context: ChatContext? = null)
+
 // Sauvegarde complète du compte (voir backend/app/services/backup.py)
 data class RestoreReport(
     val recipes_added: Int = 0,
