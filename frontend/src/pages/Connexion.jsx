@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { login, register } from '../api'
+import { browserSupportsWebAuthn, startAuthentication } from '@simplewebauthn/browser'
+import { finishPasskeyLogin, login, register, startPasskeyLogin } from '../api'
 import { useAuth } from '../auth'
 
 export default function Connexion() {
@@ -32,6 +33,33 @@ export default function Connexion() {
     } catch (err) {
       // Le backend renvoie un message utilisable ; on ne garde le
       // générique que s'il n'a rien dit (réseau coupé, 500 nu).
+      setErreur(err?.response?.data?.detail || 'Connexion impossible, réessaie.')
+    } finally {
+      setEnvoi(false)
+    }
+  }
+
+  async function connexionPasskey() {
+    setErreur(null)
+    setMessage(null)
+    setEnvoi(true)
+    try {
+      // L'e-mail est facultatif : vide, le navigateur propose les passkeys
+      // qu'il connaît pour ce site.
+      const { options, challenge_id } = await startPasskeyLogin(email.trim())
+      let credential
+      try {
+        credential = await startAuthentication({ optionsJSON: options })
+      } catch (err) {
+        // NotAllowedError : fenêtre fermée, délai dépassé ou aucune passkey
+        // choisie -- le navigateur ne dit pas lequel.
+        setErreur(err?.name === 'NotAllowedError'
+          ? 'Connexion par passkey annulée.'
+          : "Passkey indisponible sur ce navigateur ou cette adresse (HTTPS requis).")
+        return
+      }
+      memoriser(await finishPasskeyLogin({ challenge_id, credential }))
+    } catch (err) {
       setErreur(err?.response?.data?.detail || 'Connexion impossible, réessaie.')
     } finally {
       setEnvoi(false)
@@ -85,6 +113,15 @@ export default function Connexion() {
           {envoi ? 'Un instant…' : inscription ? 'Demander un compte' : 'Se connecter'}
         </button>
       </form>
+
+      {!inscription && browserSupportsWebAuthn() && (
+        <button
+          type="button" onClick={connexionPasskey} disabled={envoi}
+          className="mt-3 w-full py-2 rounded-lg border border-orange-200 bg-white text-orange-700 font-medium hover:bg-orange-50 disabled:opacity-50"
+        >
+          🔐 Se connecter avec une clé de sécurité / un passkey
+        </button>
+      )}
 
       <button
         onClick={() => { setInscription(!inscription); setErreur(null); setMessage(null) }}

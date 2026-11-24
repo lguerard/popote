@@ -16,6 +16,14 @@ export const listUsers = (includeArchived = false) =>
 export const approveUser = (id) => api.post(`/auth/users/${id}/approve`).then(r => r.data)
 export const rejectUser = (id) => api.post(`/auth/users/${id}/reject`).then(r => r.data)
 export const updateLanguage = (language) => api.patch('/auth/me', { language }).then(r => r.data)
+// Passkeys : chaque "start" renvoie { options, challenge_id }, le
+// challenge_id revient avec le "finish" correspondant.
+export const startPasskeyRegistration = () => api.post('/auth/passkeys/start-registration').then(r => r.data)
+export const finishPasskeyRegistration = (data) => api.post('/auth/passkeys/finish-registration', data).then(r => r.data)
+export const listPasskeys = () => api.get('/auth/passkeys').then(r => r.data)
+export const deletePasskey = (id) => api.delete(`/auth/passkeys/${id}`)
+export const startPasskeyLogin = (email) => api.post('/auth/passkeys/start-authentication', { email: email || null }).then(r => r.data)
+export const finishPasskeyLogin = (data) => api.post('/auth/passkeys/finish-authentication', data).then(r => r.data)
 
 export const getRecipes = (params) => api.get('/recipes', { params }).then(r => r.data)
 export const getRecipe = (id) => api.get(`/recipes/${id}`).then(r => r.data)

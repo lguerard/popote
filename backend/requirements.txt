@@ -47,3 +47,6 @@ nvidia-cudnn-cu12==9.1.0.70
 # jetons de session (voir app/core/security.py).
 bcrypt==4.2.1
 PyJWT==2.10.1
+# Passkeys (WebAuthn), en alternative au mot de passe : verification des
+# signatures et des origines deleguee a py_webauthn (voir api/passkeys.py).
+webauthn==2.8.0
