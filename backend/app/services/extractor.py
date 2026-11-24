@@ -211,6 +211,14 @@ async def extract(
                     raise ValueError(
                         "Aucune recette ni aucun plat reconnaissable dans ce contenu."
                     )
+        # Filet de sécurité : le texte source est parfois dans une autre
+        # langue que celle demandée au modèle (sous-titres/transcription
+        # auto-détectés par Whisper dans une langue différente de la
+        # légende, par ex.), et un petit modèle ne suit pas toujours à la
+        # lettre « rédige en français » quand son entrée ne l'est pas déjà.
+        # On vérifie la langue du résultat et on corrige si besoin, plutôt
+        # que de faire confiance à l'instruction seule.
+        recipe_data = await _in_account_language(recipe_data, target_lang, progress)
     logger.info(
         "extraction %s (%s) : récupération %.1fs, analyse %.1fs%s",
         source[:80], source_type.value, fetched - started, time.monotonic() - fetched,

@@ -292,3 +292,60 @@ def test_photo_import_passes_the_language_everywhere(monkeypatch):
         target_lang="en", langs=langs,
     )
     assert langs == [("vision", "en"), ("text-llm", "en"), ("dish", "en")]
+
+
+# ---------------------------------------------------------------------------
+# Filet de sécurité : le modèle n'a pas écrit dans la langue demandée
+# (ex. transcription Whisper mal détectée mêlée à la légende correcte).
+# ---------------------------------------------------------------------------
+
+def _patch_translate(monkeypatch, translated):
+    from app.services import translation_service
+
+    calls = []
+
+    async def fake_translate(**kwargs):
+        calls.append(kwargs)
+        return translated
+
+    monkeypatch.setattr(translation_service, "translate_recipe_content", fake_translate)
+    return calls
+
+
+def test_extract_corrects_llm_output_in_the_wrong_language(monkeypatch):
+    """Le modèle demandait du français, mais a écrit en anglais (entrée
+    mélangée, petit modèle qui n'a pas suivi la consigne…) : le filet de
+    sécurité détecte le décalage et traduit avant d'enregistrer."""
+    extractor, _ = _patch_extractor(monkeypatch, {
+        "title": "Hot chocolate with dark chocolate", "description": "A rich hot chocolate for two.",
+        "ingredients": [{"quantity": "65", "unit": "g", "name": "dark chocolate", "notes": "", "section": ""}],
+        "steps": [{
+            "text": "Add the chocolate into the warm milk, then stir until melted, for about 5 minutes.",
+            "section": "",
+        }],
+        "tags": ["easy"],
+    })
+    calls = _patch_translate(monkeypatch, {
+        "title": "Chocolat chaud", "description": "Un chocolat chaud riche.",
+        "ingredients": [{"quantity": "65", "unit": "g", "name": "chocolat noir", "notes": "", "section": ""}],
+        "steps": [{"text": "Faites fondre le chocolat dans le lait chaud.", "section": ""}],
+        "tags": ["facile"],
+    })
+    data = asyncio.run(extractor.extract("transcription anglaise confuse…", target_lang="fr"))
+    assert len(calls) == 1
+    assert calls[0]["source_lang"] == "en" and calls[0]["target_lang"] == "fr"
+    assert data["title"] == "Chocolat chaud"
+    assert data["ingredients"][0]["name"] == "chocolat noir"
+
+
+def test_extract_does_not_retranslate_output_already_in_the_right_language(monkeypatch):
+    extractor, _ = _patch_extractor(monkeypatch, {
+        "title": "Chocolat chaud", "description": "Un chocolat chaud riche.",
+        "ingredients": [{"quantity": "65", "unit": "g", "name": "chocolat noir", "notes": "", "section": ""}],
+        "steps": [{"text": "Faites fondre le chocolat dans le lait chaud.", "section": ""}],
+        "tags": ["facile"],
+    })
+    calls = _patch_translate(monkeypatch, {"title": "ne devrait jamais être appelé"})
+    data = asyncio.run(extractor.extract("légende en français…", target_lang="fr"))
+    assert calls == []
+    assert data["title"] == "Chocolat chaud"
