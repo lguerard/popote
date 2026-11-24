@@ -9,12 +9,25 @@ import uuid
 
 import pytest
 
-from app.api.recipes import _fold_text, list_recipes
 from app.models.recipe import ExtractionStatus, Recipe
 from app.models.user import User
 from test_assistant import PG_URL, run
 
 pytestmark = pytest.mark.skipif(not PG_URL, reason="POPOTE_TEST_DATABASE_URL non défini")
+
+# app.api.recipes importe fastapi, absent de l'environnement de test léger
+# (voir ci.yml) : import différé, comme app.api.assistant dans test_assistant.py,
+# pour que la collection du module ne casse jamais la suite légère.
+def _list_recipes():
+    pytest.importorskip("fastapi")
+    from app.api.recipes import list_recipes
+    return list_recipes
+
+
+def _fold_text_fn():
+    pytest.importorskip("fastapi")
+    from app.api.recipes import _fold_text
+    return _fold_text
 
 
 async def _seed(db) -> dict[str, uuid.UUID]:
@@ -45,7 +58,7 @@ async def _titles(db, **params) -> list[str]:
     )
     async with db.sessions() as session:
         user = await session.get(User, db.alice)
-        out = await list_recipes(**{**defaults, **params}, db=session, user=user)
+        out = await _list_recipes()(**{**defaults, **params}, db=session, user=user)
     return [r.title for r in out]
 
 
@@ -91,4 +104,4 @@ def test_no_match_is_an_empty_list():
 
 
 def test_fold_text():
-    assert _fold_text("Végétarien Œuf ÇA") == "Vegetarien OEuf CA"
+    assert _fold_text_fn()("Végétarien Œuf ÇA") == "Vegetarien OEuf CA"
