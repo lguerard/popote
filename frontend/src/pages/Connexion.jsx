@@ -4,7 +4,7 @@ import { finishPasskeyLogin, login, register, startPasskeyLogin } from '../api'
 import { useAuth } from '../auth'
 
 export default function Connexion() {
-  const { memoriser } = useAuth()
+  const { memoriser, t, lang, choisirLangueInvite } = useAuth()
   const [inscription, setInscription] = useState(false)
   const [nom, setNom] = useState('')
   const [email, setEmail] = useState('')
@@ -23,7 +23,7 @@ export default function Connexion() {
         // Une inscription ne renvoie pas de jeton : la demande attend la
         // validation d'un administrateur. On repasse donc en mode
         // connexion avec le message du serveur.
-        const { message } = await register({ email, password: motDePasse, display_name: nom })
+        const { message } = await register({ email, password: motDePasse, display_name: nom, language: lang })
         setMessage(message)
         setInscription(false)
         setMotDePasse('')
@@ -33,7 +33,7 @@ export default function Connexion() {
     } catch (err) {
       // Le backend renvoie un message utilisable ; on ne garde le
       // générique que s'il n'a rien dit (réseau coupé, 500 nu).
-      setErreur(err?.response?.data?.detail || 'Connexion impossible, réessaie.')
+      setErreur(err?.response?.data?.detail || t('connexion.failed'))
     } finally {
       setEnvoi(false)
     }
@@ -54,13 +54,13 @@ export default function Connexion() {
         // NotAllowedError : fenêtre fermée, délai dépassé ou aucune passkey
         // choisie -- le navigateur ne dit pas lequel.
         setErreur(err?.name === 'NotAllowedError'
-          ? 'Connexion par passkey annulée.'
-          : "Passkey indisponible sur ce navigateur ou cette adresse (HTTPS requis).")
+          ? t('connexion.passkeyCancelled')
+          : t('connexion.passkeyUnsupported'))
         return
       }
       memoriser(await finishPasskeyLogin({ challenge_id, credential }))
     } catch (err) {
-      setErreur(err?.response?.data?.detail || 'Connexion impossible, réessaie.')
+      setErreur(err?.response?.data?.detail || t('connexion.failed'))
     } finally {
       setEnvoi(false)
     }
@@ -68,11 +68,23 @@ export default function Connexion() {
 
   return (
     <div className="max-w-sm mx-auto mt-16">
+      <div className="flex justify-end mb-2">
+        <button
+          type="button"
+          onClick={() => choisirLangueInvite(lang === 'en' ? 'fr' : 'en')}
+          title={t('connexion.switchLanguage')}
+          aria-label={t('connexion.switchLanguage')}
+          className="flex items-center gap-1 px-2 py-1 rounded-lg text-sm text-gray-500 hover:text-orange-700 hover:bg-orange-50"
+        >
+          <span>🌐</span>
+          <span>{lang === 'en' ? 'FR' : 'EN'}</span>
+        </button>
+      </div>
       <div className="text-center mb-8">
         <div className="text-5xl mb-2">🍲</div>
         <h1 className="text-2xl font-bold text-gray-800">Popote</h1>
         <p className="text-sm text-gray-500 mt-1">
-          {inscription ? 'Demander un compte' : 'Connexion à ta cuisine'}
+          {inscription ? t('connexion.requestAccount') : t('connexion.subtitleLogin')}
         </p>
       </div>
 
@@ -80,23 +92,23 @@ export default function Connexion() {
         {inscription && (
           <input
             value={nom} onChange={e => setNom(e.target.value)}
-            placeholder="Ton prénom" required maxLength={100}
+            placeholder={t('connexion.namePlaceholder')} required maxLength={100}
             className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-300"
           />
         )}
         <input
           type="email" value={email} onChange={e => setEmail(e.target.value)}
-          placeholder="Adresse e-mail" required autoComplete="username"
+          placeholder={t('connexion.emailPlaceholder')} required autoComplete="username"
           className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-300"
         />
         <input
           type="password" value={motDePasse} onChange={e => setMotDePasse(e.target.value)}
-          placeholder="Mot de passe" required minLength={8}
+          placeholder={t('connexion.passwordPlaceholder')} required minLength={8}
           autoComplete={inscription ? 'new-password' : 'current-password'}
           className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-300"
         />
         {inscription && (
-          <p className="text-xs text-gray-400">8 caractères minimum.</p>
+          <p className="text-xs text-gray-400">{t('connexion.passwordHint')}</p>
         )}
 
         {message && (
@@ -110,7 +122,7 @@ export default function Connexion() {
           type="submit" disabled={envoi}
           className="w-full py-2 rounded-lg bg-orange-600 text-white font-medium hover:bg-orange-700 disabled:opacity-50"
         >
-          {envoi ? 'Un instant…' : inscription ? 'Demander un compte' : 'Se connecter'}
+          {envoi ? t('connexion.wait') : inscription ? t('connexion.requestAccount') : t('connexion.login')}
         </button>
       </form>
 
@@ -119,7 +131,7 @@ export default function Connexion() {
           type="button" onClick={connexionPasskey} disabled={envoi}
           className="mt-3 w-full py-2 rounded-lg border border-orange-200 bg-white text-orange-700 font-medium hover:bg-orange-50 disabled:opacity-50"
         >
-          🔐 Se connecter avec une clé de sécurité / un passkey
+          {t('connexion.passkeyLogin')}
         </button>
       )}
 
@@ -127,7 +139,7 @@ export default function Connexion() {
         onClick={() => { setInscription(!inscription); setErreur(null); setMessage(null) }}
         className="mt-4 w-full text-sm text-orange-600 hover:underline"
       >
-        {inscription ? "J'ai déjà un compte" : 'Demander un compte'}
+        {inscription ? t('connexion.haveAccount') : t('connexion.requestAccount')}
       </button>
     </div>
   )
