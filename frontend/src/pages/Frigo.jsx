@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { useMutation } from '@tanstack/react-query'
 import { whatToCook } from '../api'
 import { useAuth } from '../auth'
+import { contenuAffiche } from '../contenuRecette'
 
 const CLE = 'popote.frigo'
 
@@ -84,7 +85,7 @@ export default function Frigo() {
                   : <span className="w-20 h-20 rounded-xl bg-orange-50 flex items-center justify-center text-3xl flex-shrink-0">🍽️</span>}
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center justify-between gap-2">
-                    <p className="font-semibold text-gray-900 truncate">{recipe.title}</p>
+                    <p className="font-semibold text-gray-900 truncate">{contenuAffiche(recipe).title}</p>
                     <span className={`text-xs font-semibold px-2 py-0.5 rounded-full flex-shrink-0 ${
                       missing.length === 0 ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'
                     }`}>

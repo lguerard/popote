@@ -70,6 +70,7 @@ async def chat(data: ChatIn, user: User = Depends(current_user)):
             async for event in assistant.run_chat(
                 user.id, messages, session_factory=AsyncSessionLocal,
                 recipe_id=context.recipe_id, page=context.page,
+                language=getattr(user, "language", None) or "fr",
             ):
                 yield json.dumps(event, ensure_ascii=False) + "\n"
         finally:

@@ -65,6 +65,13 @@ function AchievementCard({ achievement: a }) {
   const { t } = useAuth()
   const done = !!a.unlocked_at
   const progress = Math.min(a.progress / a.goal, 1)
+  // Textes fixes du serveur, repris par id dans i18n.js ; un succès que le
+  // dictionnaire ne connaît pas garde le texte envoyé par le serveur.
+  const texte = (champ) => {
+    const cle = `succes.items.${a.id}.${champ}`
+    const valeur = t(cle)
+    return valeur === cle ? a[champ] : valeur
+  }
 
   return (
     <div className={`rounded-xl border p-4 flex gap-4 items-start transition-all ${
@@ -73,14 +80,14 @@ function AchievementCard({ achievement: a }) {
       <span className={`text-3xl ${done ? '' : 'grayscale'}`}>{a.icon}</span>
       <div className="flex-1 min-w-0">
         <div className="flex items-center justify-between gap-2">
-          <p className="font-bold text-sm truncate">{a.name}</p>
+          <p className="font-bold text-sm truncate">{texte('name')}</p>
           {done && (
             <span className="text-xs text-orange-600 font-medium whitespace-nowrap">
               {new Date(a.unlocked_at).toLocaleDateString(t('common.locale'))}
             </span>
           )}
         </div>
-        <p className="text-xs text-gray-500 mb-2">{a.description}</p>
+        <p className="text-xs text-gray-500 mb-2">{texte('description')}</p>
         {a.goal > 1 && (
           <div className="flex items-center gap-2">
             <div className="flex-1 bg-gray-200 rounded-full h-1.5">

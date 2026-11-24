@@ -14,7 +14,7 @@ from ..schemas.recipe import (
     CookedIn, CookLogOut, NutritionOut, PantryMatch, PantryRequest, RecipeCreate,
     RecipeOut, RecipeUpdate,
 )
-from ..services import achievement_service, grocery, image_service, sharing
+from ..services import achievement_service, grocery, image_service, sharing, translation_service
 from ..services.extraction_steps import error_text
 
 router = APIRouter(prefix="/recipes", tags=["recipes"])
@@ -54,6 +54,36 @@ async def _owned_recipe(db: AsyncSession, recipe_id: UUID, user: User) -> Recipe
     if not recipe or recipe.owner_id != user.id:
         raise HTTPException(404, "Recette introuvable")
     return recipe
+
+
+def recipe_out(
+    recipe: Recipe, user: User, translation: dict | None = None, pending: bool | None = None,
+) -> RecipeOut:
+    """RecipeOut avec la traduction d'affichage de la langue du compte.
+
+    Sans `translation`, seule une traduction deja en cache et a jour est
+    servie : aucun appel au modele (listes, reponses aux modifications).
+    Le favori, la note ou l'avis ne changent pas le contenu, la traduction
+    reste donc affichee apres eux sans etre refaite.
+
+    Parameters
+    ----------
+    recipe : Recipe
+        Recette en base (jamais modifiee ici).
+    user : User
+        Compte qui lit : sa langue decide de la traduction.
+    translation : dict, optional
+        Traduction deja obtenue (GET d'une fiche).
+    pending : bool, optional
+        Traduction en cours ; par defaut, d'apres les taches en cours.
+    """
+    out = RecipeOut.model_validate(recipe)
+    lang = getattr(user, "language", None)
+    if translation is None:
+        translation = translation_service.cached_translation(recipe, lang)
+    if pending is None:
+        pending = translation is None and translation_service.is_pending(recipe.id, lang)
+    return out.model_copy(update={"translation": translation, "translation_pending": pending})
 
 
 def _apply_update(recipe: Recipe, data: RecipeUpdate) -> None:
@@ -132,8 +162,13 @@ async def list_recipes(
         total_time = func.coalesce(Recipe.prep_time, 0) + func.coalesce(Recipe.cook_time, 0)
         q = q.where(total_time <= max_time)
     q = q.offset((page - 1) * limit).limit(limit)
-    result = await db.execute(q)
-    return result.scalars().all()
+    recipes = (await db.execute(q)).scalars().all()
+    # Jamais d'appel au modele en attendant : une liste de 50 recettes ferait
+    # 50 traductions. Les traductions deja en cache sont servies, et
+    # quelques recettes de la page sont traduites en arriere-plan (bornees,
+    # voir schedule_background) pour les prochains chargements.
+    translation_service.schedule_background(recipes, user.language)
+    return [recipe_out(r, user) for r in recipes]
 
 
 @router.post("/what-to-cook", response_model=list[PantryMatch])
@@ -157,7 +192,7 @@ async def what_to_cook(
         ranked = [r for r in ranked if len(r["missing"]) <= req.max_missing]
     return [
         PantryMatch(
-            recipe=RecipeOut.model_validate(by_id[r["recipe"]["id"]]),
+            recipe=recipe_out(by_id[r["recipe"]["id"]], user),
             matched=r["matched"], missing=r["missing"], coverage=r["coverage"],
         )
         for r in ranked[:60]
@@ -176,7 +211,7 @@ async def create_recipe(
     await db.refresh(recipe)
     await achievement_service.on_recipe_added(db, recipe.source_type or "manual")
     await sharing.auto_share(db, recipe)
-    return recipe
+    return recipe_out(recipe, user)
 
 
 @router.get("/{recipe_id}", response_model=RecipeOut)
@@ -186,7 +221,10 @@ async def get_recipe(
     user: User = Depends(current_user),
 ):
     recipe = await _owned_recipe(db, recipe_id, user)
-    return recipe
+    # Traduction d'affichage dans `translation`, a cote de l'original
+    # inchange : cette meme reponse alimente le formulaire d'edition.
+    translation, pending = await translation_service.translation_for_display(recipe, user.language)
+    return recipe_out(recipe, user, translation, pending)
 
 
 @router.put("/{recipe_id}", response_model=RecipeOut)
@@ -203,7 +241,7 @@ async def update_recipe(
     await db.refresh(recipe)
     if recipe.notes and recipe.notes != old_notes:
         await achievement_service.on_notes_saved(db)
-    return recipe
+    return recipe_out(recipe, user)
 
 
 @router.patch("/{recipe_id}", response_model=RecipeOut)
@@ -220,7 +258,7 @@ async def patch_recipe(
     await db.refresh(recipe)
     if recipe.notes and recipe.notes != old_notes:
         await achievement_service.on_notes_saved(db)
-    return recipe
+    return recipe_out(recipe, user)
 
 
 @router.delete("/{recipe_id}", status_code=204)
@@ -246,7 +284,7 @@ async def toggle_favorite(
     await db.refresh(recipe)
     if recipe.is_favorite:
         await achievement_service.on_favorite_toggled(db)
-    return recipe
+    return recipe_out(recipe, user)
 
 
 @router.post("/{recipe_id}/thumbnail", response_model=RecipeOut)
@@ -268,7 +306,7 @@ async def upload_thumbnail(
     recipe.thumbnail_url = image_service.save_thumbnail_bytes(recipe.id, data, ext)
     await db.commit()
     await db.refresh(recipe)
-    return recipe
+    return recipe_out(recipe, user)
 
 
 @router.post("/{recipe_id}/thumbnail/generate", response_model=RecipeOut, status_code=202)
@@ -293,7 +331,7 @@ async def generate_thumbnail(
     await db.commit()
     await db.refresh(recipe)
     background_tasks.add_task(_run_thumbnail_generation, recipe.id)
-    return recipe
+    return recipe_out(recipe, user)
 
 
 async def _run_thumbnail_generation(recipe_id: UUID):
@@ -399,7 +437,7 @@ async def mark_cooked(
         recipe.rating = data.rating
     await db.commit()
     await db.refresh(recipe)
-    return recipe
+    return recipe_out(recipe, user)
 
 
 @router.get("/{recipe_id}/history", response_model=list[CookLogOut])
@@ -431,7 +469,7 @@ async def delete_cook_log(
     await _refresh_cook_stats(db, recipe)
     await db.commit()
     await db.refresh(recipe)
-    return recipe
+    return recipe_out(recipe, user)
 
 
 # ---------------------------------------------------------------------------
@@ -449,7 +487,7 @@ async def share_recipe(
         recipe.share_token = secrets.token_urlsafe(16)
         await db.commit()
         await db.refresh(recipe)
-    return recipe
+    return recipe_out(recipe, user)
 
 
 @router.delete("/{recipe_id}/share", response_model=RecipeOut)
@@ -463,7 +501,7 @@ async def unshare_recipe(
     recipe.share_token = None
     await db.commit()
     await db.refresh(recipe)
-    return recipe
+    return recipe_out(recipe, user)
 
 
 # ---------------------------------------------------------------------------
@@ -499,14 +537,14 @@ async def reextract_recipe(
     if not recipe.source_url:
         raise HTTPException(400, "Cette recette n'a pas de source à réextraire")
     if recipe.reextracting:
-        return recipe
+        return recipe_out(recipe, user)
     recipe.reextracting = True
     recipe.error_msg = None
     recipe.progress_message = "En attente…"
     await db.commit()
     await db.refresh(recipe)
     background_tasks.add_task(_run_reextraction, recipe.id, replace_image)
-    return recipe
+    return recipe_out(recipe, user)
 
 
 async def _run_reextraction(recipe_id: UUID, replace_image: bool = False):

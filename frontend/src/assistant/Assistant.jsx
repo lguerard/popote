@@ -119,6 +119,7 @@ function AssistantPanel() {
     try {
       await streamChat({
         token,
+        t,
         signal: controller.signal,
         messages: history.map(({ role, content }) => ({ role, content })),
         context: { recipe_id: recipe?.id || null, page: pathname },

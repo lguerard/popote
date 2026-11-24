@@ -2,7 +2,9 @@ import { useState, useEffect, useRef } from 'react'
 import { useAuth } from '../auth'
 
 export function parseStepTime(text) {
-  const RE = /(\d+)\s*(heure?s?|h\b|min(?:ute)?s?|sec(?:onde)?s?)/gi
+  // Unités françaises et anglaises : les étapes peuvent être affichées
+  // traduites (comptes en anglais, voir contenuRecette.js).
+  const RE = /(\d+)\s*(heure?s?|hours?|hrs?\b|h\b|min(?:ute)?s?|sec(?:onde)?s?)/gi
   let match; let totalSec = 0; let found = false
   while ((match = RE.exec(text)) !== null) {
     found = true

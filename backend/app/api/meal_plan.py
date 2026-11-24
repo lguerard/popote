@@ -48,8 +48,36 @@ async def list_meal_plans(
         q = q.where(MealPlan.date >= date_from)
     if date_to:
         q = q.where(MealPlan.date <= date_to)
-    result = await db.execute(q)
-    return result.scalars().all()
+    plans = (await db.execute(q)).scalars().all()
+    return await _display_titles(db, plans, user)
+
+
+async def _display_titles(db: AsyncSession, plans: list[MealPlan], user: User) -> list:
+    """Titre affiche dans la langue du compte (traduction deja en cache).
+
+    recipe_title est une copie prise a l'ajout au planning, en francais :
+    seule la reponse est traduite, jamais la ligne en base.
+    """
+    from ..models.recipe import Recipe
+    from ..services import translation_service
+
+    lang = getattr(user, "language", None)
+    if lang not in translation_service.SUPPORTED_LANGUAGES or not plans:
+        return plans
+    ids = {p.recipe_id for p in plans}
+    recipes = (await db.execute(
+        select(Recipe).where(Recipe.id.in_(ids), Recipe.owner_id == user.id)
+    )).scalars().all()
+    titles = {}
+    for recipe in recipes:
+        translation = translation_service.cached_translation(recipe, lang)
+        if translation and translation.get("title"):
+            titles[recipe.id] = translation["title"]
+    return [
+        MealPlanOut.model_validate(p).model_copy(update={"recipe_title": titles[p.recipe_id]})
+        if p.recipe_id in titles else p
+        for p in plans
+    ]
 
 
 @router.post("", response_model=MealPlanOut, status_code=201)

@@ -3,6 +3,8 @@ import { useQuery } from '@tanstack/react-query'
 import { getMealPlans, getRecipe, getShoppingItems } from '../api'
 import { useAssistant } from '../assistant/Assistant'
 import { useAuth } from '../auth'
+import { libelleCategorie } from '../i18n'
+import { contenuAffiche, DELAI_RELECTURE_TRADUCTION } from '../contenuRecette'
 
 // Dates locales au format AAAA-MM-JJ (celles du planning).
 const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
@@ -13,7 +15,7 @@ const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0
  */
 export default function Tableau() {
   const { ouvrir, setDraft } = useAssistant()
-  const { t } = useAuth()
+  const { t, lang } = useAuth()
   const weekday = (d) => d.toLocaleDateString(t('common.locale'), { weekday: 'long' })
   const today = new Date()
   const days = Array.from({ length: 7 }, (_, i) => {
@@ -34,11 +36,14 @@ export default function Tableau() {
   const todays = plans.filter(p => p.date === from)
   const order = today.getHours() < 14 ? ['déjeuner', 'dîner'] : ['dîner']
   const plan = order.map(m => todays.find(p => p.meal_type === m)).find(Boolean)
-  const { data: recipe } = useQuery({
+  const { data: brute } = useQuery({
     queryKey: ['recipe', plan?.recipe_id],
     queryFn: () => getRecipe(plan.recipe_id),
     enabled: !!plan,
+    refetchInterval: (query) => (query.state.data?.translation_pending ? DELAI_RELECTURE_TRADUCTION : false),
   })
+  // Affichage seulement : dans la langue du compte quand elle est traduite.
+  const recipe = brute && contenuAffiche(brute)
 
   const items = shopping?.items || []
   const left = items.filter(i => !i.checked).length
@@ -73,7 +78,7 @@ export default function Tableau() {
                 {recipe?.title || plan.recipe_title}
               </h2>
               <p className="mt-2 text-orange-100/90">
-                {[total > 0 && `${total} min`, recipe?.servings && t('tableau.servings', { n: recipe.servings }), recipe?.category]
+                {[total > 0 && `${total} min`, recipe?.servings && t('tableau.servings', { n: recipe.servings }), recipe?.category && libelleCategorie(lang, recipe.category)]
                   .filter(Boolean).join(' · ')}
               </p>
             </div>

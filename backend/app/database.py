@@ -65,6 +65,9 @@ _MIGRATIONS = (
     # c'etait la seule langue disponible quand ils ont ete crees.
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS language VARCHAR(5)"
     " NOT NULL DEFAULT 'fr'",
+    # Traductions du contenu des recettes, mises en cache pour les comptes
+    # en anglais (services/translation_service.py).
+    "ALTER TABLE recipes ADD COLUMN IF NOT EXISTS translations JSONB",
     # Un serveur sans aucun administrateur ne peut plus valider personne :
     # le compte le plus ancien le devient. Sans effet des qu'il en existe un.
     "UPDATE users SET is_admin = true WHERE id = ("

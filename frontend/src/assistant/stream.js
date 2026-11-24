@@ -3,13 +3,15 @@
 // fetch() + ReadableStream plutôt qu'EventSource : il faut un POST avec
 // l'en-tête Authorization, ce qu'EventSource ne sait pas faire.
 
+// Messages d'erreur côté client, dans la langue du compte (t de useAuth ;
+// textes français d'origine si l'appelant n'en donne pas).
 const MESSAGES = {
   401: 'Session expirée : reconnecte-toi.',
   409: 'Une réponse est déjà en cours : attends-la ou arrête-la.',
   413: 'Message trop long : raccourcis ta question.',
 }
 
-export async function streamChat({ token, messages, context, signal, onEvent }) {
+export async function streamChat({ token, messages, context, signal, onEvent, t }) {
   let res
   try {
     res = await fetch('/api/assistant/chat', {
@@ -20,12 +22,14 @@ export async function streamChat({ token, messages, context, signal, onEvent }) 
     })
   } catch (e) {
     if (e?.name === 'AbortError') throw e
-    throw new Error('Serveur injoignable : vérifie ta connexion.')
+    throw new Error(t ? t('assistant.erreur.injoignable') : 'Serveur injoignable : vérifie ta connexion.')
   }
   if (!res.ok) {
     let detail = null
     try { detail = (await res.json()).detail } catch { /* corps vide */ }
-    throw new Error(typeof detail === 'string' ? detail : (MESSAGES[res.status] || `Erreur ${res.status}`))
+    const connu = MESSAGES[res.status] && (t ? t(`assistant.erreur.${res.status}`) : MESSAGES[res.status])
+    const repli = connu || (t ? t('assistant.erreur.statut', { status: res.status }) : `Erreur ${res.status}`)
+    throw new Error(typeof detail === 'string' ? detail : repli)
   }
 
   const emit = (line) => {

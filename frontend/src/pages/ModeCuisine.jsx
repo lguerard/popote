@@ -6,6 +6,7 @@ import { parseStepTime, formatTime } from '../components/Timer'
 import { sectionStart, SectionTitle } from '../components/Sections'
 import Etoiles from '../components/Etoiles'
 import { useAuth } from '../auth'
+import { contenuAffiche, DELAI_RELECTURE_TRADUCTION } from '../contenuRecette'
 
 const SpeechRecognition = typeof window !== 'undefined'
   && (window.SpeechRecognition || window.webkitSpeechRecognition)
@@ -138,7 +139,13 @@ export default function ModeCuisine() {
   const ecranAllume = useWakeLock()
   const { timers, ajouter, basculer, retirer, restant } = useMinuteurs()
 
-  const { data: recipe, isError } = useQuery({ queryKey: ['recipe', id], queryFn: () => getRecipe(id) })
+  const { data: brute, isError } = useQuery({
+    queryKey: ['recipe', id], queryFn: () => getRecipe(id),
+    refetchInterval: (query) => (query.state.data?.translation_pending ? DELAI_RELECTURE_TRADUCTION : false),
+  })
+  // Affichage et lecture à voix haute dans la langue du compte ; rien n'est
+  // renvoyé au serveur depuis cette page à part « cuisinée ».
+  const recipe = contenuAffiche(brute)
   const steps = recipe?.steps || []
   const step = steps[stepIdx]
   const timerSec = step ? parseStepTime(step.text) : null

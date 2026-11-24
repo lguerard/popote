@@ -7,6 +7,8 @@ import {
 } from '../api'
 import LienPartage from '../components/LienPartage'
 import { useAuth } from '../auth'
+import { libelleCategorie } from '../i18n'
+import { contenuAffiche } from '../contenuRecette'
 
 const AISLE_EMOJI = {
   'Fruits et légumes': '🥕',
@@ -184,7 +186,7 @@ export default function ListeCourses() {
 }
 
 function ChoixRecettes({ hasItems, onDone, onCancel }) {
-  const { t } = useAuth()
+  const { t, lang } = useAuth()
   const [selectedIds, setSelectedIds] = useState([])
   const [remplacer, setRemplacer] = useState(false)
   const { data: recipes = [] } = useQuery({ queryKey: ['recipes', { limit: 1000 }], queryFn: () => getRecipes({ limit: 1000 }) })
@@ -220,8 +222,8 @@ function ChoixRecettes({ hasItems, onDone, onCancel }) {
               <input type="checkbox" checked={selectedIds.includes(r.id)} onChange={() => toggle(r.id)} className="accent-orange-600 w-4 h-4" />
               {r.thumbnail_url && <img src={r.thumbnail_url} alt="" className="w-10 h-10 rounded-lg object-cover flex-shrink-0" />}
               <div className="flex-1 min-w-0">
-                <p className="font-medium truncate">{r.title}</p>
-                <p className="text-xs text-gray-400">{r.servings ? t('courses.persons', { n: r.servings }) : ''} {r.category || ''}</p>
+                <p className="font-medium truncate">{contenuAffiche(r).title}</p>
+                <p className="text-xs text-gray-400">{r.servings ? t('courses.persons', { n: r.servings }) : ''} {libelleCategorie(lang, r.category) || ''}</p>
               </div>
             </label>
           ))}

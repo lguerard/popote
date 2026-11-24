@@ -521,6 +521,14 @@ def looks_french(text: str) -> bool:
     return fr >= 4 and fr > en * 1.5
 
 
+def looks_english(text: str) -> bool:
+    """Pendant de looks_french : texte nettement anglais (même seuils)."""
+    words = re.findall(r"[a-zà-ÿœ']+", text.lower())
+    fr = sum(w in _FR_WORDS for w in words)
+    en = sum(w in _EN_WORDS for w in words)
+    return en >= 4 and en > fr * 1.5
+
+
 # ---------------------------------------------------------------------------
 # schema.org/Recipe (JSON-LD)
 # ---------------------------------------------------------------------------

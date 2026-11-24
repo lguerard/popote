@@ -5,6 +5,7 @@ import { getRecipes } from '../api'
 import CarteRecette from '../components/CarteRecette'
 import Tableau from '../components/Tableau'
 import { useAuth } from '../auth'
+import { contenuAffiche } from '../contenuRecette'
 
 const CATEGORIES = [
   { value: 'favoris', label: 'accueil.cat.favorites', emoji: '❤️' },
@@ -224,7 +225,7 @@ export default function Accueil() {
                 <div className="aspect-video bg-orange-50 flex items-center justify-center text-3xl overflow-hidden">
                   {r.thumbnail_url ? <img src={r.thumbnail_url} alt="" className="w-full h-full object-cover" /> : '🍽️'}
                 </div>
-                <p className="p-2 text-sm font-medium text-gray-800 line-clamp-2 group-hover:text-orange-600">{r.title}</p>
+                <p className="p-2 text-sm font-medium text-gray-800 line-clamp-2 group-hover:text-orange-600">{contenuAffiche(r).title}</p>
               </Link>
             ))}
           </div>

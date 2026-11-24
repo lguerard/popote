@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { getMealPlans, createMealPlan, deleteMealPlan, getRecipes, generateShoppingItems, getShoppingItems } from '../api'
 import { useAuth } from '../auth'
+import { libelleCategorie } from '../i18n'
+import { contenuAffiche } from '../contenuRecette'
 
 const MEAL_TYPES = [
   { value: 'petit-déjeuner', label: 'planning.meal.breakfast', emoji: '☕' },
@@ -30,7 +32,7 @@ function fmt(date) {
 }
 
 export default function Planning() {
-  const { t } = useAuth()
+  const { t, lang } = useAuth()
   const [weekOffset, setWeekOffset] = useState(0)
   const [picker, setPicker] = useState(null) // {date, meal_type}
   const [search, setSearch] = useState('')
@@ -179,8 +181,8 @@ export default function Planning() {
                       : <span className="w-10 h-10 rounded-lg bg-orange-100 flex items-center justify-center text-xl">🍽️</span>
                     }
                     <div className="min-w-0">
-                      <p className="text-sm font-medium truncate">{r.title}</p>
-                      <p className="text-xs text-gray-400">{r.category || ''}</p>
+                      <p className="text-sm font-medium truncate">{contenuAffiche(r).title}</p>
+                      <p className="text-xs text-gray-400">{libelleCategorie(lang, r.category) || ''}</p>
                     </div>
                   </button>
                 ))}

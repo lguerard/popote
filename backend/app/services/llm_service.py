@@ -602,11 +602,20 @@ def claude_text(message) -> str:
     )
 
 
-async def ask_claude(content: str | list, *, system: str | None = None, fast: bool = False) -> str:
+async def ask_claude(
+    content: str | list, *, system: str | None = None, fast: bool = False,
+    max_tokens: int | None = None,
+) -> str:
+    """``max_tokens`` remplace le plafond par défaut : une traduction de
+    recette passe par le modèle rapide mais doit pouvoir être aussi longue
+    que la recette elle-même."""
     import anthropic
 
     client = anthropic.AsyncAnthropic(api_key=settings.claude_api_key)
-    message = await client.messages.create(**claude_request(content, system=system, fast=fast))
+    params = claude_request(content, system=system, fast=fast)
+    if max_tokens:
+        params["max_tokens"] = max_tokens
+    message = await client.messages.create(**params)
     return claude_text(message)
 
 
