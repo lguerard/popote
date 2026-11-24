@@ -106,6 +106,54 @@ def _apply_update(recipe: Recipe, data: RecipeUpdate) -> None:
         setattr(recipe, field, value)
 
 
+# Recherche insensible aux accents sans l'extension `unaccent` (a creer en
+# superutilisateur sur certaines installations, et pas IMMUTABLE) :
+# translate() est natif. Chaque lettre accentuee a sa lettre de base au
+# meme rang ; œ/æ, qui deviennent deux lettres, passent par replace().
+_ACCENTED = "àáâãäåçèéêëìíîïñòóôõöùúûüýÿÀÁÂÃÄÅÇÈÉÊËÌÍÎÏÑÒÓÔÕÖÙÚÛÜÝŸ"
+_UNACCENTED = "aaaaaaceeeeiiiinooooouuuuyyAAAAAACEEEEIIIINOOOOOUUUUYY"
+_LIGATURES = (("œ", "oe"), ("Œ", "OE"), ("æ", "ae"), ("Æ", "AE"))
+_FOLD_TABLE = str.maketrans(_ACCENTED, _UNACCENTED)
+
+
+def _fold_text(text: str) -> str:
+    """Le texte cherche, plie comme `_fold_sql` plie les colonnes."""
+    for ligature, letters in _LIGATURES:
+        text = text.replace(ligature, letters)
+    return text.translate(_FOLD_TABLE)
+
+
+def _fold_sql(expr):
+    """Expression SQL sans accents ni ligatures (la casse reste : ILIKE s'en charge)."""
+    for ligature, letters in _LIGATURES:
+        expr = func.replace(expr, ligature, letters)
+    return func.translate(expr, _ACCENTED, _UNACCENTED)
+
+
+def _search_clause(search: str):
+    """Recherche libre : titre, description ou l'un des tags, a la casse et
+    aux accents pres (« veget » trouve le tag « végétarien »).
+
+    Les tags sont un tableau JSONB : un EXISTS correle deplie le tableau de
+    la recette (jsonb_array_elements_text) et teste chaque tag a part. Un
+    ILIKE sur le JSON en texte (tags::text) trouverait aussi des morceaux
+    de syntaxe (guillemets, virgules) a cheval sur deux tags.
+    """
+    pattern = f"%{_fold_text(search)}%"
+    # FROM jsonb_array_elements_text(recipes.tags) AS tag(value), correle a recipes
+    tag = (
+        func.jsonb_array_elements_text(Recipe.tags)
+        .table_valued("value")
+        .render_derived(name="tag")
+    )
+    tag_matches = select(1).select_from(tag).where(_fold_sql(tag.c.value).ilike(pattern)).exists()
+    return or_(
+        _fold_sql(Recipe.title).ilike(pattern),
+        _fold_sql(Recipe.description).ilike(pattern),
+        tag_matches,
+    )
+
+
 @router.get("", response_model=list[RecipeOut])
 async def list_recipes(
     search: str | None = Query(None),
@@ -138,8 +186,7 @@ async def list_recipes(
         .order_by(*order)
     )
     if search:
-        pattern = f"%{search}%"
-        q = q.where(or_(Recipe.title.ilike(pattern), Recipe.description.ilike(pattern)))
+        q = q.where(_search_clause(search))
     if favorites_only:
         q = q.where(Recipe.is_favorite.is_(True))
     if never_cooked:
