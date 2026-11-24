@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { useAuth } from '../auth'
 
 export function parseStepTime(text) {
   const RE = /(\d+)\s*(heure?s?|h\b|min(?:ute)?s?|sec(?:onde)?s?)/gi
@@ -24,6 +25,7 @@ export function formatTime(sec) {
 }
 
 export default function StepTimer({ seconds, label }) {
+  const { t } = useAuth()
   const [remaining, setRemaining] = useState(seconds)
   const [running, setRunning] = useState(false)
   const [done, setDone] = useState(false)
@@ -57,7 +59,7 @@ export default function StepTimer({ seconds, label }) {
       {done ? (
         <>
           <span>✓</span>
-          <span>Terminé !</span>
+          <span>{t('timer.done')}</span>
           <button onClick={reset} className="text-xs underline opacity-70 hover:opacity-100">↺</button>
         </>
       ) : (
@@ -68,7 +70,7 @@ export default function StepTimer({ seconds, label }) {
             onClick={() => setRunning(r => !r)}
             className="text-xs underline opacity-70 hover:opacity-100"
           >
-            {running ? 'Pause' : remaining === seconds ? 'Démarrer' : 'Reprendre'}
+            {running ? t('timer.pause') : remaining === seconds ? t('timer.start') : t('timer.resume')}
           </button>
           {remaining < seconds && <button onClick={reset} className="text-xs underline opacity-70 hover:opacity-100">↺</button>}
         </>

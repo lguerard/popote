@@ -1,15 +1,17 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { getTaskStatus } from '../api'
+import { useAuth } from '../auth'
 
 const MESSAGES = {
-  pending: 'En attente…',
-  processing: 'Extraction en cours…',
-  done: 'Recette extraite !',
-  failed: 'Échec de l\'extraction',
+  pending: 'statut.pending',
+  processing: 'statut.processing',
+  done: 'statut.done',
+  failed: 'statut.failed',
 }
 
 export default function StatutExtraction({ recipeId, onError }) {
+  const { t } = useAuth()
   const [status, setStatus] = useState('pending')
   const [progressMessage, setProgressMessage] = useState(null)
   const [errorMsg, setErrorMsg] = useState(null)
@@ -27,7 +29,7 @@ export default function StatutExtraction({ recipeId, onError }) {
           navigate(`/recettes/${recipeId}`)
         } else if (data.status === 'failed') {
           clearInterval(interval)
-          setErrorMsg(data.error_msg || 'Erreur inconnue')
+          setErrorMsg(data.error_msg || t('statut.unknownError'))
           onError?.(data.error_msg)
         }
       } catch (e) {
@@ -45,7 +47,7 @@ export default function StatutExtraction({ recipeId, onError }) {
         <div className="text-5xl">❌</div>
       )}
       <p className="text-lg font-medium text-gray-700">
-        {status === 'processing' && progressMessage ? progressMessage : MESSAGES[status]}
+        {status === 'processing' && progressMessage ? progressMessage : t(MESSAGES[status])}
       </p>
       {errorMsg && <p className="text-sm text-red-500 max-w-md text-center">{errorMsg}</p>}
     </div>

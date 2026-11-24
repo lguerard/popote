@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState } from 'react'
-import { api, setAuthToken } from './api'
+import { api, setAuthToken, updateLanguage } from './api'
+import { translate } from './i18n'
 import { clearConversations } from './assistant/storage'
 
 const CLE = 'popote.token'
@@ -42,8 +43,17 @@ export function AuthProvider({ children }) {
     setUser(null)
   }
 
+  async function changerLangue(langue) {
+    const maj = await updateLanguage(langue)
+    setUser(u => (u ? { ...u, language: maj.language } : u))
+  }
+
+  // Hors session (écran de connexion), l'interface reste en français.
+  const lang = user?.language || 'fr'
+  const t = (key, vars) => translate(lang, key, vars)
+
   return (
-    <AuthContext.Provider value={{ user, token, chargement, memoriser, deconnexion }}>
+    <AuthContext.Provider value={{ user, token, chargement, memoriser, deconnexion, lang, t, changerLangue }}>
       {children}
     </AuthContext.Provider>
   )

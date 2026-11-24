@@ -1,10 +1,12 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { getShareableUsers, sendRecipes } from '../api'
+import { useAuth } from '../auth'
 
 // Envoie une recette (recipeIds) ou toute la bibliothèque (tout) à un autre
 // compte. Le destinataire en reçoit une copie, marquée « de <vous> ».
 export default function EnvoiCompte({ recipeIds = [], tout = false }) {
+  const { t } = useAuth()
   const qc = useQueryClient()
   const [destinataire, setDestinataire] = useState('')
   const [automatique, setAutomatique] = useState(true)
@@ -16,9 +18,9 @@ export default function EnvoiCompte({ recipeIds = [], tout = false }) {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['partage-auto'] }),
   })
 
-  if (isLoading) return <p className="text-sm text-gray-400">Chargement des comptes…</p>
+  if (isLoading) return <p className="text-sm text-gray-400">{t('envoi.loadingAccounts')}</p>
   if (!comptes?.length) {
-    return <p className="text-sm text-gray-500">Aucun autre compte sur ce serveur pour l'instant.</p>
+    return <p className="text-sm text-gray-500">{t('envoi.noAccounts')}</p>
   }
 
   const resultat = envoi.data
@@ -38,23 +40,23 @@ export default function EnvoiCompte({ recipeIds = [], tout = false }) {
         <label className="flex items-start gap-2 cursor-pointer">
           <input type="checkbox" checked={automatique} onChange={e => setAutomatique(e.target.checked)}
             className="accent-orange-600 w-4 h-4 mt-0.5" />
-          <span>Envoyer aussi automatiquement mes prochaines recettes</span>
+          <span>{t('envoi.autoSend')}</span>
         </label>
       )}
       <button onClick={() => envoi.mutate()} disabled={!destinataire || envoi.isPending}
         className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 disabled:opacity-50">
-        {envoi.isPending ? 'Envoi…' : tout ? 'Partager toutes mes recettes' : 'Envoyer la recette'}
+        {envoi.isPending ? t('envoi.sending') : tout ? t('envoi.shareAll') : t('envoi.sendRecipe')}
       </button>
       {resultat && (
         <p className="text-green-700">
           {resultat.copied
-            ? `✓ ${resultat.copied} recette${resultat.copied > 1 ? 's' : ''} envoyée${resultat.copied > 1 ? 's' : ''}.`
-            : '✓ Ce compte a déjà cette recette.'}
-          {resultat.copied > 0 && resultat.skipped > 0 && ` ${resultat.skipped} déjà présente${resultat.skipped > 1 ? 's' : ''}.`}
-          {resultat.automatic && ' Les prochaines suivront automatiquement.'}
+            ? t(resultat.copied > 1 ? 'envoi.sentMany' : 'envoi.sentOne', { n: resultat.copied })
+            : t('envoi.alreadyHas')}
+          {resultat.copied > 0 && resultat.skipped > 0 && t(resultat.skipped > 1 ? 'envoi.skippedMany' : 'envoi.skippedOne', { n: resultat.skipped })}
+          {resultat.automatic && t('envoi.automatic')}
         </p>
       )}
-      {envoi.isError && <p className="text-red-600">Envoi impossible : {envoi.error?.response?.data?.detail || envoi.error.message}</p>}
+      {envoi.isError && <p className="text-red-600">{t('envoi.error', { error: envoi.error?.response?.data?.detail || envoi.error.message })}</p>}
     </div>
   )
 }

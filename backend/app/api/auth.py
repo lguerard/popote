@@ -15,7 +15,14 @@ from ..core.security import (
 from ..database import get_db
 from ..deps import current_admin, current_user
 from ..models.user import User, UserStatus
-from ..schemas.auth import LoginIn, RegisterIn, RegisterOut, TokenOut, UserOut
+from ..schemas.auth import (
+    LoginIn,
+    RegisterIn,
+    RegisterOut,
+    TokenOut,
+    UpdateLanguage,
+    UserOut,
+)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -111,6 +118,18 @@ async def login(data: LoginIn, db: AsyncSession = Depends(get_db)):
 
 @router.get("/me", response_model=UserOut)
 async def me(user: User = Depends(current_user)):
+    return user
+
+
+@router.patch("/me", response_model=UserOut)
+async def update_me(
+    data: UpdateLanguage,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(current_user),
+):
+    user.language = data.language
+    await db.commit()
+    await db.refresh(user)
     return user
 
 

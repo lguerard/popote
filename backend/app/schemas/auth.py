@@ -46,9 +46,25 @@ class UserOut(BaseModel):
     display_name: str
     status: str
     is_admin: bool
+    language: str
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+LANGUES = ("fr", "en")
+
+
+class UpdateLanguage(BaseModel):
+    language: str
+
+    @field_validator("language")
+    @classmethod
+    def _langue_connue(cls, value: str) -> str:
+        value = value.strip().lower()
+        if value not in LANGUES:
+            raise ValueError("Langue inconnue (fr ou en)")
+        return value
 
 
 class TokenOut(BaseModel):

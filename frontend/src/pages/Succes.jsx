@@ -1,15 +1,17 @@
 import { useQuery } from '@tanstack/react-query'
 import { getAchievements } from '../api'
+import { useAuth } from '../auth'
 
 const CATEGORY_LABELS = {
-  collection: '📚 Collection',
-  cuisine: '🍳 Cuisine',
-  organisation: '📅 Organisation',
-  decouverte: '🌍 Découverte',
-  perfectionniste: '✨ Perfectionniste',
+  collection: 'succes.cat.collection',
+  cuisine: 'succes.cat.cuisine',
+  organisation: 'succes.cat.organisation',
+  decouverte: 'succes.cat.decouverte',
+  perfectionniste: 'succes.cat.perfectionniste',
 }
 
 export default function Succes() {
+  const { t } = useAuth()
   const { data: achievements = [], isLoading } = useQuery({
     queryKey: ['achievements'],
     queryFn: getAchievements,
@@ -27,7 +29,7 @@ export default function Succes() {
   return (
     <div className="max-w-3xl mx-auto px-4 py-8">
       <div className="mb-8">
-        <h1 className="text-3xl font-bold mb-2">🏆 Succès</h1>
+        <h1 className="text-3xl font-bold mb-2">{t('succes.title')}</h1>
         <div className="flex items-center gap-3">
           <div className="flex-1 bg-gray-200 rounded-full h-3">
             <div
@@ -39,14 +41,14 @@ export default function Succes() {
         </div>
       </div>
 
-      {isLoading && <p className="text-gray-500">Chargement…</p>}
+      {isLoading && <p className="text-gray-500">{t('common.loading')}</p>}
 
       {Object.entries(CATEGORY_LABELS).map(([cat, label]) => {
         const items = grouped[cat] || []
         if (!items.length) return null
         return (
           <div key={cat} className="mb-8">
-            <h2 className="text-lg font-bold mb-3 text-gray-700">{label}</h2>
+            <h2 className="text-lg font-bold mb-3 text-gray-700">{t(label)}</h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {items.map(a => (
                 <AchievementCard key={a.id} achievement={a} />
@@ -60,6 +62,7 @@ export default function Succes() {
 }
 
 function AchievementCard({ achievement: a }) {
+  const { t } = useAuth()
   const done = !!a.unlocked_at
   const progress = Math.min(a.progress / a.goal, 1)
 
@@ -73,7 +76,7 @@ function AchievementCard({ achievement: a }) {
           <p className="font-bold text-sm truncate">{a.name}</p>
           {done && (
             <span className="text-xs text-orange-600 font-medium whitespace-nowrap">
-              {new Date(a.unlocked_at).toLocaleDateString('fr-FR')}
+              {new Date(a.unlocked_at).toLocaleDateString(t('common.locale'))}
             </span>
           )}
         </div>

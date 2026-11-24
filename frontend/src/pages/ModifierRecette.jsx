@@ -2,8 +2,10 @@ import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { getRecipe, updateRecipe, uploadThumbnail, generateThumbnail } from '../api'
+import { useAuth } from '../auth'
 
 export default function ModifierRecette() {
+  const { t } = useAuth()
   const { id } = useParams()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
@@ -83,7 +85,7 @@ export default function ModifierRecette() {
     if (file) uploadMutation.mutate(file)
   }
 
-  if (isLoading || !form) return <div className="text-gray-400 py-12 text-center">Chargement…</div>
+  if (isLoading || !form) return <div className="text-gray-400 py-12 text-center">{t('common.loading')}</div>
 
   const set = (field) => (e) => setForm((f) => ({ ...f, [field]: e.target.value }))
 
@@ -116,7 +118,7 @@ export default function ModifierRecette() {
       cook_time: form.cook_time ? Number(form.cook_time) : null,
       ingredients: fromRows(form.ingredients),
       steps: fromRows(form.steps).map((step, i) => ({ ...step, order: i + 1 })),
-      tags: typeof form.tags === 'string' ? form.tags.split(',').map(t => t.trim()).filter(Boolean) : form.tags,
+      tags: typeof form.tags === 'string' ? form.tags.split(',').map(tag => tag.trim()).filter(Boolean) : form.tags,
       thumbnail_url: form.thumbnail_url,
     })
   }
@@ -127,12 +129,12 @@ export default function ModifierRecette() {
   return (
     <form onSubmit={handleSubmit} className="max-w-2xl space-y-6">
       <div className="flex items-center gap-4">
-        <Link to={`/recettes/${id}`} className="text-sm text-orange-600 hover:underline">← Annuler</Link>
-        <h1 className="text-2xl font-bold text-gray-900">Modifier la recette</h1>
+        <Link to={`/recettes/${id}`} className="text-sm text-orange-600 hover:underline">{t('modifier.cancel')}</Link>
+        <h1 className="text-2xl font-bold text-gray-900">{t('modifier.title')}</h1>
       </div>
 
       <div>
-        <label className={labelCls}>Image</label>
+        <label className={labelCls}>{t('modifier.image')}</label>
         <div className="flex items-start gap-4">
           <div className="w-40 aspect-video rounded-xl overflow-hidden bg-gray-100 border border-gray-200 flex-shrink-0">
             {form.thumbnail_url ? (
@@ -149,7 +151,7 @@ export default function ModifierRecette() {
               disabled={uploadMutation.isPending || isGenerating}
               className="px-3 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors disabled:opacity-50"
             >
-              {uploadMutation.isPending ? 'Envoi…' : '📷 Changer l’image'}
+              {uploadMutation.isPending ? t('envoi.sending') : t('modifier.changeImage')}
             </button>
             <button
               type="button"
@@ -157,11 +159,11 @@ export default function ModifierRecette() {
               disabled={uploadMutation.isPending || isGenerating || startMutation.isPending}
               className="px-3 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors disabled:opacity-50"
             >
-              {isGenerating || startMutation.isPending ? 'Génération…' : '🪄 Générer avec l’IA'}
+              {isGenerating || startMutation.isPending ? t('modifier.generating') : t('modifier.generateAi')}
             </button>
             {isGenerating && (
               <p className="text-xs text-gray-400 max-w-xs">
-                Peut prendre plusieurs minutes la première fois (téléchargement du modèle).
+                {t('modifier.generateHint')}
               </p>
             )}
             {(uploadMutation.isError || startMutation.isError || generateError) && (
@@ -169,7 +171,7 @@ export default function ModifierRecette() {
                 {uploadMutation.error?.response?.data?.detail
                   || startMutation.error?.response?.data?.detail
                   || generateError
-                  || 'Erreur lors de la mise à jour de l’image.'}
+                  || t('modifier.imageError')}
               </p>
             )}
           </div>
@@ -177,36 +179,36 @@ export default function ModifierRecette() {
       </div>
 
       <div>
-        <label className={labelCls}>Titre</label>
+        <label className={labelCls}>{t('modifier.recipeTitle')}</label>
         <input value={form.title} onChange={set('title')} required className={inputCls} />
       </div>
 
       <div>
-        <label className={labelCls}>Description</label>
+        <label className={labelCls}>{t('modifier.description')}</label>
         <textarea value={form.description || ''} onChange={set('description')} rows={3} className={inputCls} />
       </div>
 
       <div className="grid grid-cols-3 gap-3">
         <div>
-          <label className={labelCls}>Portions</label>
+          <label className={labelCls}>{t('modifier.servings')}</label>
           <input type="number" min="1" value={form.servings || ''} onChange={set('servings')} className={inputCls} />
         </div>
         <div>
-          <label className={labelCls}>Prép. (min)</label>
+          <label className={labelCls}>{t('modifier.prep')}</label>
           <input type="number" min="0" value={form.prep_time || ''} onChange={set('prep_time')} className={inputCls} />
         </div>
         <div>
-          <label className={labelCls}>Cuisson (min)</label>
+          <label className={labelCls}>{t('modifier.cook')}</label>
           <input type="number" min="0" value={form.cook_time || ''} onChange={set('cook_time')} className={inputCls} />
         </div>
       </div>
 
       <div>
-        <label className={labelCls}>Tags (séparés par des virgules)</label>
+        <label className={labelCls}>{t('modifier.tags')}</label>
         <input
           value={Array.isArray(form.tags) ? form.tags.join(', ') : form.tags || ''}
           onChange={set('tags')}
-          placeholder="facile, végétarien, rapide"
+          placeholder={t('modifier.tagsPlaceholder')}
           className={inputCls}
         />
       </div>
@@ -214,10 +216,10 @@ export default function ModifierRecette() {
       {/* Ingrédients */}
       <div>
         <div className="flex items-center justify-between mb-2">
-          <label className={labelCls + ' mb-0'}>Ingrédients</label>
+          <label className={labelCls + ' mb-0'}>{t('modifier.ingredients')}</label>
           <span className="flex gap-3">
-            <button type="button" onClick={() => addSection('ingredients')} className="text-sm text-gray-500 hover:underline">+ Section</button>
-            <button type="button" onClick={addIngredient} className="text-sm text-orange-600 hover:underline">+ Ajouter</button>
+            <button type="button" onClick={() => addSection('ingredients')} className="text-sm text-gray-500 hover:underline">{t('modifier.addSection')}</button>
+            <button type="button" onClick={addIngredient} className="text-sm text-orange-600 hover:underline">{t('modifier.add')}</button>
           </span>
         </div>
         <div className="space-y-2">
@@ -226,10 +228,10 @@ export default function ModifierRecette() {
               onRemove={() => removeIngredient(i)} inputCls={inputCls} />
           ) : (
             <div key={i} className="flex gap-2 items-center">
-              <input placeholder="Qté" value={ing.quantity || ''} onChange={setIngredient(i, 'quantity')} className={inputCls + ' w-16'} />
-              <input placeholder="Unité" value={ing.unit || ''} onChange={setIngredient(i, 'unit')} className={inputCls + ' w-20'} />
-              <input placeholder="Ingrédient" value={ing.name || ''} onChange={setIngredient(i, 'name')} className={inputCls + ' flex-1'} required />
-              <input placeholder="Notes" value={ing.notes || ''} onChange={setIngredient(i, 'notes')} className={inputCls + ' w-28'} />
+              <input placeholder={t('modifier.qty')} value={ing.quantity || ''} onChange={setIngredient(i, 'quantity')} className={inputCls + ' w-16'} />
+              <input placeholder={t('modifier.unit')} value={ing.unit || ''} onChange={setIngredient(i, 'unit')} className={inputCls + ' w-20'} />
+              <input placeholder={t('modifier.ingredient')} value={ing.name || ''} onChange={setIngredient(i, 'name')} className={inputCls + ' flex-1'} required />
+              <input placeholder={t('modifier.notes')} value={ing.notes || ''} onChange={setIngredient(i, 'notes')} className={inputCls + ' w-28'} />
               <button type="button" onClick={() => removeIngredient(i)} className="text-red-400 hover:text-red-600 text-lg">×</button>
             </div>
           ))}
@@ -239,10 +241,10 @@ export default function ModifierRecette() {
       {/* Étapes */}
       <div>
         <div className="flex items-center justify-between mb-2">
-          <label className={labelCls + ' mb-0'}>Étapes</label>
+          <label className={labelCls + ' mb-0'}>{t('modifier.steps')}</label>
           <span className="flex gap-3">
-            <button type="button" onClick={() => addSection('steps')} className="text-sm text-gray-500 hover:underline">+ Section</button>
-            <button type="button" onClick={addStep} className="text-sm text-orange-600 hover:underline">+ Ajouter</button>
+            <button type="button" onClick={() => addSection('steps')} className="text-sm text-gray-500 hover:underline">{t('modifier.addSection')}</button>
+            <button type="button" onClick={addStep} className="text-sm text-orange-600 hover:underline">{t('modifier.add')}</button>
           </span>
         </div>
         <div className="space-y-2">
@@ -272,7 +274,7 @@ export default function ModifierRecette() {
         disabled={updateMutation.isPending}
         className="w-full py-3 bg-orange-600 hover:bg-orange-700 disabled:opacity-50 text-white font-semibold rounded-xl transition-colors"
       >
-        {updateMutation.isPending ? 'Enregistrement…' : 'Enregistrer les modifications'}
+        {updateMutation.isPending ? t('detail.saving') : t('modifier.saveChanges')}
       </button>
     </form>
   )
@@ -311,11 +313,12 @@ function numberItems(rows) {
 }
 
 function SectionRow({ value, onChange, onRemove, inputCls }) {
+  const { t } = useAuth()
   return (
     <div className="flex gap-2 items-center pt-2">
-      <input value={value} onChange={onChange} placeholder="Nom de la partie (ex. Pâte, Garniture)"
+      <input value={value} onChange={onChange} placeholder={t('modifier.sectionPlaceholder')}
         className={inputCls + ' flex-1 font-semibold uppercase tracking-wide text-orange-700 bg-orange-50'} />
-      <button type="button" onClick={onRemove} title="Supprimer l'intertitre"
+      <button type="button" onClick={onRemove} title={t('modifier.removeSection')}
         className="text-red-400 hover:text-red-600 text-lg">×</button>
     </div>
   )

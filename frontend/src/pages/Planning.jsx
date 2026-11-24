@@ -2,13 +2,13 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { getMealPlans, createMealPlan, deleteMealPlan, getRecipes, generateShoppingItems, getShoppingItems } from '../api'
+import { useAuth } from '../auth'
 
-const DAYS = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim']
 const MEAL_TYPES = [
-  { value: 'petit-déjeuner', label: 'Matin', emoji: '☕' },
-  { value: 'déjeuner', label: 'Midi', emoji: '🍽️' },
-  { value: 'dîner', label: 'Soir', emoji: '🌙' },
-  { value: 'snack', label: 'Snack', emoji: '🥨' },
+  { value: 'petit-déjeuner', label: 'planning.meal.breakfast', emoji: '☕' },
+  { value: 'déjeuner', label: 'planning.meal.lunch', emoji: '🍽️' },
+  { value: 'dîner', label: 'planning.meal.dinner', emoji: '🌙' },
+  { value: 'snack', label: 'planning.meal.snack', emoji: '🥨' },
 ]
 
 function getWeekDates(offset = 0) {
@@ -30,6 +30,7 @@ function fmt(date) {
 }
 
 export default function Planning() {
+  const { t } = useAuth()
   const [weekOffset, setWeekOffset] = useState(0)
   const [picker, setPicker] = useState(null) // {date, meal_type}
   const [search, setSearch] = useState('')
@@ -65,7 +66,7 @@ export default function Planning() {
     mutationFn: async () => {
       const current = await getShoppingItems()
       const replace = !current.items.some(i => !i.checked) || window.confirm(
-        'Votre liste de courses contient déjà des articles.\n\nOK : la remplacer par celle de la semaine\nAnnuler : ajouter à la suite'
+        t('planning.confirmReplace')
       )
       return generateShoppingItems({ date_from: dateFrom, date_to: dateTo, replace })
     },
@@ -78,15 +79,15 @@ export default function Planning() {
   return (
     <div>
       <div className="flex items-center justify-between gap-3 mb-6 flex-wrap">
-        <h1 className="text-2xl font-bold text-gray-900">📅 Planning des repas</h1>
+        <h1 className="text-2xl font-bold text-gray-900">{t('planning.title')}</h1>
         <div className="flex items-center gap-2 flex-wrap">
           <button onClick={() => courses.mutate()} disabled={!plans.length || courses.isPending}
-            title={plans.length ? 'Tous les ingrédients des repas de cette semaine, par rayon' : 'Aucun repas planifié cette semaine'}
+            title={plans.length ? t('planning.shoppingTitle') : t('planning.noMeals')}
             className="px-3 py-1.5 bg-orange-600 text-white rounded-lg text-sm hover:bg-orange-700 disabled:opacity-40">
-            {courses.isPending ? 'Génération…' : '🛒 Courses de la semaine'}
+            {courses.isPending ? t('modifier.generating') : t('planning.weekShopping')}
           </button>
           <button onClick={() => setWeekOffset(w => w - 1)} className="px-3 py-1.5 bg-white border border-gray-200 rounded-lg hover:border-orange-300">←</button>
-          <button onClick={() => setWeekOffset(0)} className="px-3 py-1.5 bg-white border border-gray-200 rounded-lg text-sm hover:border-orange-300">Aujourd'hui</button>
+          <button onClick={() => setWeekOffset(0)} className="px-3 py-1.5 bg-white border border-gray-200 rounded-lg text-sm hover:border-orange-300">{t('planning.today')}</button>
           <button onClick={() => setWeekOffset(w => w + 1)} className="px-3 py-1.5 bg-white border border-gray-200 rounded-lg hover:border-orange-300">→</button>
         </div>
       </div>
@@ -95,10 +96,10 @@ export default function Planning() {
         <table className="w-full border-collapse min-w-[700px]">
           <thead>
             <tr>
-              <th className="w-20 p-2 text-left text-xs text-gray-400 font-medium">Repas</th>
+              <th className="w-20 p-2 text-left text-xs text-gray-400 font-medium">{t('planning.mealHeader')}</th>
               {days.map((d, i) => (
                 <th key={i} className={`p-2 text-center text-sm font-semibold ${fmt(d) === fmt(new Date()) ? 'text-orange-600' : 'text-gray-700'}`}>
-                  <div>{DAYS[i]}</div>
+                  <div>{t(`tableau.day${d.getDay()}`)}</div>
                   <div className={`text-xs font-normal ${fmt(d) === fmt(new Date()) ? 'text-orange-400' : 'text-gray-400'}`}>
                     {d.getDate()}/{d.getMonth() + 1}
                   </div>
@@ -110,7 +111,7 @@ export default function Planning() {
             {MEAL_TYPES.map(meal => (
               <tr key={meal.value} className="border-t border-gray-100">
                 <td className="p-2 text-xs text-gray-500 font-medium whitespace-nowrap">
-                  {meal.emoji} {meal.label}
+                  {meal.emoji} {t(meal.label)}
                 </td>
                 {days.map((d, di) => {
                   const cell = getPlansFor(d, meal.value)
@@ -148,14 +149,14 @@ export default function Planning() {
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl w-full max-w-md shadow-xl">
             <div className="flex items-center justify-between p-4 border-b">
-              <h3 className="font-semibold">Ajouter une recette</h3>
+              <h3 className="font-semibold">{t('planning.addRecipe')}</h3>
               <button onClick={() => { setPicker(null); setSearch('') }} className="text-gray-400 hover:text-gray-600 text-xl">×</button>
             </div>
             <div className="p-4">
               <input
                 autoFocus
                 type="search"
-                placeholder="Rechercher…"
+                placeholder={t('planning.search')}
                 value={search}
                 onChange={e => setSearch(e.target.value)}
                 className="w-full px-3 py-2 rounded-lg border border-gray-200 mb-3 focus:outline-none focus:ring-2 focus:ring-orange-400 text-sm"

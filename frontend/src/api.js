@@ -15,6 +15,7 @@ export const listUsers = (includeArchived = false) =>
   api.get('/auth/users', { params: { include_archived: includeArchived } }).then(r => r.data)
 export const approveUser = (id) => api.post(`/auth/users/${id}/approve`).then(r => r.data)
 export const rejectUser = (id) => api.post(`/auth/users/${id}/reject`).then(r => r.data)
+export const updateLanguage = (language) => api.patch('/auth/me', { language }).then(r => r.data)
 
 export const getRecipes = (params) => api.get('/recipes', { params }).then(r => r.data)
 export const getRecipe = (id) => api.get(`/recipes/${id}`).then(r => r.data)

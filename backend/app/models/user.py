@@ -49,3 +49,6 @@ class User(Base):
     # Lien public vers la liste de courses (/partage/courses/<jeton>) : le
     # reste du foyer coche les articles en magasin sans avoir de compte.
     shopping_share_token: Mapped[str | None] = mapped_column(String(64), unique=True, index=True)
+    # Langue de l'interface web ("fr" ou "en"). Portee par le compte plutot
+    # que par le navigateur pour suivre la personne d'un appareil a l'autre.
+    language: Mapped[str] = mapped_column(String(5), nullable=False, default="fr")
