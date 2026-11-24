@@ -124,7 +124,10 @@ export default function ModifierRecette() {
   }
 
   const labelCls = 'block text-sm font-medium text-gray-700 mb-1'
-  const inputCls = 'w-full px-3 py-2 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-orange-400 text-sm'
+  // Sans w-full, pour les lignes d'ingrédients : un w-16 ajouté à w-full
+  // perd (Tailwind émet w-full après), et le nom, en flex-1, tombait à zéro.
+  const fieldCls = 'px-3 py-2 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-orange-400 text-sm'
+  const inputCls = 'w-full ' + fieldCls
 
   return (
     <form onSubmit={handleSubmit} className="max-w-2xl space-y-6">
@@ -228,10 +231,10 @@ export default function ModifierRecette() {
               onRemove={() => removeIngredient(i)} inputCls={inputCls} />
           ) : (
             <div key={i} className="flex gap-2 items-center">
-              <input placeholder={t('modifier.qty')} value={ing.quantity || ''} onChange={setIngredient(i, 'quantity')} className={inputCls + ' w-16'} />
-              <input placeholder={t('modifier.unit')} value={ing.unit || ''} onChange={setIngredient(i, 'unit')} className={inputCls + ' w-20'} />
-              <input placeholder={t('modifier.ingredient')} value={ing.name || ''} onChange={setIngredient(i, 'name')} className={inputCls + ' flex-1'} required />
-              <input placeholder={t('modifier.notes')} value={ing.notes || ''} onChange={setIngredient(i, 'notes')} className={inputCls + ' w-28'} />
+              <input placeholder={t('modifier.qty')} value={ing.quantity || ''} onChange={setIngredient(i, 'quantity')} className={fieldCls + ' w-16'} />
+              <input placeholder={t('modifier.unit')} value={ing.unit || ''} onChange={setIngredient(i, 'unit')} className={fieldCls + ' w-20'} />
+              <input placeholder={t('modifier.ingredient')} value={ing.name || ''} onChange={setIngredient(i, 'name')} className={fieldCls + ' flex-1 min-w-0'} required />
+              <input placeholder={t('modifier.notes')} value={ing.notes || ''} onChange={setIngredient(i, 'notes')} className={fieldCls + ' w-28'} />
               <button type="button" onClick={() => removeIngredient(i)} className="text-red-400 hover:text-red-600 text-lg">×</button>
             </div>
           ))}
