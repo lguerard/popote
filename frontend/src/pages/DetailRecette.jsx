@@ -288,9 +288,20 @@ export default function DetailRecette() {
         {recipe.category && (
           <span className="self-center px-3 py-1 bg-orange-100 text-orange-700 text-xs font-semibold rounded-full capitalize">{libelleCategorie(lang, recipe.category)}</span>
         )}
-        {vue.tags?.map(tag => (
-          <span key={tag} className="self-center bg-gray-100 text-gray-600 text-xs px-2 py-1 rounded-full">{tag}</span>
-        ))}
+        {/* Le lien filtre sur le tag ENREGISTRÉ (recipe.tags), pas sur sa
+            traduction affichée : le filtre côté serveur est exact. La
+            traduction garde le même nombre de tags dans le même ordre
+            (merge_translation), d'où la correspondance par position. */}
+        {vue.tags?.map((tag, i) => {
+          const original = recipe.tags?.length === vue.tags.length ? recipe.tags[i] : tag
+          return (
+            <Link key={`${i}-${tag}`} to={`/?tag=${encodeURIComponent(original)}`}
+              title={t('detail.tagLink', { tag })}
+              className="self-center bg-gray-100 text-gray-600 text-xs px-2 py-1 rounded-full hover:bg-orange-100 hover:text-orange-700 transition-colors">
+              {tag}
+            </Link>
+          )
+        })}
       </div>
 
       {/* Nutrition */}

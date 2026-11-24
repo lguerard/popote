@@ -1,5 +1,5 @@
 import { useState, useRef, useMemo } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { getRecipes } from '../api'
 import CarteRecette from '../components/CarteRecette'
@@ -60,9 +60,20 @@ export default function Accueil() {
   const [history, setHistory] = useState(null)
   const [sort, setSort] = useState('recent')
   const timerRef = useRef(null)
+  // Le tag vit dans l'URL (/?tag=végétarien), pas dans un useState : c'est
+  // par là qu'arrivent les clics sur un tag d'une fiche, et le bouton
+  // Retour du navigateur le retire ou le remet comme on s'y attend.
+  const [params, setParams] = useSearchParams()
+  const tag = params.get('tag') || null
+  const clearTag = () => setParams((prev) => {
+    const next = new URLSearchParams(prev)
+    next.delete('tag')
+    return next
+  }, { replace: true })
 
   const filters = {
     ...(debouncedSearch && { search: debouncedSearch }),
+    ...(tag && { tag }),
     ...(category === 'favoris' ? { favorites_only: true } : category ? { category } : {}),
     ...(maxTime && { max_time: maxTime }),
     ...(sourceType && { source_type: sourceType }),
@@ -94,7 +105,7 @@ export default function Accueil() {
     [jamais.map(r => r.id).join()],
   )
 
-  const activeFilters = [category, maxTime, sourceType, history].filter(Boolean).length
+  const activeFilters = [tag, category, maxTime, sourceType, history].filter(Boolean).length
 
   return (
     <div>
@@ -128,6 +139,19 @@ export default function Accueil() {
           aria-label={t('accueil.searchLabel')}
           className="w-full max-w-lg h-12 px-5 rounded-full border-0 bg-orange-100/70 placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-orange-400"
         />
+        {tag && (
+          <div className="mt-3">
+            <button
+              onClick={clearTag}
+              aria-label={t('accueil.clearTag', { tag })}
+              title={t('accueil.clearTag', { tag })}
+              className="inline-flex items-center gap-2 h-9 px-3.5 rounded-full text-xs font-bold bg-orange-100 text-orange-800 border border-orange-300 hover:bg-orange-200 transition-colors"
+            >
+              <span>{t('accueil.tagFilter', { tag })}</span>
+              <span aria-hidden="true">✕</span>
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Filtres catégories */}
@@ -202,7 +226,7 @@ export default function Accueil() {
         </select>
         {activeFilters > 0 && (
           <button
-            onClick={() => { setCategory(null); setMaxTime(null); setSourceType(null); setHistory(null) }}
+            onClick={() => { setCategory(null); setMaxTime(null); setSourceType(null); setHistory(null); if (tag) clearTag() }}
             className="text-xs text-red-500 hover:text-red-700 underline"
           >
             {t('accueil.reset', { n: activeFilters })}
@@ -210,7 +234,7 @@ export default function Accueil() {
         )}
       </div>
 
-      {idees.length > 0 && !debouncedSearch && [category, maxTime, sourceType, history].every(v => !v) && (
+      {idees.length > 0 && !debouncedSearch && [tag, category, maxTime, sourceType, history].every(v => !v) && (
         <section className="mb-8">
           <div className="flex items-center justify-between mb-3">
             <h2 className="font-semibold text-gray-800">{t('accueil.discover')}</h2>

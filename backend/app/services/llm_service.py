@@ -11,10 +11,28 @@ from . import recipe_parsing
 
 logger = logging.getLogger(__name__)
 
-SYSTEM_PROMPT = """Tu es un assistant culinaire expert chargé d'extraire UNE recette d'un texte : page web, transcription de vidéo, légende de publication ou texte collé.
-Réponds UNIQUEMENT avec un objet JSON valide, sans markdown ni commentaire.
+# Langue dans laquelle la recette est RÉDIGÉE (users.language du compte qui
+# l'ajoute), à ne pas confondre avec le champ "language" de la réponse, qui
+# reste la langue d'origine de la source (une vidéo anglaise : "en", quelle
+# que soit la langue de rédaction). Les consignes restent en français : seule
+# la langue de sortie change. Toute autre valeur retombe sur le français.
+DEFAULT_TARGET_LANG = "fr"
+WRITING_LANGUAGES = ("fr", "en")
 
-Format attendu :
+
+def target_language(target_lang: str | None) -> str:
+    """Langue de rédaction prise en charge : "fr" ou "en" ("en-US" → "en")."""
+    lang = (target_lang or "").strip().lower()[:2]
+    return lang if lang in WRITING_LANGUAGES else DEFAULT_TARGET_LANG
+
+
+_RESPOND_JSON = "Réponds UNIQUEMENT avec un objet JSON valide, sans markdown ni commentaire.\n"
+
+# Exemple de réponse dans la langue de rédaction : les petits modèles
+# recopient volontiers la langue de l'exemple plutôt que celle de la règle.
+# category reste une valeur française de la liste (enum du schéma JSON).
+_FORMAT_EXAMPLE = {
+    "fr": """Format attendu :
 {
   "found": true,
   "title": "Nom de la recette",
@@ -33,52 +51,138 @@ Format attendu :
   "tags": ["facile", "végétarien"]
 }
 
-Règles :
-- Tout rédiger en français (traduire si besoin). "language" = langue d'origine du texte ("fr", "en"…).
-- Ingrédients : TOUS, y compris ceux cités seulement dans les étapes. Quantité, unité et nom séparés ; les précisions (« émincé », « à température ambiante ») vont dans notes.
-- section : partie de la recette à laquelle appartient l'ingrédient quand le texte la sépare en parties (« Pâte », « Garniture », « Sauce », « Glaçage ») ; "" sinon. Un ingrédient utilisé dans deux parties apparaît deux fois.
-- Étapes : dans l'ordre, une action principale par étape, complètes mais concises, sans numéro au début.
-- prep_time et cook_time : entiers en minutes ; servings : entier (nombre de portions).
-- Valeur inconnue ou absente : "" pour un texte, 0 pour un nombre. Ne jamais inventer.
-- category : UNE valeur parmi petit-déjeuner, entrée, plat, dessert, snack, boisson, sauce, apéritif, soupe.
-- tags : 2 à 5 mots-clés courts (régime, difficulté, technique, ingrédient principal).
-- Ignorer publicités, commentaires, navigation et autres recettes suggérées.
-- Des ingrédients sans étapes (étapes seulement montrées dans la vidéo) SONT une recette : "found": true, "steps": [].
-- {"found": false} uniquement si le texte ne donne ni ingrédients ni étapes.
-"""
+""",
+    "en": """Format attendu (exemple d'une recette rédigée en anglais) :
+{
+  "found": true,
+  "title": "Recipe name",
+  "description": "Short description (1-2 sentences)",
+  "language": "fr",
+  "category": "dessert",
+  "servings": 4,
+  "prep_time": 15,
+  "cook_time": 30,
+  "ingredients": [
+    {"quantity": "200", "unit": "g", "name": "flour", "notes": "", "section": ""},
+    {"quantity": "2", "unit": "tbsp", "name": "olive oil", "notes": "", "section": ""},
+    {"quantity": "1", "unit": "", "name": "onion", "notes": "thinly sliced", "section": ""}
+  ],
+  "steps": ["Preheat the oven to 180 °C.", "Mix the flour and the sugar."],
+  "tags": ["easy", "vegetarian"]
+}
+
+""",
+}
+
+# Règle « langue de rédaction » de l'extraction (texte et photo).
+_WRITE_RULE = {
+    "fr": '- Tout rédiger en français (traduire si besoin). "language" = langue d\'origine du texte ("fr", "en"…).\n',
+    "en": (
+        "- Tout rédiger en ANGLAIS (traduire si besoin, même si le texte est en français) : title, "
+        "description, ingrédients (name, notes, section), étapes et tags. "
+        '"language" = langue d\'origine du texte ("fr", "en"…), pas celle de la rédaction.\n'
+    ),
+}
+# Même règle, pour une recette reconstituée.
+_RECONSTRUCT_WRITE_RULE = {
+    "fr": '- Tout rédiger en français. "language" = langue d\'origine du texte.\n',
+    "en": (
+        "- Tout rédiger en ANGLAIS (même si le texte est en français) : title, description, "
+        'ingrédients, étapes et tags. "language" = langue d\'origine du texte, pas celle de la rédaction.\n'
+    ),
+}
+_CATEGORY_RULE = {
+    "fr": "- category : UNE valeur parmi petit-déjeuner, entrée, plat, dessert, snack, boisson, sauce, apéritif, soupe.\n",
+    "en": (
+        "- category : UNE valeur parmi petit-déjeuner, entrée, plat, dessert, snack, boisson, sauce, "
+        "apéritif, soupe (recopiée telle quelle, en français, même si la recette est rédigée en anglais).\n"
+    ),
+}
+
+
+def system_prompt(target_lang: str | None = DEFAULT_TARGET_LANG) -> str:
+    """Consignes d'extraction d'une recette d'un texte, rédigée en ``target_lang``."""
+    lang = target_language(target_lang)
+    return (
+        "Tu es un assistant culinaire expert chargé d'extraire UNE recette d'un texte : "
+        "page web, transcription de vidéo, légende de publication ou texte collé.\n"
+        + _RESPOND_JSON + "\n"
+        + _FORMAT_EXAMPLE[lang]
+        + "Règles :\n"
+        + _WRITE_RULE[lang]
+        + "- Ingrédients : TOUS, y compris ceux cités seulement dans les étapes. Quantité, unité et nom séparés ; "
+        "les précisions (« émincé », « à température ambiante ») vont dans notes.\n"
+        "- section : partie de la recette à laquelle appartient l'ingrédient quand le texte la sépare en parties "
+        "(« Pâte », « Garniture », « Sauce », « Glaçage ») ; \"\" sinon. Un ingrédient utilisé dans deux parties "
+        "apparaît deux fois.\n"
+        "- Étapes : dans l'ordre, une action principale par étape, complètes mais concises, sans numéro au début.\n"
+        "- prep_time et cook_time : entiers en minutes ; servings : entier (nombre de portions).\n"
+        "- Valeur inconnue ou absente : \"\" pour un texte, 0 pour un nombre. Ne jamais inventer.\n"
+        + _CATEGORY_RULE[lang]
+        + "- tags : 2 à 5 mots-clés courts (régime, difficulté, technique, ingrédient principal).\n"
+        "- Ignorer publicités, commentaires, navigation et autres recettes suggérées.\n"
+        "- Des ingrédients sans étapes (étapes seulement montrées dans la vidéo) SONT une recette : "
+        "\"found\": true, \"steps\": [].\n"
+        "- {\"found\": false} uniquement si le texte ne donne ni ingrédients ni étapes.\n"
+    )
+
 
 # Dernier recours quand le contenu ne contient pas de recette détaillée :
 # nom de plat seul (« lasagnes »), reel en musique avec juste « Pasta alla
 # vodka 🍝 » en légende, photo d'un plat… Plutôt qu'un échec, l'IA propose
 # une recette classique du plat, signalée comme reconstituée.
-RECONSTRUCT_PROMPT = (
-    "Tu es un chef cuisinier expert chargé de proposer UNE recette à partir d'un texte "
-    "qui évoque un plat sans en donner la recette détaillée.\n"
-    "Réponds UNIQUEMENT avec un objet JSON valide, sans markdown ni commentaire.\n\n"
-    + SYSTEM_PROMPT[SYSTEM_PROMPT.index("Format attendu"):SYSTEM_PROMPT.index("Règles :")]
-) + """Règles :
-- Le texte ne contient PAS de recette détaillée, mais il peut nommer ou décrire un plat (titre, légende, hashtags, ingrédients épars, simple nom de plat tapé par l'utilisateur).
-- Identifie ce plat et rédige une recette classique, réaliste et complète pour le réaliser : ingrédients avec quantités, étapes dans l'ordre.
-- Reprends tout ce que le texte donne (ingrédients cités, portions, temps, technique) et complète le reste de façon plausible.
-- Tout rédiger en français. "language" = langue d'origine du texte.
-- prep_time et cook_time : entiers en minutes ; servings : entier.
-- category : UNE valeur parmi petit-déjeuner, entrée, plat, dessert, snack, boisson, sauce, apéritif, soupe.
-- tags : 2 à 5 mots-clés courts.
-- Si le texte ne permet d'identifier AUCUN plat, boisson ou préparation culinaire : {"found": false}.
-"""
+def reconstruct_prompt(target_lang: str | None = DEFAULT_TARGET_LANG) -> str:
+    lang = target_language(target_lang)
+    return (
+        "Tu es un chef cuisinier expert chargé de proposer UNE recette à partir d'un texte "
+        "qui évoque un plat sans en donner la recette détaillée.\n"
+        + _RESPOND_JSON + "\n"
+        + _FORMAT_EXAMPLE[lang]
+        + "Règles :\n"
+        "- Le texte ne contient PAS de recette détaillée, mais il peut nommer ou décrire un plat (titre, légende, "
+        "hashtags, ingrédients épars, simple nom de plat tapé par l'utilisateur).\n"
+        "- Identifie ce plat et rédige une recette classique, réaliste et complète pour le réaliser : "
+        "ingrédients avec quantités, étapes dans l'ordre.\n"
+        "- Reprends tout ce que le texte donne (ingrédients cités, portions, temps, technique) et complète "
+        "le reste de façon plausible.\n"
+        + _RECONSTRUCT_WRITE_RULE[lang]
+        + "- prep_time et cook_time : entiers en minutes ; servings : entier.\n"
+        + _CATEGORY_RULE[lang]
+        + "- tags : 2 à 5 mots-clés courts.\n"
+        "- Si le texte ne permet d'identifier AUCUN plat, boisson ou préparation culinaire : {\"found\": false}.\n"
+    )
+
 
 # Photo d'une recette (page de livre, fiche manuscrite, capture d'écran) :
 # lue directement par le modèle de vision, sans passer par un texte OCR
 # intermédiaire qui perdait la mise en page (colonnes, quantités en marge).
-IMAGE_RECIPE_PROMPT = (
-    "Tu es un assistant culinaire expert chargé d'extraire UNE recette d'une photo : "
-    "page de livre ou de magazine, fiche manuscrite, capture d'écran, emballage.\n"
-    + SYSTEM_PROMPT[SYSTEM_PROMPT.index("Réponds UNIQUEMENT"):]
-    + "- Recopie ce qui est écrit sur la photo, sans rien inventer ; une écriture illisible est ignorée.\n"
-    "- Photo d'un plat, d'un menu ou d'un produit sans recette écrite : {\"found\": false}.\n"
-)
+def image_recipe_prompt(target_lang: str | None = DEFAULT_TARGET_LANG) -> str:
+    lang = target_language(target_lang)
+    text_prompt = system_prompt(lang)
+    # « Recopie » seul contredirait la consigne de traduction d'une photo en français.
+    copy = "Recopie" if lang == "fr" else "Recopie (en le traduisant en anglais)"
+    return (
+        "Tu es un assistant culinaire expert chargé d'extraire UNE recette d'une photo : "
+        "page de livre ou de magazine, fiche manuscrite, capture d'écran, emballage.\n"
+        + text_prompt[text_prompt.index(_RESPOND_JSON):]
+        + f"- {copy} ce qui est écrit sur la photo, sans rien inventer ; une écriture illisible est ignorée.\n"
+        "- Photo d'un plat, d'un menu ou d'un produit sans recette écrite : {\"found\": false}.\n"
+    )
 
-RECONSTRUCTED_NOTICE = "Recette reconstituée par l'IA : quantités et étapes à vérifier."
+
+# Versions françaises (comportement historique), gardées pour les appelants
+# qui ne connaissent pas la langue du compte (évaluation des modèles…).
+SYSTEM_PROMPT = system_prompt()
+RECONSTRUCT_PROMPT = reconstruct_prompt()
+IMAGE_RECIPE_PROMPT = image_recipe_prompt()
+
+RECONSTRUCTED_NOTICES = {
+    "fr": "Recette reconstituée par l'IA : quantités et étapes à vérifier.",
+    "en": "Recipe reconstructed by AI: check the quantities and steps.",
+}
+RECONSTRUCTED_NOTICE = RECONSTRUCTED_NOTICES["fr"]
+# Tag ajouté à une recette reconstituée, dans la langue de rédaction.
+RECONSTRUCTED_TAGS = {"fr": "à vérifier", "en": "to check"}
 
 
 class UnreadableResponse(ValueError):
@@ -251,9 +355,10 @@ def build_vision_request(
 
 def build_image_recipe_request(
     image_b64: str, *, use_schema: bool = True, temperature: float = 0, model: str | None = None,
+    target_lang: str = DEFAULT_TARGET_LANG,
 ) -> dict:
     return build_vision_request(
-        image_b64, "Voici la photo à analyser.", system=IMAGE_RECIPE_PROMPT,
+        image_b64, "Voici la photo à analyser.", system=image_recipe_prompt(target_lang),
         num_predict=NUM_PREDICT_RECIPE, temperature=temperature,
         format=RECIPE_JSON_SCHEMA if use_schema else "json", model=model,
     )
@@ -280,21 +385,26 @@ def parse_llm_content(content: str) -> dict:
     return data
 
 
-async def extract_recipe_with_llm(text: str) -> dict:
-    return await _ask_model(text, SYSTEM_PROMPT)
+async def extract_recipe_with_llm(text: str, target_lang: str = DEFAULT_TARGET_LANG) -> dict:
+    """Recette du texte, rédigée en ``target_lang`` (langue du compte)."""
+    return await _ask_model(text, system_prompt(target_lang))
 
 
-async def reconstruct_recipe_with_llm(text: str) -> dict:
+async def reconstruct_recipe_with_llm(text: str, target_lang: str = DEFAULT_TARGET_LANG) -> dict:
     """Recette classique du plat évoqué par un contenu sans recette détaillée."""
-    data = await _ask_model(text, RECONSTRUCT_PROMPT)
+    lang = target_language(target_lang)
+    data = await _ask_model(text, reconstruct_prompt(lang))
     if "error" not in data:
+        notice = RECONSTRUCTED_NOTICES[lang]
         description = data.get("description")
-        data["description"] = f"{RECONSTRUCTED_NOTICE} {description}" if description else RECONSTRUCTED_NOTICE
-        data["tags"] = recipe_parsing.normalize_tags(["à vérifier"] + data.get("tags", []))
+        data["description"] = f"{notice} {description}" if description else notice
+        data["tags"] = recipe_parsing.normalize_tags([RECONSTRUCTED_TAGS[lang]] + data.get("tags", []))
     return data
 
 
-async def extract_recipe_from_image(image_bytes: bytes, mime_type: str = "image/jpeg") -> dict:
+async def extract_recipe_from_image(
+    image_bytes: bytes, mime_type: str = "image/jpeg", target_lang: str = DEFAULT_TARGET_LANG,
+) -> dict:
     """Photo d'une recette → recette normalisée en UN appel au modèle de vision.
 
     Renvoie {"error": ...} si la photo ne montre pas de recette écrite (plat,
@@ -307,8 +417,10 @@ async def extract_recipe_from_image(image_bytes: bytes, mime_type: str = "image/
 
     async def ask(temperature: float) -> dict:
         if settings.use_claude:
-            return await _extract_claude_image(image_bytes, mime_type)
-        return await _extract_ollama_image(base64.standard_b64encode(image_bytes).decode(), temperature)
+            return await _extract_claude_image(image_bytes, mime_type, target_lang)
+        return await _extract_ollama_image(
+            base64.standard_b64encode(image_bytes).decode(), temperature, target_lang,
+        )
 
     return await _retry_unreadable(ask)
 
@@ -539,12 +651,14 @@ async def _chat_ollama(text: str, system: str = SYSTEM_PROMPT, temperature: floa
         )
 
 
-async def _extract_ollama_image(image_b64: str, temperature: float = 0) -> dict:
+async def _extract_ollama_image(
+    image_b64: str, temperature: float = 0, target_lang: str = DEFAULT_TARGET_LANG,
+) -> dict:
     checker = asyncio.create_task(_check_offload(settings.vision_model))
     try:
         async with httpx.AsyncClient(timeout=_VISION_TIMEOUT_SECONDS) as client:
             resp = await post_ollama_chat(client, lambda use_schema: build_image_recipe_request(
-                image_b64, use_schema=use_schema, temperature=temperature,
+                image_b64, use_schema=use_schema, temperature=temperature, target_lang=target_lang,
             ))
             return parse_llm_content(resp.json()["message"]["content"])
     except httpx.TimeoutException:
@@ -619,10 +733,12 @@ async def ask_claude(
     return claude_text(message)
 
 
-async def _extract_claude_image(image_bytes: bytes, mime_type: str) -> dict:
+async def _extract_claude_image(
+    image_bytes: bytes, mime_type: str, target_lang: str = DEFAULT_TARGET_LANG,
+) -> dict:
     return parse_llm_content(await ask_claude(
         [claude_image_block(image_bytes, mime_type), {"type": "text", "text": "Voici la photo à analyser."}],
-        system=IMAGE_RECIPE_PROMPT,
+        system=image_recipe_prompt(target_lang),
     ))
 
 

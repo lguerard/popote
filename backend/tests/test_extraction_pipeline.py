@@ -260,8 +260,9 @@ def test_video_falls_back_to_whisper(monkeypatch):
 
 def _run_extract(
     monkeypatch, source, scrape_result=None, llm_result=None, rebuilt=None, caption=("", None),
-    linked=None, slides="",
+    linked=None, slides="", target_lang=None, langs=None,
 ):
+    """langs, si fourni, reçoit la langue de rédaction passée à chaque appel à l'IA."""
     from app.services import extractor
 
     llm_calls = []
@@ -282,18 +283,23 @@ def _run_extract(
             raise scrape_result
         return scrape_result
 
-    async def fake_llm(text):
+    async def fake_llm(text, target_lang="fr"):
         llm_calls.append(text)
+        if langs is not None:
+            langs.append(target_lang)
         return dict(llm_result or {})
 
-    async def fake_reconstruct(text):
+    async def fake_reconstruct(text, target_lang="fr"):
         llm_calls.append(("reconstruction", text))
+        if langs is not None:
+            langs.append(("reconstruction", target_lang))
         return dict(rebuilt or {"error": "Aucune recette trouvée"})
 
     monkeypatch.setattr(extractor, "scrape_url", fake_scrape)
     monkeypatch.setattr(extractor, "extract_recipe_with_llm", fake_llm)
     monkeypatch.setattr(extractor, "reconstruct_recipe_with_llm", fake_reconstruct)
-    return asyncio.run(extractor.extract(source)), llm_calls
+    kwargs = {} if target_lang is None else {"target_lang": target_lang}
+    return asyncio.run(extractor.extract(source, **kwargs)), llm_calls
 
 
 def test_extract_web_structured_recipe_skips_llm(monkeypatch):

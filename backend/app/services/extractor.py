@@ -6,7 +6,7 @@ from typing import Awaitable, Callable
 
 from .video_service import post_images_text, video_to_text
 from .web_scraper import scrape_url
-from .llm_service import extract_recipe_with_llm, reconstruct_recipe_with_llm
+from .llm_service import extract_recipe_with_llm, reconstruct_recipe_with_llm, target_language
 from .extraction_steps import error_text
 from . import recipe_finder, recipe_parsing, social
 from ..models.recipe import SourceType
@@ -100,14 +100,20 @@ def detect_source_type(input_text: str) -> SourceType:
 
 async def extract(
     input_text: str, db=None, on_progress: ProgressCallback | None = None, owner_id=None,
+    target_lang: str = "fr",
 ) -> dict:
     """
     Returns dict with recipe fields + source_type + thumbnail_url.
     Raises on unrecoverable error. Pass db session (and owner_id) for
     duplicate detection. on_progress, if given, is awaited with a short
     human-readable message before each slow step.
+    target_lang : langue de RÉDACTION de ce que l'IA écrit (users.language
+    du compte). Une recette lue telle quelle sur le site (données
+    structurées) garde la langue du site. Le champ "language" reste la
+    langue d'origine de la source.
     """
     progress = on_progress or _noop_progress
+    target_lang = target_language(target_lang)
     source = resolve_input(input_text)
     source_type = detect_source_type(source)
     thumbnail_url = None
@@ -169,7 +175,7 @@ async def extract(
         linked = await recipe_finder.linked_recipe(raw_text, exclude=source)
         if linked:
             recipe_data, link, image = linked
-            _add_note(recipe_data, f"Recette complète publiée sur {_domain(link)}.")
+            _add_note(recipe_data, _linked_note(_domain(link), target_lang))
             thumbnail_url = thumbnail_url or image
     fetched = time.monotonic()
 
@@ -178,9 +184,9 @@ async def extract(
         if not raw_text.strip():
             raise ValueError("Aucun contenu exploitable n'a pu être récupéré depuis cette source.")
         await progress("Analyse de la recette par l'IA…")
-        recipe_data = await extract_recipe_with_llm(raw_text)
+        recipe_data = await extract_recipe_with_llm(raw_text, target_lang)
         if "error" in recipe_data:
-            salvaged = _ingredients_only(raw_text) if source_type != SourceType.text else None
+            salvaged = _ingredients_only(raw_text, target_lang) if source_type != SourceType.text else None
             if salvaged:
                 # L'IA n'a rien reconnu, mais le texte liste clairement des
                 # ingrédients : on les garde tels quels plutôt que d'échouer.
@@ -198,7 +204,7 @@ async def extract(
                 )
             else:
                 # Texte sans recette (nom de plat tapé seul…) : l'IA en propose une.
-                recipe_data, _ = await recipe_for_dish(raw_text, progress)
+                recipe_data, _ = await recipe_for_dish(raw_text, progress, target_lang)
                 if "error" in recipe_data:
                     raise ValueError(
                         "Aucune recette ni aucun plat reconnaissable dans ce contenu."
@@ -222,7 +228,19 @@ async def extract(
     return recipe_data
 
 
-def _ingredients_only(text: str) -> dict | None:
+_INGREDIENTS_ONLY_DESCRIPTIONS = {
+    "fr": "Ingrédients relevés tels quels dans la publication ; les étapes sont à voir dans la vidéo.",
+    "en": "Ingredients copied as-is from the post; the steps are shown in the video.",
+}
+
+
+def _linked_note(domain: str, target_lang: str = "fr") -> str:
+    if target_lang == "en":
+        return f"Full recipe published on {domain}."
+    return f"Recette complète publiée sur {domain}."
+
+
+def _ingredients_only(text: str, target_lang: str = "fr") -> dict | None:
     """Recette réduite aux ingrédients écrits dans le texte, sans IA."""
     ingredients = recipe_parsing.ingredients_from_text(text)
     if not ingredients:
@@ -234,7 +252,7 @@ def _ingredients_only(text: str) -> dict | None:
     title = title.strip(" :-–") [:120] or "Recette"
     return {
         "title": title,
-        "description": "Ingrédients relevés tels quels dans la publication ; les étapes sont à voir dans la vidéo.",
+        "description": _INGREDIENTS_ONLY_DESCRIPTIONS.get(target_lang, _INGREDIENTS_ONLY_DESCRIPTIONS["fr"]),
         "language": "fr",
         "category": recipe_parsing.guess_category(None, title),
         "ingredients": ingredients,
@@ -285,7 +303,9 @@ def _add_note(recipe: dict, note: str) -> None:
     recipe["description"] = f"{note} {description}" if description else note
 
 
-async def recipe_for_dish(text: str, progress: ProgressCallback | None = None) -> tuple[dict, str | None]:
+async def recipe_for_dish(
+    text: str, progress: ProgressCallback | None = None, target_lang: str = "fr",
+) -> tuple[dict, str | None]:
     """(recette, image) pour une entrée SANS lien qui évoque un plat sans en
     donner la recette (nom de plat tapé, photo d'un plat) : l'IA en propose
     une, marquée « à vérifier ». Jamais utilisé pour un lien.
@@ -293,7 +313,7 @@ async def recipe_for_dish(text: str, progress: ProgressCallback | None = None) -
     """
     progress = progress or _noop_progress
     await progress("Pas de recette détaillée : l'IA en propose une…")
-    return await reconstruct_recipe_with_llm(text), None
+    return await reconstruct_recipe_with_llm(text, target_lang), None
 
 
 async def _scrape(url: str, video_error: Exception | None = None):

@@ -54,7 +54,7 @@ async def submit_extraction(
     await db.commit()
     await db.refresh(recipe)
 
-    background_tasks.add_task(_run_extraction, recipe.id, req.input)
+    background_tasks.add_task(_run_extraction, recipe.id, req.input, user.language)
 
     return ExtractionResponse(
         recipe_id=recipe.id,
@@ -94,7 +94,7 @@ async def submit_batch_extraction(
     await db.commit()
     jobs = [(recipe.id, link) for recipe, link in zip(recipes, todo)]
     if jobs:
-        background_tasks.add_task(_run_batch, jobs)
+        background_tasks.add_task(_run_batch, jobs, user.language)
     return BatchExtractionResponse(
         items=[BatchItem(recipe_id=recipe_id, input=link) for recipe_id, link in jobs],
         already_saved=[link for link in links if link in saved],
@@ -102,10 +102,10 @@ async def submit_batch_extraction(
     )
 
 
-async def _run_batch(jobs: list[tuple[UUID, str]]) -> None:
+async def _run_batch(jobs: list[tuple[UUID, str]], target_lang: str = "fr") -> None:
     for recipe_id, link in jobs:
         try:
-            await _run_extraction(recipe_id, link)
+            await _run_extraction(recipe_id, link, target_lang)
         except Exception:  # une recette en échec n'arrête pas les suivantes
             logger.exception("Import groupé : échec inattendu pour %s", link)
 
@@ -146,7 +146,7 @@ async def submit_image_extraction(
     await db.commit()
     await db.refresh(recipe)
 
-    background_tasks.add_task(_run_image_extraction, recipe.id, image_bytes, mime_type)
+    background_tasks.add_task(_run_image_extraction, recipe.id, image_bytes, mime_type, user.language)
 
     return ExtractionResponse(
         recipe_id=recipe.id,
@@ -202,7 +202,9 @@ async def _record_achievement(db: AsyncSession, source_type) -> None:
         logger.warning("Succès non mis à jour après l'ajout d'une recette", exc_info=True)
 
 
-async def _run_extraction(recipe_id: UUID, input_text: str):
+async def _run_extraction(recipe_id: UUID, input_text: str, target_lang: str = "fr"):
+    """target_lang : langue du compte (users.language), celle dans laquelle
+    l'IA rédige la recette."""
     from ..database import AsyncSessionLocal
     async with AsyncSessionLocal() as db:
         recipe = await db.get(Recipe, recipe_id)
@@ -220,7 +222,10 @@ async def _run_extraction(recipe_id: UUID, input_text: str):
 
         try:
             data = await asyncio.wait_for(
-                extract(input_text, db=db, on_progress=report_progress, owner_id=recipe.owner_id),
+                extract(
+                    input_text, db=db, on_progress=report_progress, owner_id=recipe.owner_id,
+                    target_lang=target_lang,
+                ),
                 timeout=EXTRACTION_TIMEOUT_SECONDS,
             )
             _apply_extracted_fields(recipe, data)
@@ -267,7 +272,9 @@ async def _run_extraction(recipe_id: UUID, input_text: str):
 _LONG_OCR_TEXT_CHARS = 300
 
 
-async def _run_image_extraction(recipe_id: UUID, image_bytes: bytes, mime_type: str):
+async def _run_image_extraction(
+    recipe_id: UUID, image_bytes: bytes, mime_type: str, target_lang: str = "fr",
+):
     from ..database import AsyncSessionLocal
     from ..services.ocr_service import extract_text_from_image
     from ..services.extractor import recipe_for_dish
@@ -291,7 +298,7 @@ async def _run_image_extraction(recipe_id: UUID, image_bytes: bytes, mime_type: 
             await report("Lecture de la recette sur la photo…")
             data = None
             try:
-                data = await extract_recipe_from_image(image_bytes, mime_type)
+                data = await extract_recipe_from_image(image_bytes, mime_type, target_lang)
             except Exception:
                 # Modèle sans vision, délai dépassé, réponse illisible : on
                 # retombe sur le chemin texte, Tesseract compris.
@@ -309,11 +316,11 @@ async def _run_image_extraction(recipe_id: UUID, image_bytes: bytes, mime_type: 
             # manquée, l'analyse texte a sa chance avant le « plat reconnu ».
             if data is None or len(text.strip()) > _LONG_OCR_TEXT_CHARS:
                 await report("Analyse de la recette par l'IA…")
-                data = await extract_recipe_with_llm(text)
+                data = await extract_recipe_with_llm(text, target_lang)
             if "error" in data:
                 # Photo d'un plat, d'un menu, recette partielle : une vraie
                 # recette du plat reconnu (web, sinon IA) plutôt qu'un échec.
-                data, image = await recipe_for_dish(text, report)
+                data, image = await recipe_for_dish(text, report, target_lang)
                 if "error" in data:
                     data = {"error": "Aucune recette ni aucun plat reconnaissable sur cette image."}
                 elif image:
