@@ -1,12 +1,14 @@
 import { Link } from 'react-router-dom'
+import { useAuth } from '../auth'
 
 
-const SOURCES = { video: 'Vidéo', web: 'Site', text: 'Texte', manual: 'Maison' }
+const SOURCES = { video: 'carte.source.video', web: 'carte.source.web', text: 'carte.source.text', manual: 'carte.source.manual' }
 
 /** Carte d'une recette : grande photo arrondie avec sa source et le favori, puis titre et durée. */
 export default function CarteRecette({ recipe }) {
+  const { t } = useAuth()
   const totalTime = (recipe.prep_time || 0) + (recipe.cook_time || 0)
-  const source = SOURCES[recipe.source_type]
+  const source = SOURCES[recipe.source_type] && t(SOURCES[recipe.source_type])
   const meta = [totalTime > 0 && `${totalTime} min`, recipe.category && recipe.category[0].toUpperCase() + recipe.category.slice(1)]
     .filter(Boolean).join(' · ')
 
@@ -24,13 +26,13 @@ export default function CarteRecette({ recipe }) {
         )}
         {recipe.shared_by_name && (
           <span className="absolute top-2.5 left-2.5 px-2.5 py-1 bg-gray-900 text-white text-xs font-extrabold rounded-full max-w-[70%] truncate"
-            title={`Partagée par ${recipe.shared_by_name}`}>
-            De {recipe.shared_by_name}
+            title={t('carte.sharedBy', { name: recipe.shared_by_name })}>
+            {t('carte.from', { name: recipe.shared_by_name })}
           </span>
         )}
         {recipe.is_favorite && (
-          <span className="absolute top-2.5 right-2.5 w-8 h-8 rounded-full bg-white text-orange-700 flex items-center justify-center" title="Favori">
-            <span aria-hidden="true">♥</span><span className="sr-only">Favori</span>
+          <span className="absolute top-2.5 right-2.5 w-8 h-8 rounded-full bg-white text-orange-700 flex items-center justify-center" title={t('carte.favorite')}>
+            <span aria-hidden="true">♥</span><span className="sr-only">{t('carte.favorite')}</span>
           </span>
         )}
         {source && (
@@ -46,7 +48,7 @@ export default function CarteRecette({ recipe }) {
         <p className="mt-0.5 flex items-center gap-2 text-sm font-semibold text-gray-500">
           {meta && <span>{totalTime > 0 && '⏱ '}{meta}</span>}
           {recipe.rating > 0 && <span className="text-orange-700" title={`${recipe.rating}/5`}>★ {recipe.rating}</span>}
-          {recipe.cook_again && <span title="À refaire">🔁</span>}
+          {recipe.cook_again && <span title={t('carte.cookAgain')}>🔁</span>}
         </p>
       </div>
     </Link>

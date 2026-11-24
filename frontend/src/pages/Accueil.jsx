@@ -4,51 +4,53 @@ import { useQuery } from '@tanstack/react-query'
 import { getRecipes } from '../api'
 import CarteRecette from '../components/CarteRecette'
 import Tableau from '../components/Tableau'
+import { useAuth } from '../auth'
 
 const CATEGORIES = [
-  { value: 'favoris', label: 'Favoris', emoji: '❤️' },
-  { value: null, label: 'Tout', emoji: '🍽️' },
-  { value: 'petit-déjeuner', label: 'Petit-déj', emoji: '☕' },
-  { value: 'entrée', label: 'Entrée', emoji: '🥗' },
-  { value: 'plat', label: 'Plat', emoji: '🍲' },
-  { value: 'dessert', label: 'Dessert', emoji: '🍰' },
-  { value: 'snack', label: 'Snack', emoji: '🥨' },
-  { value: 'soupe', label: 'Soupe', emoji: '🍜' },
-  { value: 'apéritif', label: 'Apéritif', emoji: '🥂' },
-  { value: 'boisson', label: 'Boisson', emoji: '🥤' },
-  { value: 'sauce', label: 'Sauce', emoji: '🫙' },
+  { value: 'favoris', label: 'accueil.cat.favorites', emoji: '❤️' },
+  { value: null, label: 'accueil.all', emoji: '🍽️' },
+  { value: 'petit-déjeuner', label: 'accueil.cat.breakfast', emoji: '☕' },
+  { value: 'entrée', label: 'accueil.cat.starter', emoji: '🥗' },
+  { value: 'plat', label: 'accueil.cat.main', emoji: '🍲' },
+  { value: 'dessert', label: 'accueil.cat.dessert', emoji: '🍰' },
+  { value: 'snack', label: 'accueil.cat.snack', emoji: '🥨' },
+  { value: 'soupe', label: 'accueil.cat.soup', emoji: '🍜' },
+  { value: 'apéritif', label: 'accueil.cat.aperitif', emoji: '🥂' },
+  { value: 'boisson', label: 'accueil.cat.drink', emoji: '🥤' },
+  { value: 'sauce', label: 'accueil.cat.sauce', emoji: '🫙' },
 ]
 
 const TIME_FILTERS = [
-  { value: null, label: 'Tout' },
-  { value: 30, label: '≤ 30 min' },
-  { value: 60, label: '≤ 1h' },
+  { value: null, label: 'accueil.all' },
+  { value: 30, label: 'accueil.time.30' },
+  { value: 60, label: 'accueil.time.60' },
 ]
 
 const SOURCE_FILTERS = [
-  { value: null, label: 'Tout', emoji: '🌐' },
-  { value: 'video', label: 'Vidéo', emoji: '🎬' },
-  { value: 'web', label: 'Site', emoji: '🌐' },
-  { value: 'text', label: 'Texte', emoji: '📝' },
-  { value: 'manual', label: 'Manuel', emoji: '✏️' },
+  { value: null, label: 'accueil.all', emoji: '🌐' },
+  { value: 'video', label: 'accueil.source.video', emoji: '🎬' },
+  { value: 'web', label: 'accueil.source.web', emoji: '🌐' },
+  { value: 'text', label: 'accueil.source.text', emoji: '📝' },
+  { value: 'manual', label: 'accueil.source.manual', emoji: '✏️' },
 ]
 
 const HISTORY_FILTERS = [
-  { value: null, label: 'Toutes' },
-  { value: 'never_cooked', label: '🆕 Jamais faites' },
-  { value: 'cook_again', label: '🔁 À refaire' },
-  { value: 'shared', label: '👥 Reçues' },
+  { value: null, label: 'accueil.history.all' },
+  { value: 'never_cooked', label: 'accueil.history.neverCooked' },
+  { value: 'cook_again', label: 'accueil.history.cookAgain' },
+  { value: 'shared', label: 'accueil.history.shared' },
 ]
 
 const SORTS = [
-  { value: 'recent', label: 'Plus récentes' },
-  { value: 'rating', label: 'Mieux notées' },
-  { value: 'last_cooked', label: 'Cuisinées récemment' },
-  { value: 'most_cooked', label: 'Les plus cuisinées' },
-  { value: 'title', label: 'Titre (A→Z)' },
+  { value: 'recent', label: 'accueil.sort.recent' },
+  { value: 'rating', label: 'accueil.sort.rating' },
+  { value: 'last_cooked', label: 'accueil.sort.lastCooked' },
+  { value: 'most_cooked', label: 'accueil.sort.mostCooked' },
+  { value: 'title', label: 'accueil.sort.title' },
 ]
 
 export default function Accueil() {
+  const { t } = useAuth()
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const [category, setCategory] = useState(null)
@@ -97,21 +99,21 @@ export default function Accueil() {
     <div>
       <div className="mb-6">
         <p className="text-sm font-semibold text-gray-500 first-letter:uppercase">
-          {new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}
+          {new Date().toLocaleDateString(t('common.locale'), { weekday: 'long', day: 'numeric', month: 'long' })}
         </p>
-        <h1 className="font-display text-4xl sm:text-5xl font-extrabold tracking-tight text-gray-900">On mange quoi ?</h1>
+        <h1 className="font-display text-4xl sm:text-5xl font-extrabold tracking-tight text-gray-900">{t('accueil.headline')}</h1>
       </div>
 
       <Tableau />
 
       <div className="mb-4 flex items-end justify-between gap-3 flex-wrap">
         <div>
-          <h2 className="font-display text-3xl font-extrabold tracking-tight text-gray-900">Recettes</h2>
-          <p className="text-gray-500 text-sm">{recipes.length} recette{recipes.length !== 1 ? 's' : ''}</p>
+          <h2 className="font-display text-3xl font-extrabold tracking-tight text-gray-900">{t('accueil.recipes')}</h2>
+          <p className="text-gray-500 text-sm">{t(recipes.length !== 1 ? 'accueil.countMany' : 'accueil.countOne', { n: recipes.length })}</p>
         </div>
         <Link to="/ajouter"
           className="h-12 inline-flex items-center gap-2 rounded-full bg-orange-700 text-white px-5 font-extrabold hover:bg-orange-800 transition-colors">
-          + Importer
+          {t('accueil.import')}
         </Link>
       </div>
 
@@ -119,10 +121,10 @@ export default function Accueil() {
       <div className="mb-4">
         <input
           type="search"
-          placeholder="Rechercher une recette…"
+          placeholder={t('accueil.searchPlaceholder')}
           value={search}
           onChange={(e) => handleSearch(e.target.value)}
-          aria-label="Rechercher une recette"
+          aria-label={t('accueil.searchLabel')}
           className="w-full max-w-lg h-12 px-5 rounded-full border-0 bg-orange-100/70 placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-orange-400"
         />
       </div>
@@ -141,7 +143,7 @@ export default function Accueil() {
             }`}
           >
             <span>{cat.emoji}</span>
-            <span>{cat.label}</span>
+            <span>{t(cat.label)}</span>
           </button>
         ))}
       </div>
@@ -149,17 +151,17 @@ export default function Accueil() {
       {/* Filtres secondaires */}
       <div className="mb-6 flex flex-wrap gap-3 items-center">
         <div className="flex gap-1.5">
-          {TIME_FILTERS.map((t) => (
+          {TIME_FILTERS.map((f) => (
             <button
-              key={t.value ?? 'all'}
-              onClick={() => setMaxTime(t.value)}
+              key={f.value ?? 'all'}
+              onClick={() => setMaxTime(f.value)}
               className={`h-9 px-3.5 rounded-full text-xs font-bold transition-colors ${
-                maxTime === t.value
+                maxTime === f.value
                   ? 'bg-amber-100 text-amber-800 border border-amber-300'
                   : 'bg-white text-gray-500 border border-gray-200 hover:border-amber-200'
               }`}
             >
-              ⏱ {t.label}
+              ⏱ {t(f.label)}
             </button>
           ))}
         </div>
@@ -174,7 +176,7 @@ export default function Accueil() {
                   : 'bg-white text-gray-500 border border-gray-200 hover:border-blue-200'
               }`}
             >
-              {s.emoji} {s.label}
+              {s.emoji} {t(s.label)}
             </button>
           ))}
         </div>
@@ -189,20 +191,20 @@ export default function Accueil() {
                   : 'bg-white text-gray-500 border border-gray-200 hover:border-green-200'
               }`}
             >
-              {h.label}
+              {t(h.label)}
             </button>
           ))}
         </div>
         <select value={sort} onChange={(e) => setSort(e.target.value)}
           className="px-2 py-1 rounded-lg text-xs border border-gray-200 bg-white text-gray-600">
-          {SORTS.map(o => <option key={o.value} value={o.value}>↕ {o.label}</option>)}
+          {SORTS.map(o => <option key={o.value} value={o.value}>↕ {t(o.label)}</option>)}
         </select>
         {activeFilters > 0 && (
           <button
             onClick={() => { setCategory(null); setMaxTime(null); setSourceType(null); setHistory(null) }}
             className="text-xs text-red-500 hover:text-red-700 underline"
           >
-            Réinitialiser ({activeFilters})
+            {t('accueil.reset', { n: activeFilters })}
           </button>
         )}
       </div>
@@ -210,9 +212,9 @@ export default function Accueil() {
       {idees.length > 0 && !debouncedSearch && [category, maxTime, sourceType, history].every(v => !v) && (
         <section className="mb-8">
           <div className="flex items-center justify-between mb-3">
-            <h2 className="font-semibold text-gray-800">💡 À découvrir : jamais cuisinées</h2>
+            <h2 className="font-semibold text-gray-800">{t('accueil.discover')}</h2>
             <button onClick={() => setHistory('never_cooked')} className="text-xs text-orange-600 hover:underline">
-              Voir les {jamais.length}
+              {t('accueil.seeAll', { n: jamais.length })}
             </button>
           </div>
           <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide">
@@ -245,8 +247,8 @@ export default function Accueil() {
       ) : recipes.length === 0 ? (
         <div className="text-center py-24 text-gray-400">
           <div className="text-6xl mb-4">🔍</div>
-          <p className="text-xl font-medium text-gray-500">Aucune recette trouvée</p>
-          <p className="mt-2 text-sm">Essayez d'autres filtres ou ajoutez une nouvelle recette.</p>
+          <p className="text-xl font-medium text-gray-500">{t('accueil.noResults')}</p>
+          <p className="mt-2 text-sm">{t('accueil.noResultsHint')}</p>
         </div>
       ) : (
         <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-x-4 gap-y-6">

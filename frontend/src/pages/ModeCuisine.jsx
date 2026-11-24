@@ -5,6 +5,7 @@ import { getRecipe, trackCookingMode, markCooked } from '../api'
 import { parseStepTime, formatTime } from '../components/Timer'
 import { sectionStart, SectionTitle } from '../components/Sections'
 import Etoiles from '../components/Etoiles'
+import { useAuth } from '../auth'
 
 const SpeechRecognition = typeof window !== 'undefined'
   && (window.SpeechRecognition || window.webkitSpeechRecognition)
@@ -14,21 +15,22 @@ function fold(text) {
 }
 
 // Mots reconnus à la voix → action. Testés dans l'ordre : « étape
-// précédente » ne doit pas déclencher « étape ».
+// précédente » ne doit pas déclencher « étape ». Les mots anglais servent
+// aux comptes réglés en anglais, dont la reconnaissance tourne en anglais.
 const COMMANDES = [
-  [/\b(precedent|precedente|retour|reviens|avant)\b/, 'prev'],
+  [/\b(precedent|precedente|retour|reviens|avant|previous|back)\b/, 'prev'],
   [/\b(suivant|suivante|apres|next|ensuite|continue)\b/, 'next'],
-  [/\b(repete|relis|lis|redis|quoi)\b/, 'read'],
+  [/\b(repete|relis|lis|redis|quoi|repeat|again)\b/, 'read'],
   [/\b(minuteur|chrono|timer|minute)\b/, 'timer'],
   [/\b(ingredient|ingredients)\b/, 'ingredients'],
-  [/\b(termine|fini|finis)\b/, 'finish'],
+  [/\b(termine|fini|finis|done|finished)\b/, 'finish'],
 ]
 
-function parler(texte) {
+function parler(texte, langue = 'fr-FR') {
   if (!('speechSynthesis' in window)) return
   window.speechSynthesis.cancel()
   const u = new SpeechSynthesisUtterance(texte)
-  u.lang = 'fr-FR'
+  u.lang = langue
   window.speechSynthesis.speak(u)
 }
 
@@ -81,6 +83,7 @@ function useWakeLock() {
 // décrémentés seconde par seconde : un onglet en arrière-plan (où les
 // intervalles sont ralentis) reste juste.
 function useMinuteurs() {
+  const { t: traduire } = useAuth()
   const [timers, setTimers] = useState([])
   const [, setTick] = useState(0)
 
@@ -94,7 +97,7 @@ function useMinuteurs() {
       const finis = timersRef.current.filter(t => t.endsAt && t.endsAt <= now).map(t => t.id)
       if (finis.length) {
         sonnerie()
-        parler(timersRef.current.filter(t => finis.includes(t.id)).map(t => `${t.label} : c'est prêt !`).join(' '))
+        parler(timersRef.current.filter(t => finis.includes(t.id)).map(t => traduire('cuisine.timerReady', { label: t.label })).join(' '), traduire('common.locale'))
         setTimers(ts => ts.map(t => (finis.includes(t.id) ? { ...t, endsAt: null, remaining: 0, done: true } : t)))
       }
       setTick(n => n + 1)
@@ -120,6 +123,8 @@ function useMinuteurs() {
 }
 
 export default function ModeCuisine() {
+  const { t } = useAuth()
+  const dire = (texte) => parler(texte, t('common.locale'))
   const { id } = useParams()
   const navigate = useNavigate()
   const qc = useQueryClient()
@@ -150,27 +155,27 @@ export default function ModeCuisine() {
       setStepIdx(i => i + 1)
     },
     prev: () => setStepIdx(i => Math.max(0, i - 1)),
-    read: () => step && parler(`Étape ${stepIdx + 1}. ${step.text}`),
+    read: () => step && dire(`${t('cuisine.step', { n: stepIdx + 1 })}. ${step.text}`),
     timer: () => {
-      if (timerSec) { ajouter(`Étape ${stepIdx + 1}`, timerSec); parler('Minuteur lancé') }
-      else parler("Pas de durée dans cette étape")
+      if (timerSec) { ajouter(t('cuisine.step', { n: stepIdx + 1 }), timerSec); dire(t('cuisine.timerStarted')) }
+      else dire(t('cuisine.noDuration'))
     },
     ingredients: () => {
       setShowIngredients(true)
-      parler((recipe?.ingredients || []).map(i => [i.quantity, i.unit, i.name].filter(Boolean).join(' ')).join(', '))
+      dire((recipe?.ingredients || []).map(i => [i.quantity, i.unit, i.name].filter(Boolean).join(' ')).join(', '))
     },
     finish: () => setFin(true),
   }
 
   // En mode mains libres, chaque nouvelle étape est lue à voix haute.
   useEffect(() => {
-    if (voix && step) parler(`Étape ${stepIdx + 1}. ${step.text}`)
+    if (voix && step) dire(`${t('cuisine.step', { n: stepIdx + 1 })}. ${step.text}`)
   }, [voix, stepIdx])
 
   useEffect(() => {
     if (!voix || !SpeechRecognition) return
     const rec = new SpeechRecognition()
-    rec.lang = 'fr-FR'
+    rec.lang = t('common.locale')
     rec.continuous = true
     rec.interimResults = false
     let actif = true
@@ -205,8 +210,8 @@ export default function ModeCuisine() {
   }, [])
 
   const ajouterManuel = () => {
-    const min = parseFloat((window.prompt('Durée du minuteur (minutes) ?', '5') || '').replace(',', '.'))
-    if (min > 0) ajouter(`Minuteur ${timers.length + 1}`, Math.round(min * 60))
+    const min = parseFloat((window.prompt(t('cuisine.timerPrompt'), '5') || '').replace(',', '.'))
+    if (min > 0) ajouter(t('cuisine.timerN', { n: timers.length + 1 }), Math.round(min * 60))
   }
 
   const terminer = async () => {
@@ -223,17 +228,17 @@ export default function ModeCuisine() {
 
   if (isError) return (
     <div className="fixed inset-0 bg-gray-950 text-white flex flex-col items-center justify-center gap-4">
-      <p>Impossible de charger la recette.</p>
-      <Link to={`/recettes/${id}`} className="text-orange-400 hover:underline">← Retour</Link>
+      <p>{t('cuisine.loadError')}</p>
+      <Link to={`/recettes/${id}`} className="text-orange-400 hover:underline">{t('detail.back')}</Link>
     </div>
   )
-  if (!recipe) return <div className="fixed inset-0 bg-gray-950 text-white flex items-center justify-center">Chargement…</div>
+  if (!recipe) return <div className="fixed inset-0 bg-gray-950 text-white flex items-center justify-center">{t('common.loading')}</div>
 
   return (
     <div className="fixed inset-0 bg-gray-950 text-white flex flex-col select-none z-50">
       {/* Header */}
       <div className="flex items-center justify-between gap-3 px-4 sm:px-6 py-3 border-b border-gray-800">
-        <Link to={`/recettes/${id}`} className="text-gray-400 hover:text-white text-sm flex-shrink-0">← Sortir</Link>
+        <Link to={`/recettes/${id}`} className="text-gray-400 hover:text-white text-sm flex-shrink-0">{t('cuisine.exit')}</Link>
         <span className="font-semibold text-lg line-clamp-1 text-center">{recipe.title}</span>
         <span className="text-gray-400 text-sm flex-shrink-0">{steps.length ? `${stepIdx + 1} / ${steps.length}` : ''}</span>
       </div>
@@ -246,41 +251,41 @@ export default function ModeCuisine() {
 
       {/* Barre d'outils : écran, voix, minuteurs */}
       <div className="flex items-center gap-2 px-4 sm:px-6 py-2 text-xs flex-wrap border-b border-gray-900">
-        <span className={ecranAllume ? 'text-green-400' : 'text-gray-500'} title="L'écran ne se mettra pas en veille">
-          {ecranAllume ? '🔆 Écran allumé' : '🔅 Veille possible'}
+        <span className={ecranAllume ? 'text-green-400' : 'text-gray-500'} title={t('cuisine.screenOnTitle')}>
+          {ecranAllume ? t('cuisine.screenOn') : t('cuisine.screenMaySleep')}
         </span>
         {SpeechRecognition ? (
           <button onClick={() => setVoix(v => !v)}
             className={`px-3 py-1 rounded-full font-medium ${voix ? 'bg-red-600 text-white animate-pulse' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'}`}>
-            🎤 {voix ? 'Mains libres activé' : 'Mains libres'}
+            🎤 {voix ? t('cuisine.handsFreeOn') : t('cuisine.handsFree')}
           </button>
         ) : (
-          <span className="text-gray-600">🎤 Commande vocale non prise en charge par ce navigateur</span>
+          <span className="text-gray-600">{t('cuisine.voiceUnsupported')}</span>
         )}
-        <button onClick={ajouterManuel} className="px-3 py-1 rounded-full bg-gray-800 text-gray-300 hover:bg-gray-700">+ Minuteur</button>
+        <button onClick={ajouterManuel} className="px-3 py-1 rounded-full bg-gray-800 text-gray-300 hover:bg-gray-700">{t('cuisine.addTimer')}</button>
         {voix && (
           <span className="text-gray-500 truncate">
-            Dites « suivant », « précédent », « répète », « minuteur », « ingrédients »{entendu && ` · entendu : « ${entendu} »`}
+            {t('cuisine.voiceHint')}{entendu && t('cuisine.heard', { text: entendu })}
           </span>
         )}
       </div>
 
       {timers.length > 0 && (
         <div className="flex gap-2 px-4 sm:px-6 py-2 overflow-x-auto border-b border-gray-900">
-          {timers.map(t => {
-            const r = restant(t)
+          {timers.map(m => {
+            const r = restant(m)
             return (
-              <div key={t.id} className={`flex-shrink-0 flex items-center gap-2 pl-3 pr-1 py-1 rounded-full font-mono text-sm ${
-                t.done ? 'bg-green-600 text-white animate-pulse' : t.endsAt ? 'bg-orange-600/20 text-orange-300 border border-orange-600' : 'bg-gray-800 text-gray-400'
+              <div key={m.id} className={`flex-shrink-0 flex items-center gap-2 pl-3 pr-1 py-1 rounded-full font-mono text-sm ${
+                m.done ? 'bg-green-600 text-white animate-pulse' : m.endsAt ? 'bg-orange-600/20 text-orange-300 border border-orange-600' : 'bg-gray-800 text-gray-400'
               }`}>
-                <span className="font-sans text-xs opacity-80">{t.label}</span>
-                <span>{t.done ? 'Prêt !' : formatTime(r)}</span>
-                {!t.done && (
-                  <button onClick={() => basculer(t.id)} className="px-1 hover:text-white" title={t.endsAt ? 'Pause' : 'Reprendre'}>
-                    {t.endsAt ? '⏸' : '▶'}
+                <span className="font-sans text-xs opacity-80">{m.label}</span>
+                <span>{m.done ? t('cuisine.ready') : formatTime(r)}</span>
+                {!m.done && (
+                  <button onClick={() => basculer(m.id)} className="px-1 hover:text-white" title={m.endsAt ? t('timer.pause') : t('timer.resume')}>
+                    {m.endsAt ? '⏸' : '▶'}
                   </button>
                 )}
-                <button onClick={() => retirer(t.id)} className="px-1 hover:text-white" title="Retirer">×</button>
+                <button onClick={() => retirer(m.id)} className="px-1 hover:text-white" title={t('courses.remove')}>×</button>
               </div>
             )
           })}
@@ -290,7 +295,7 @@ export default function ModeCuisine() {
       {/* Step */}
       <div className="flex-1 flex flex-col items-center justify-center px-6 sm:px-8 gap-8 overflow-y-auto">
         {steps.length === 0 ? (
-          <p className="text-gray-400">Cette recette n'a pas d'étapes.</p>
+          <p className="text-gray-400">{t('cuisine.noSteps')}</p>
         ) : (
           <>
             <div className="w-14 h-14 rounded-full bg-orange-600 flex items-center justify-center text-2xl font-bold">
@@ -303,7 +308,7 @@ export default function ModeCuisine() {
             {timerSec && (
               <button onClick={() => actions.current.timer()}
                 className="px-5 py-2 rounded-full bg-gray-800 hover:bg-gray-700 text-orange-300 font-mono">
-                ⏱ Lancer {formatTime(timerSec)}
+                {t('cuisine.startTimer', { time: formatTime(timerSec) })}
               </button>
             )}
           </>
@@ -312,7 +317,7 @@ export default function ModeCuisine() {
 
       {recipe.ingredients?.length > 0 && (
         <details open={showIngredients} onToggle={e => setShowIngredients(e.currentTarget.open)} className="mx-6 mb-4">
-          <summary className="text-sm text-gray-400 cursor-pointer select-none">📋 Ingrédients</summary>
+          <summary className="text-sm text-gray-400 cursor-pointer select-none">{t('cuisine.ingredients')}</summary>
           <ul className="mt-2 grid grid-cols-2 gap-1 text-sm text-gray-300 max-h-40 overflow-y-auto">
             {recipe.ingredients.map((ing, i) => (
               <Fragment key={i}>
@@ -335,7 +340,7 @@ export default function ModeCuisine() {
         {stepIdx >= steps.length - 1 ? (
           <button onClick={() => setFin(true)}
             className="flex-1 py-4 rounded-2xl bg-green-600 text-white text-center text-lg font-bold hover:bg-green-500">
-            ✓ Terminé !
+            {t('cuisine.finished')}
           </button>
         ) : (
           <button onClick={() => actions.current.next()}
@@ -349,16 +354,16 @@ export default function ModeCuisine() {
         <div className="absolute inset-0 bg-black/70 flex items-center justify-center p-4">
           <div className="bg-white text-gray-900 rounded-2xl p-6 w-full max-w-sm text-center space-y-4">
             <div className="text-5xl">🍽️</div>
-            <p className="text-xl font-bold">Bon appétit !</p>
-            <p className="text-sm text-gray-500">Comment c'était ?</p>
+            <p className="text-xl font-bold">{t('cuisine.enjoy')}</p>
+            <p className="text-sm text-gray-500">{t('cuisine.howWasIt')}</p>
             <Etoiles value={note} onChange={setNote} size="text-3xl" />
             <button onClick={terminer} disabled={enregistrement}
               className="w-full py-3 bg-green-600 text-white rounded-xl font-semibold hover:bg-green-700 disabled:opacity-50">
-              ✓ Marquer comme cuisinée
+              {t('cuisine.markCooked')}
             </button>
             <div className="flex justify-between text-sm">
-              <button onClick={() => setFin(false)} className="text-gray-500 hover:underline">← Revenir aux étapes</button>
-              <Link to={`/recettes/${id}`} className="text-gray-500 hover:underline">Sortir sans noter</Link>
+              <button onClick={() => setFin(false)} className="text-gray-500 hover:underline">{t('cuisine.backToSteps')}</button>
+              <Link to={`/recettes/${id}`} className="text-gray-500 hover:underline">{t('cuisine.exitWithoutRating')}</Link>
             </div>
           </div>
         </div>

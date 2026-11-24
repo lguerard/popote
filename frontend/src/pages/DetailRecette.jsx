@@ -14,9 +14,10 @@ import EnvoiCompte from '../components/EnvoiCompte'
 import ExportMfp from '../components/ExportMfp'
 import { BoutonAssistant } from '../assistant/Assistant'
 import { sectionStart, SectionTitle } from '../components/Sections'
+import { useAuth } from '../auth'
 
 const SOURCE_ICONS = { video: '🎬', web: '🌐', text: '📝', manual: '✏️' }
-const SOURCE_LABELS = { video: 'Vidéo', web: 'Site web', text: 'Texte', manual: 'Manuel' }
+const SOURCE_LABELS = { video: 'detail.source.video', web: 'detail.source.web', text: 'detail.source.text', manual: 'detail.source.manual' }
 
 const SCALE_PRESETS = [{ label: '½×', value: 0.5 }, { label: '1×', value: 1 }, { label: '2×', value: 2 }, { label: '3×', value: 3 }]
 
@@ -52,6 +53,7 @@ function scaleQty(q, scale) {
 }
 
 export default function DetailRecette() {
+  const { t } = useAuth()
   const { id } = useParams()
   const navigate = useNavigate()
   const qc = useQueryClient()
@@ -104,8 +106,8 @@ export default function DetailRecette() {
     setSavingNotes(false)
   }
 
-  if (isLoading) return <div className="animate-pulse text-gray-400 py-12 text-center">Chargement…</div>
-  if (error) return <div className="text-red-500 py-12 text-center">Recette introuvable</div>
+  if (isLoading) return <div className="animate-pulse text-gray-400 py-12 text-center">{t('common.loading')}</div>
+  if (error) return <div className="text-red-500 py-12 text-center">{t('detail.notFound')}</div>
 
   const totalTime = (recipe.prep_time || 0) + (recipe.cook_time || 0)
   const scaledServings = recipe.servings ? Math.round(recipe.servings * scale) : null
@@ -116,25 +118,25 @@ export default function DetailRecette() {
       {/* Doublon warning */}
       {recipe.similar_recipe_id && (
         <div className="mb-4 bg-amber-50 border border-amber-200 text-amber-800 px-4 py-3 rounded-xl text-sm flex items-center gap-2">
-          ⚠️ Une recette similaire existe déjà.{' '}
-          <Link to={`/recettes/${recipe.similar_recipe_id}`} className="underline font-medium">Voir la recette</Link>
+          {t('detail.similarExists')}{' '}
+          <Link to={`/recettes/${recipe.similar_recipe_id}`} className="underline font-medium">{t('tableau.seeRecipe')}</Link>
         </div>
       )}
 
       {/* Header */}
       <div className="flex items-start justify-between gap-4 mb-4 flex-wrap">
         <div>
-          <Link to="/" className="text-sm text-orange-600 hover:underline mb-2 inline-block">← Retour</Link>
+          <Link to="/" className="text-sm text-orange-600 hover:underline mb-2 inline-block">{t('detail.back')}</Link>
           <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-2">
             {recipe.title}
-            <button onClick={() => favMut.mutate()} title={recipe.is_favorite ? 'Retirer des favoris' : 'Ajouter aux favoris'}
+            <button onClick={() => favMut.mutate()} title={recipe.is_favorite ? t('detail.removeFavorite') : t('detail.addFavorite')}
               className="text-2xl transition-transform hover:scale-110 flex-shrink-0">
               {recipe.is_favorite ? '❤️' : '🤍'}
             </button>
           </h1>
           {recipe.shared_by_name && (
             <p className="mt-2 inline-flex items-center gap-1.5 px-3 py-1 bg-sky-50 text-sky-700 border border-sky-200 rounded-full text-xs font-medium">
-              👥 Partagée par {recipe.shared_by_name}
+              {t('detail.sharedBy', { name: recipe.shared_by_name })}
             </p>
           )}
           {recipe.description && <p className="text-gray-500 mt-2">{recipe.description}</p>}
@@ -144,36 +146,36 @@ export default function DetailRecette() {
               className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
                 recipe.cook_again ? 'bg-green-50 border-green-300 text-green-700' : 'bg-white border-gray-200 text-gray-500 hover:border-green-300'
               }`}>
-              🔁 {recipe.cook_again ? 'À refaire !' : 'À refaire ?'}
+              🔁 {recipe.cook_again ? t('detail.cookAgainYes') : t('detail.cookAgainAsk')}
             </button>
             <span className="text-xs text-gray-400">
               {recipe.cooked_count
-                ? `Cuisinée ${recipe.cooked_count} fois · dernière le ${new Date(`${recipe.last_cooked_at}T00:00:00`).toLocaleDateString('fr-FR')}`
-                : 'Jamais cuisinée'}
+                ? t('detail.cookedCount', { n: recipe.cooked_count, date: new Date(`${recipe.last_cooked_at}T00:00:00`).toLocaleDateString(t('common.locale')) })
+                : t('detail.neverCooked')}
             </span>
           </div>
         </div>
         <div className="flex gap-2 flex-wrap">
           <Link to={`/recettes/${id}/cuisine`} className="px-3 py-2 text-sm bg-orange-600 text-white hover:bg-orange-700 rounded-lg transition-colors">
-            👨‍🍳 Cuisiner
+            {t('detail.cook')}
           </Link>
           <BoutonAssistant recipe={recipe} />
-          <Link to={`/recettes/${id}/modifier`} className="px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors">Modifier</Link>
-          <button onClick={() => setPanneau(p => p === 'carnets' ? null : 'carnets')} title="Ajouter à un carnet"
+          <Link to={`/recettes/${id}/modifier`} className="px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors">{t('common.edit')}</Link>
+          <button onClick={() => setPanneau(p => p === 'carnets' ? null : 'carnets')} title={t('detail.addToCollection')}
             className={`px-3 py-2 text-sm rounded-lg transition-colors ${panneau === 'carnets' ? 'bg-orange-100 text-orange-700' : 'bg-gray-100 hover:bg-gray-200'}`}>📚</button>
-          <button onClick={() => setPanneau(p => p === 'partage' ? null : 'partage')} title="Partager par lien"
+          <button onClick={() => setPanneau(p => p === 'partage' ? null : 'partage')} title={t('lienPartage.shareByLink')}
             className={`px-3 py-2 text-sm rounded-lg transition-colors ${panneau === 'partage' ? 'bg-orange-100 text-orange-700' : 'bg-gray-100 hover:bg-gray-200'}`}>🔗</button>
-          <button onClick={() => setPanneau(p => p === 'compte' ? null : 'compte')} title="Envoyer à un autre compte"
+          <button onClick={() => setPanneau(p => p === 'compte' ? null : 'compte')} title={t('detail.sendToAccount')}
             className={`px-3 py-2 text-sm rounded-lg transition-colors ${panneau === 'compte' ? 'bg-orange-100 text-orange-700' : 'bg-gray-100 hover:bg-gray-200'}`}>👥</button>
-          <button onClick={() => setPanneau(p => p === 'mfp' ? null : 'mfp')} title="Exporter vers MyFitnessPal"
+          <button onClick={() => setPanneau(p => p === 'mfp' ? null : 'mfp')} title={t('detail.exportMfp')}
             className={`px-3 py-2 text-sm rounded-lg transition-colors ${panneau === 'mfp' ? 'bg-orange-100 text-orange-700' : 'bg-gray-100 hover:bg-gray-200'}`}>🥗 MFP</button>
           {confirmDelete ? (
             <div className="flex gap-2">
-              <button onClick={() => deleteMut.mutate()} className="px-3 py-2 text-sm bg-red-600 text-white rounded-lg">Confirmer</button>
-              <button onClick={() => setConfirmDelete(false)} className="px-3 py-2 text-sm bg-gray-100 rounded-lg">Annuler</button>
+              <button onClick={() => deleteMut.mutate()} className="px-3 py-2 text-sm bg-red-600 text-white rounded-lg">{t('detail.confirm')}</button>
+              <button onClick={() => setConfirmDelete(false)} className="px-3 py-2 text-sm bg-gray-100 rounded-lg">{t('common.cancel')}</button>
             </div>
           ) : (
-            <button onClick={() => setConfirmDelete(true)} className="px-3 py-2 text-sm bg-red-50 text-red-600 hover:bg-red-100 rounded-lg transition-colors">Supprimer</button>
+            <button onClick={() => setConfirmDelete(true)} className="px-3 py-2 text-sm bg-red-50 text-red-600 hover:bg-red-100 rounded-lg transition-colors">{t('common.delete')}</button>
           )}
         </div>
       </div>
@@ -181,7 +183,7 @@ export default function DetailRecette() {
       {panneau === 'carnets' && <ChoixCarnets recipeId={id} />}
       {panneau === 'partage' && (
         <div className="mb-5 p-4 bg-white rounded-xl border border-gray-100">
-          <p className="text-sm text-gray-600 mb-3">Toute personne ayant le lien peut lire la recette, sans compte. Vos notes, avis et historique restent privés.</p>
+          <p className="text-sm text-gray-600 mb-3">{t('detail.linkInfo')}</p>
           <LienPartage token={recipe.share_token} path={`/partage/r/${recipe.share_token}`}
             onShare={() => shareMut.mutate()} onUnshare={() => unshareMut.mutate()}
             busy={shareMut.isPending || unshareMut.isPending} />
@@ -191,15 +193,14 @@ export default function DetailRecette() {
       {panneau === 'compte' && (
         <div className="mb-5 p-4 bg-white rounded-xl border border-gray-100">
           <p className="text-sm text-gray-600 mb-3">
-            La personne reçoit une copie de la recette dans son compte, marquée « Partagée par vous ».
-            Vos notes, avis et historique restent privés.
+            {t('detail.accountInfo')}
           </p>
           <EnvoiCompte recipeIds={[id]} />
         </div>
       )}
       {panneau === 'mfp' && (
         <div className="mb-5 p-4 bg-white rounded-xl border border-gray-100">
-          <h3 className="font-semibold text-gray-800 mb-3">Exporter vers MyFitnessPal</h3>
+          <h3 className="font-semibold text-gray-800 mb-3">{t('detail.exportMfp')}</h3>
           <ExportMfp recipe={recipe} scale={scale} scaleQty={scaleQty} portions={scaledServings}
             onShare={() => shareMut.mutate()} busy={shareMut.isPending} />
         </div>
@@ -208,7 +209,7 @@ export default function DetailRecette() {
       {recipe.reextracting && (
         <div className="mb-4 bg-blue-50 border border-blue-200 text-blue-800 px-4 py-3 rounded-xl text-sm flex items-center gap-3">
           <span className="w-4 h-4 border-2 border-blue-200 border-t-blue-600 rounded-full animate-spin flex-shrink-0" />
-          {recipe.progress_message || 'Réextraction en cours…'}
+          {recipe.progress_message || t('detail.reextracting')}
         </div>
       )}
       {!recipe.reextracting && recipe.error_msg && (
@@ -222,7 +223,7 @@ export default function DetailRecette() {
           className="flex items-center gap-2 px-4 py-2.5 bg-white border border-gray-200 rounded-xl hover:border-orange-300 hover:bg-orange-50 transition-colors group w-fit max-w-full">
           <span className="text-lg flex-shrink-0">{SOURCE_ICONS[recipe.source_type] || '🔗'}</span>
           <div className="min-w-0">
-            <p className="text-xs text-gray-400">{SOURCE_LABELS[recipe.source_type] || 'Source'}</p>
+            <p className="text-xs text-gray-400">{SOURCE_LABELS[recipe.source_type] ? t(SOURCE_LABELS[recipe.source_type]) : t('detail.source.default')}</p>
             <p className="text-sm text-orange-600 group-hover:underline truncate">{recipe.source_url}</p>
           </div>
           <span className="ml-auto text-gray-300 group-hover:text-orange-400 flex-shrink-0">↗</span>
@@ -230,37 +231,36 @@ export default function DetailRecette() {
         <button
           onClick={() => setReextraction(r => (r ? null : { remplacerImage: false }))}
           disabled={recipe.reextracting || reextractMut.isPending}
-          title="Relancer l'extraction depuis la source, avec l'extraction améliorée"
+          title={t('detail.reextractTitle')}
           className={`px-3 py-2 text-sm border rounded-xl disabled:opacity-50 ${
             reextraction ? 'bg-orange-50 border-orange-300' : 'bg-white border-gray-200 hover:border-orange-300'
           }`}>
-          🔄 Réextraire
+          {t('detail.reextractButton')}
         </button>
         </div>
       )}
       {reextraction && !recipe.reextracting && (
         <div className="mb-5 p-4 bg-white rounded-xl border border-orange-200 text-sm space-y-3">
           <p className="text-gray-600">
-            Relire la recette depuis sa source : titre, ingrédients, étapes et temps seront remplacés.
-            Vos notes, avis et historique sont conservés.
+            {t('detail.reextractInfo')}
           </p>
           <label className="flex items-start gap-2 cursor-pointer">
             <input type="checkbox" checked={reextraction.remplacerImage}
               onChange={e => setReextraction({ remplacerImage: e.target.checked })}
               className="accent-orange-600 w-4 h-4 mt-0.5" />
             <span>
-              Remplacer aussi l'image par celle de la source
+              {t('detail.replaceImage')}
               {recipe.thumbnail_url?.startsWith('/media/') && (
-                <span className="block text-xs text-gray-400">Sinon, votre image importée ou générée est conservée.</span>
+                <span className="block text-xs text-gray-400">{t('detail.keepImage')}</span>
               )}
             </span>
           </label>
           <div className="flex gap-2">
             <button onClick={() => reextractMut.mutate(reextraction.remplacerImage)} disabled={reextractMut.isPending}
               className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 disabled:opacity-50">
-              {reextractMut.isPending ? 'Lancement…' : 'Réextraire'}
+              {reextractMut.isPending ? t('detail.launching') : t('detail.reextract')}
             </button>
-            <button onClick={() => setReextraction(null)} className="px-4 py-2 bg-gray-100 rounded-lg hover:bg-gray-200">Annuler</button>
+            <button onClick={() => setReextraction(null)} className="px-4 py-2 bg-gray-100 rounded-lg hover:bg-gray-200">{t('common.cancel')}</button>
           </div>
         </div>
       )}
@@ -272,10 +272,10 @@ export default function DetailRecette() {
 
       {/* Meta */}
       <div className="flex flex-wrap gap-4 mb-6 p-4 bg-white rounded-xl border border-gray-100">
-        {recipe.prep_time && <MetaBox label="Préparation" value={`${recipe.prep_time} min`} />}
-        {recipe.cook_time && <MetaBox label="Cuisson" value={`${recipe.cook_time} min`} />}
-        {totalTime > 0 && <MetaBox label="Total" value={`${totalTime} min`} />}
-        {recipe.servings && <MetaBox label="Portions" value={String(scaledServings ?? recipe.servings)} />}
+        {recipe.prep_time && <MetaBox label={t('detail.prep')} value={`${recipe.prep_time} min`} />}
+        {recipe.cook_time && <MetaBox label={t('detail.cookTime')} value={`${recipe.cook_time} min`} />}
+        {totalTime > 0 && <MetaBox label={t('detail.total')} value={`${totalTime} min`} />}
+        {recipe.servings && <MetaBox label={t('detail.servings')} value={String(scaledServings ?? recipe.servings)} />}
         {recipe.category && (
           <span className="self-center px-3 py-1 bg-orange-100 text-orange-700 text-xs font-semibold rounded-full capitalize">{recipe.category}</span>
         )}
@@ -287,7 +287,7 @@ export default function DetailRecette() {
       {/* Nutrition */}
       <section className="mb-6 p-4 bg-white rounded-xl border border-gray-100">
         <div className="flex items-center justify-between mb-3">
-          <h3 className="font-semibold text-gray-800">Valeurs nutritionnelles</h3>
+          <h3 className="font-semibold text-gray-800">{t('detail.nutrition')}</h3>
           {/* Toujours proposé : les valeurs sont estimées à partir des
               ingrédients et des portions, elles deviennent donc fausses dès
               qu'on modifie la recette. Le recalcul écrase l'analyse
@@ -295,23 +295,23 @@ export default function DetailRecette() {
           <button onClick={() => nutritionMut.mutate()} disabled={nutritionMut.isPending}
             className="text-sm text-orange-600 hover:underline disabled:opacity-50">
             {nutritionMut.isPending
-              ? 'Analyse…'
-              : recipe.nutrition ? '🔄 Recalculer' : '🔬 Analyser'}
+              ? t('detail.analyzing')
+              : recipe.nutrition ? t('detail.recalculate') : t('detail.analyze')}
           </button>
         </div>
         {recipe.nutrition ? (
           <div className="grid grid-cols-3 sm:grid-cols-5 gap-3 text-center">
-            {[['🔥 Cal.', recipe.nutrition.calories, 'kcal'], ['🥩 Prot.', recipe.nutrition.proteins, 'g'],
-              ['🌾 Glucides', recipe.nutrition.carbs, 'g'], ['🫒 Lipides', recipe.nutrition.fat, 'g'],
-              ['🌿 Fibres', recipe.nutrition.fiber, 'g']].map(([label, val, unit]) => (
+            {[['detail.nutri.calories', recipe.nutrition.calories, 'kcal'], ['detail.nutri.proteins', recipe.nutrition.proteins, 'g'],
+              ['detail.nutri.carbs', recipe.nutrition.carbs, 'g'], ['detail.nutri.fat', recipe.nutrition.fat, 'g'],
+              ['detail.nutri.fiber', recipe.nutrition.fiber, 'g']].map(([label, val, unit]) => (
               <div key={label}>
-                <p className="text-xs text-gray-400">{label}</p>
+                <p className="text-xs text-gray-400">{t(label)}</p>
                 <p className="font-bold text-gray-800">{val ? `${Math.round(val)} ${unit}` : '—'}</p>
               </div>
             ))}
           </div>
         ) : (
-          <p className="text-sm text-gray-400">Cliquez sur Analyser pour estimer les apports par portion.</p>
+          <p className="text-sm text-gray-400">{t('detail.nutritionHint')}</p>
         )}
       </section>
 
@@ -319,7 +319,7 @@ export default function DetailRecette() {
       {recipe.ingredients?.length > 0 && (
         <section className="mb-8">
           <div className="flex items-center justify-between mb-4 gap-4 flex-wrap">
-            <h2 className="text-xl font-bold text-gray-900">Ingrédients</h2>
+            <h2 className="text-xl font-bold text-gray-900">{t('detail.ingredients')}</h2>
             <div className="flex items-center gap-1.5 flex-wrap">
               {SCALE_PRESETS.map(({ label, value }) => (
                 <button key={value} onClick={() => { setScale(value); setCustomScale('') }}
@@ -334,14 +334,14 @@ export default function DetailRecette() {
           </div>
           {recipe.servings > 0 && (
             <label className="flex items-center gap-2 text-sm text-gray-600 mb-2">
-              👥 Portions :
+              {t('detail.servingsLabel')}
               <input type="number" min="1" value={scaledServings ?? ''}
                 onChange={e => { const n = parseFloat(e.target.value); if (n > 0) { setScale(n / recipe.servings); setCustomScale(String(Math.round(n / recipe.servings * 100) / 100)) } }}
                 className="w-16 px-2 py-1 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-400 text-center" />
             </label>
           )}
-          <p className="text-xs text-gray-400 mb-2">Cliquez sur une quantité pour l'ajuster : les autres suivent.</p>
-          {scale !== 1 && <p className="text-xs text-orange-600 mb-3 font-medium">Quantités {formatScale(scale)} — {scaledServings ?? '?'} portion{scaledServings !== 1 ? 's' : ''}</p>}
+          <p className="text-xs text-gray-400 mb-2">{t('detail.adjustHint')}</p>
+          {scale !== 1 && <p className="text-xs text-orange-600 mb-3 font-medium">{t(scaledServings !== 1 ? 'detail.scaledMany' : 'detail.scaledOne', { scale: formatScale(scale), n: scaledServings ?? '?' })}</p>}
           <ul className="bg-white rounded-xl border border-gray-100 divide-y divide-gray-50">
             {recipe.ingredients.map((ing, i) => {
               const sq = scaleQty(ing.quantity, scale)
@@ -361,7 +361,7 @@ export default function DetailRecette() {
                     </span>
                   ) : (
                     <button type="button" disabled={!ajustable} onClick={() => setAjuste(i)}
-                      title={ajustable ? 'Ajuster cette quantité : les autres suivent' : undefined}
+                      title={ajustable ? t('detail.adjustTitle') : undefined}
                       className={`font-semibold text-orange-600 w-24 text-right flex-shrink-0 ${ajustable ? 'hover:underline decoration-dotted cursor-pointer' : 'cursor-default'}`}>
                       {sq && ing.unit ? `${sq} ${ing.unit}` : sq || ing.unit || ''}
                     </button>
@@ -379,7 +379,7 @@ export default function DetailRecette() {
       {/* Étapes + timers */}
       {recipe.steps?.length > 0 && (
         <section className="mb-8">
-          <h2 className="text-xl font-bold text-gray-900 mb-4">Préparation</h2>
+          <h2 className="text-xl font-bold text-gray-900 mb-4">{t('detail.steps')}</h2>
           <ol className="space-y-5">
             {recipe.steps.map((step, i) => {
               const timerSec = parseStepTime(step.text)
@@ -407,24 +407,24 @@ export default function DetailRecette() {
 
       {/* Notes personnelles */}
       <section className="mb-8 p-4 bg-white rounded-xl border border-gray-100">
-        <h3 className="font-semibold text-gray-800 mb-3">📝 Notes personnelles</h3>
+        <h3 className="font-semibold text-gray-800 mb-3">{t('detail.personalNotes')}</h3>
         <textarea
           value={currentNotes}
           onChange={e => setNotes(e.target.value)}
-          placeholder="Mes astuces, modifications, avis… (sauvegardé automatiquement)"
+          placeholder={t('detail.notesPlaceholder')}
           rows={3}
           className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-orange-400"
         />
         <button onClick={saveNotes} disabled={savingNotes || currentNotes === (recipe.notes ?? '')}
           className="mt-2 px-4 py-1.5 text-sm bg-orange-600 text-white rounded-lg disabled:opacity-40 hover:bg-orange-700 transition-colors">
-          {savingNotes ? 'Enregistrement…' : 'Enregistrer'}
+          {savingNotes ? t('detail.saving') : t('common.save')}
         </button>
       </section>
 
       {/* Export PDF */}
       <div className="flex gap-3 border-t border-gray-100 pt-4">
         <button onClick={() => window.print()} className="flex items-center gap-2 px-4 py-2 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors">
-          🖨️ Imprimer / PDF
+          {t('detail.print')}
         </button>
       </div>
     </div>

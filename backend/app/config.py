@@ -48,6 +48,19 @@ class Settings(BaseSettings):
     # seulement si ceci est vrai : Popote est publie sur un domaine
     # public, une inscription libre laisserait n'importe qui entrer.
     allow_signup: bool = False
+    # Passkeys (WebAuthn). Une passkey est liee a un domaine (l'identifiant
+    # de "relying party") : le navigateur ne la propose qu'a ce domaine-la.
+    # Popote n'a pas de domaine fixe d'une installation a l'autre (CORS deja
+    # ouvert a "*") : vide, le domaine et l'origine attendus sont deduits de
+    # la requete elle-meme (en-tetes Host et Origin), le meme niveau de
+    # confiance que la politique CORS actuelle. Le navigateur refuse de
+    # toute facon une passkey a un site dont le domaine ne correspond pas.
+    # Le renseigner fige le domaine : utile derriere un proxy qui ne
+    # transmet pas Host fidelement, ou pour verrouiller l'instance sur un
+    # seul domaine. WebAuthn exige HTTPS (ou localhost) : rien a regler ici.
+    webauthn_rp_id: str = ""
+    # Nom affiche par le systeme ou le navigateur dans le choix de passkey.
+    webauthn_rp_name: str = "Popote"
 
     @property
     def vision_model(self) -> str:

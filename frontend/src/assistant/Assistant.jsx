@@ -43,10 +43,11 @@ export function AssistantProvider({ children }) {
 /** Bouton « Demander à l'assistant » d'une fiche recette. */
 export function BoutonAssistant({ recipe, className = '' }) {
   const { ouvrir } = useAssistant()
+  const { t } = useAuth()
   return (
-    <button onClick={() => ouvrir({ recipe })} title="Poser une question sur cette recette"
+    <button onClick={() => ouvrir({ recipe })} title={t('assistant.askTitle')}
       className={`px-3 py-2 text-sm bg-orange-50 text-orange-700 hover:bg-orange-100 rounded-lg transition-colors ${className}`}>
-      💬 Demander à l'assistant
+      {t('assistant.ask')}
     </button>
   )
 }
@@ -59,19 +60,19 @@ const ACTION_STYLES = {
 }
 const ACTION_QUERIES = { planning: ['meal-plans'], courses: ['shopping-items'], recette: ['recipes'] }
 
-function suggestions(recipe) {
+function suggestions(recipe, t) {
   const list = [
-    { label: "Qu'est-ce que je peux cuisiner avec… ?", fill: "Qu'est-ce que je peux cuisiner avec " },
-    { label: 'Invente-moi une recette…', fill: 'Invente-moi une recette de ' },
-    { label: 'Planifie mes dîners de la semaine', send: 'Planifie mes dîners de la semaine avec mes recettes.' },
-    { label: 'Que reste-t-il sur ma liste de courses ?', send: 'Que reste-t-il sur ma liste de courses ?' },
+    { label: t('assistant.sugg.cookWithLabel'), fill: t('assistant.sugg.cookWithFill') },
+    { label: t('assistant.sugg.inventLabel'), fill: t('assistant.sugg.inventFill') },
+    { label: t('assistant.sugg.planLabel'), send: t('assistant.sugg.planSend') },
+    { label: t('assistant.sugg.shoppingLabel'), send: t('assistant.sugg.shoppingSend') },
   ]
   if (recipe) {
     list.unshift(
-      { label: 'Adapte cette recette pour 6', send: 'Adapte cette recette pour 6 personnes.' },
-      { label: 'Ajoute ses ingrédients aux courses', send: 'Ajoute les ingrédients de cette recette à ma liste de courses.' },
-      { label: 'Par quoi remplacer… ?', fill: 'Dans cette recette, par quoi remplacer ' },
-      { label: 'Des recettes similaires ?', send: "J'ai d'autres recettes proches de celle-ci ? Sinon, des idées dans le même esprit ?" },
+      { label: t('assistant.sugg.adaptLabel'), send: t('assistant.sugg.adaptSend') },
+      { label: t('assistant.sugg.addIngredientsLabel'), send: t('assistant.sugg.addIngredientsSend') },
+      { label: t('assistant.sugg.replaceLabel'), fill: t('assistant.sugg.replaceFill') },
+      { label: t('assistant.sugg.similarLabel'), send: t('assistant.sugg.similarSend') },
     )
   }
   return list
@@ -79,7 +80,7 @@ function suggestions(recipe) {
 
 function AssistantPanel() {
   const { open, setOpen, recipe, setRecipe, draft, setDraft } = useAssistant()
-  const { user, token } = useAuth()
+  const { user, token, t } = useAuth()
   const { pathname } = useLocation()
   const qc = useQueryClient()
   const [messages, setMessages] = useState(() => loadConversation(user?.id))
@@ -108,7 +109,7 @@ function AssistantPanel() {
     if (!question || busy) return
     const history = [...messages.filter(m => m.content && !m.pending), { role: 'user', content: question }]
     const userMsg = { id: newId(), role: 'user', content: question }
-    const reply = { id: newId(), role: 'assistant', content: '', pending: true, status: 'Je réfléchis…', actions: [], recipes: [] }
+    const reply = { id: newId(), role: 'assistant', content: '', pending: true, status: t('assistant.thinking'), actions: [], recipes: [] }
     setMessages(ms => [...ms, userMsg, reply])
     setDraft('')
     setBusy(true)
@@ -137,7 +138,7 @@ function AssistantPanel() {
       })
     } catch (e) {
       if (e?.name === 'AbortError') update(reply.id, m => ({ ...m, stopped: true }))
-      else update(reply.id, m => ({ ...m, error: e.message || 'Erreur inattendue.' }))
+      else update(reply.id, m => ({ ...m, error: e.message || t('assistant.unexpectedError') }))
     } finally {
       update(reply.id, m => ({ ...m, pending: false, status: null }))
       abortRef.current = null
@@ -170,36 +171,36 @@ function AssistantPanel() {
   if (!open) {
     if (hidden) return null
     return (
-      <button onClick={() => setOpen(true)} title="Assistant culinaire"
+      <button onClick={() => setOpen(true)} title={t('assistant.title')}
         style={{ bottom: 'calc(1rem + env(safe-area-inset-bottom))' }}
         className="print:hidden fixed right-4 z-40 flex items-center gap-2 h-14 pl-4 pr-5 rounded-full bg-orange-600 text-white shadow-lg hover:bg-orange-700 active:scale-95 transition">
         <span className="text-xl">💬</span>
-        <span className="hidden sm:inline font-medium">Assistant</span>
+        <span className="hidden sm:inline font-medium">{t('assistant.name')}</span>
       </button>
     )
   }
 
   return (
-    <div role="dialog" aria-label="Assistant culinaire"
+    <div role="dialog" aria-label={t('assistant.title')}
       className="print:hidden fixed z-50 inset-0 sm:inset-auto sm:right-4 sm:bottom-4 sm:w-[26rem] sm:h-[min(42rem,calc(100vh-6rem))] flex flex-col bg-white sm:rounded-2xl shadow-2xl sm:border border-orange-100 overflow-hidden"
       style={{ paddingBottom: 'env(safe-area-inset-bottom)', paddingTop: 'env(safe-area-inset-top)' }}>
       <header className="flex items-center gap-2 px-4 h-14 border-b border-orange-100 bg-orange-50/60 flex-shrink-0">
         <span className="text-xl">🧑‍🍳</span>
-        <h2 className="font-semibold text-gray-900 flex-1">Assistant</h2>
+        <h2 className="font-semibold text-gray-900 flex-1">{t('assistant.name')}</h2>
         <button onClick={reset} disabled={!messages.length}
           className="px-2.5 py-1.5 text-xs font-medium rounded-lg text-gray-600 hover:bg-orange-100 disabled:opacity-40">
-          Nouvelle conversation
+          {t('assistant.newConversation')}
         </button>
-        <button onClick={() => setOpen(false)} title="Fermer"
+        <button onClick={() => setOpen(false)} title={t('assistant.close')}
           className="w-9 h-9 flex items-center justify-center rounded-lg text-gray-500 hover:bg-orange-100 text-lg">✕</button>
       </header>
 
       {recipe && (
         <div className="px-4 py-2 border-b border-orange-50 flex items-center gap-2 text-xs flex-shrink-0">
-          <span className="text-gray-500">À propos de</span>
+          <span className="text-gray-500">{t('assistant.about')}</span>
           <Link to={`/recettes/${recipe.id}`} onClick={closeOnPhone}
             className="flex-1 truncate font-medium text-orange-700 hover:underline">📖 {recipe.title}</Link>
-          <button onClick={() => setRecipe(null)} title="Ne plus parler de cette recette"
+          <button onClick={() => setRecipe(null)} title={t('assistant.forgetRecipe')}
             className="text-gray-400 hover:text-gray-600 px-1">✕</button>
         </div>
       )}
@@ -212,11 +213,10 @@ function AssistantPanel() {
         {!messages.length && (
           <div className="text-sm text-gray-600 space-y-4">
             <p>
-              Bonjour {user.display_name} ! Je connais tes recettes, ton planning et ta liste de courses.
-              Je peux chercher, adapter des quantités, planifier des repas et compléter tes courses.
+              {t('assistant.greeting', { name: user.display_name })}
             </p>
             <div className="flex flex-col items-start gap-2">
-              {suggestions(recipe).map(s => (
+              {suggestions(recipe, t).map(s => (
                 <button key={s.label} onClick={() => choisir(s)}
                   className="text-left px-3 py-2 rounded-xl border border-orange-200 bg-orange-50/50 text-orange-800 hover:bg-orange-100 transition-colors">
                   {s.label}
@@ -244,7 +244,7 @@ function AssistantPanel() {
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); send(draft) }
             }}
-            placeholder={recipe ? 'Une question sur cette recette ?' : 'Pose ta question…'}
+            placeholder={recipe ? t('assistant.placeholderRecipe') : t('assistant.placeholder')}
             className="w-full resize-none max-h-32 px-3 py-2.5 rounded-xl border border-gray-200 focus:border-orange-400 focus:ring-2 focus:ring-orange-100 outline-none text-[16px] sm:text-sm"
             style={{ fieldSizing: 'content' }} />
           {draft.length > MAX_CHARS - 500 && (
@@ -252,14 +252,14 @@ function AssistantPanel() {
           )}
         </div>
         {busy ? (
-          <button type="button" onClick={stop} title="Arrêter la réponse"
+          <button type="button" onClick={stop} title={t('assistant.stopTitle')}
             className="h-11 px-4 rounded-xl bg-gray-800 text-white text-sm font-medium hover:bg-gray-900 flex-shrink-0">
-            ■ Stop
+            {t('assistant.stop')}
           </button>
         ) : (
-          <button type="submit" disabled={!draft.trim()} title="Envoyer"
+          <button type="submit" disabled={!draft.trim()} title={t('assistant.send')}
             className="h-11 px-4 rounded-xl bg-orange-600 text-white text-sm font-medium hover:bg-orange-700 disabled:opacity-40 flex-shrink-0">
-            Envoyer
+            {t('assistant.send')}
           </button>
         )}
       </form>
@@ -268,6 +268,7 @@ function AssistantPanel() {
 }
 
 function Reponse({ message: m, onRecipe }) {
+  const { t } = useAuth()
   return (
     <div className="flex flex-col items-start gap-2 max-w-[92%]">
       {(m.content || (!m.pending && !m.error && !m.stopped)) && (
@@ -286,13 +287,13 @@ function Reponse({ message: m, onRecipe }) {
         return (
           <span key={i} className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border ${style.cls}`}>
             {style.icon} {a.label}
-            <Link to={to} onClick={onRecipe} className="underline ml-1">Voir</Link>
+            <Link to={to} onClick={onRecipe} className="underline ml-1">{t('assistant.see')}</Link>
           </span>
         )
       })}
       {m.recipes?.length > 0 && (
         <div className="w-full">
-          <p className="text-[11px] uppercase tracking-wide text-gray-400 mb-1">Recettes trouvées</p>
+          <p className="text-[11px] uppercase tracking-wide text-gray-400 mb-1">{t('assistant.recipesFound')}</p>
           <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-1 -mx-1 px-1">
             {m.recipes.map(r => (
               <Link key={r.id} to={`/recettes/${r.id}`} onClick={onRecipe}
@@ -309,7 +310,7 @@ function Reponse({ message: m, onRecipe }) {
           </div>
         </div>
       )}
-      {m.stopped && <p className="text-xs text-gray-400">Réponse arrêtée.</p>}
+      {m.stopped && <p className="text-xs text-gray-400">{t('assistant.stopped')}</p>}
       {m.error && (
         <p className="text-xs text-red-700 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{m.error}</p>
       )}

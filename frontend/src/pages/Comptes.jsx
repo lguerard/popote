@@ -4,13 +4,13 @@ import { approveUser, listUsers, rejectUser } from '../api'
 import { useAuth } from '../auth'
 
 const ETIQUETTES = {
-  pending:  { texte: 'En attente', classe: 'bg-amber-100 text-amber-700' },
-  approved: { texte: 'Validé',     classe: 'bg-emerald-100 text-emerald-700' },
-  rejected: { texte: 'Refusé',     classe: 'bg-gray-200 text-gray-500' },
+  pending:  { texte: 'comptes.status.pending',  classe: 'bg-amber-100 text-amber-700' },
+  approved: { texte: 'comptes.status.approved', classe: 'bg-emerald-100 text-emerald-700' },
+  rejected: { texte: 'comptes.status.rejected', classe: 'bg-gray-200 text-gray-500' },
 }
 
 export default function Comptes() {
-  const { user } = useAuth()
+  const { user, t } = useAuth()
   const qc = useQueryClient()
   // Les refus de plus d'une semaine sont masqués par défaut : la page
   // sert à traiter les demandes du moment, pas à tenir un historique.
@@ -23,18 +23,18 @@ export default function Comptes() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['comptes'] }),
   })
 
-  if (isLoading) return <p className="text-gray-400">Chargement…</p>
-  if (error) return <p className="text-red-600">Impossible de charger les comptes.</p>
+  if (isLoading) return <p className="text-gray-400">{t('common.loading')}</p>
+  if (error) return <p className="text-red-600">{t('comptes.loadError')}</p>
 
   const attente = comptes.filter(c => c.status === 'pending')
 
   return (
     <div className="max-w-3xl mx-auto">
-      <h1 className="text-2xl font-bold text-gray-800 mb-1">Comptes</h1>
+      <h1 className="text-2xl font-bold text-gray-800 mb-1">{t('comptes.title')}</h1>
       <p className="text-sm text-gray-500 mb-6">
         {attente.length === 0
-          ? 'Aucune demande en attente.'
-          : `${attente.length} demande${attente.length > 1 ? 's' : ''} à traiter.`}
+          ? t('comptes.noPending')
+          : t(attente.length > 1 ? 'comptes.pendingMany' : 'comptes.pendingOne', { n: attente.length })}
       </p>
 
       <div className="space-y-2">
@@ -47,12 +47,12 @@ export default function Comptes() {
               <div className="flex-1 min-w-0">
                 <p className="font-medium text-gray-800 truncate">
                   {c.display_name}
-                  {c.is_admin && <span className="ml-2 text-xs text-orange-600">admin</span>}
-                  {soi && <span className="ml-2 text-xs text-gray-400">(toi)</span>}
+                  {c.is_admin && <span className="ml-2 text-xs text-orange-600">{t('comptes.admin')}</span>}
+                  {soi && <span className="ml-2 text-xs text-gray-400">{t('comptes.you')}</span>}
                 </p>
                 <p className="text-sm text-gray-400 truncate">{c.email}</p>
               </div>
-              <span className={`text-xs px-2 py-1 rounded-full ${et.classe}`}>{et.texte}</span>
+              <span className={`text-xs px-2 py-1 rounded-full ${et.classe}`}>{t(et.texte)}</span>
 
               {/* Un administrateur ne peut pas se juger lui-même : le
                   serveur le refuse aussi, on évite juste le clic inutile. */}
@@ -64,7 +64,7 @@ export default function Comptes() {
                       disabled={decider.isPending}
                       className="text-sm px-3 py-1.5 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50"
                     >
-                      Valider
+                      {t('comptes.approve')}
                     </button>
                   )}
                   {c.status !== 'rejected' && (
@@ -73,7 +73,7 @@ export default function Comptes() {
                       disabled={decider.isPending}
                       className="text-sm px-3 py-1.5 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-50"
                     >
-                      {c.status === 'approved' ? 'Révoquer' : 'Refuser'}
+                      {c.status === 'approved' ? t('comptes.revoke') : t('comptes.reject')}
                     </button>
                   )}
                 </div>
@@ -87,13 +87,11 @@ export default function Comptes() {
         onClick={() => setArchives(!archives)}
         className="mt-6 text-sm text-orange-600 hover:underline"
       >
-        {archives ? 'Masquer les anciens refus' : 'Afficher les anciens refus'}
+        {archives ? t('comptes.hideArchived') : t('comptes.showArchived')}
       </button>
 
       <p className="text-xs text-gray-400 mt-4">
-        Un refus disparaît de cette liste au bout d'une semaine, mais le compte
-        et ses données sont conservés : la décision se corrige d'un clic. Révoquer
-        coupe l'accès immédiatement, sans attendre l'expiration de la session.
+        {t('comptes.footnote')}
       </p>
     </div>
   )

@@ -6,6 +6,7 @@ import {
   deleteShoppingItem, clearShoppingItems, shareShoppingList, unshareShoppingList,
 } from '../api'
 import LienPartage from '../components/LienPartage'
+import { useAuth } from '../auth'
 
 const AISLE_EMOJI = {
   'Fruits et légumes': '🥕',
@@ -20,11 +21,27 @@ const AISLE_EMOJI = {
   'Autres': '🛍️',
 }
 
+// Les rayons arrivent du serveur sous leur nom français, qui sert aussi
+// d'identifiant : on ne traduit que l'affichage.
+const AISLE_LABELS = {
+  'Fruits et légumes': 'courses.aisle.produce',
+  'Boucherie et poissonnerie': 'courses.aisle.meatFish',
+  'Crèmerie et œufs': 'courses.aisle.dairy',
+  'Boulangerie': 'courses.aisle.bakery',
+  'Épicerie salée': 'courses.aisle.savory',
+  'Épicerie sucrée': 'courses.aisle.sweet',
+  'Épices et condiments': 'courses.aisle.spices',
+  'Surgelés': 'courses.aisle.frozen',
+  'Boissons': 'courses.aisle.drinks',
+  'Autres': 'courses.aisle.other',
+}
+
 const KEY = ['shopping-items']
 
 // Liste groupée par rayon, articles cochés en bas de chaque rayon.
 // Partagée avec la page publique /partage/courses/<jeton>.
 export function ListeParRayon({ items, aisles, onToggle, onDelete }) {
+  const { t } = useAuth()
   const groups = aisles
     .map(aisle => ({ aisle, items: items.filter(i => i.aisle === aisle) }))
     .filter(g => g.items.length)
@@ -35,7 +52,7 @@ export function ListeParRayon({ items, aisles, onToggle, onDelete }) {
     return (
       <div className="text-center py-16 text-gray-400">
         <div className="text-5xl mb-3">🛒</div>
-        <p className="font-medium text-gray-500">La liste est vide</p>
+        <p className="font-medium text-gray-500">{t('courses.empty')}</p>
       </div>
     )
   }
@@ -46,7 +63,7 @@ export function ListeParRayon({ items, aisles, onToggle, onDelete }) {
         return (
           <section key={aisle}>
             <h2 className={`text-sm font-semibold mb-2 flex items-center gap-2 ${restants ? 'text-gray-700' : 'text-gray-300'}`}>
-              <span>{AISLE_EMOJI[aisle] || '🛍️'}</span>{aisle}
+              <span>{AISLE_EMOJI[aisle] || '🛍️'}</span>{AISLE_LABELS[aisle] ? t(AISLE_LABELS[aisle]) : aisle}
               <span className="text-xs font-normal text-gray-400">{restants ? `${restants}/${rows.length}` : '✓'}</span>
             </h2>
             <ul className="space-y-1">
@@ -68,7 +85,7 @@ export function ListeParRayon({ items, aisles, onToggle, onDelete }) {
                     )}
                   </button>
                   {onDelete && (
-                    <button onClick={() => onDelete(item)} title="Retirer"
+                    <button onClick={() => onDelete(item)} title={t('courses.remove')}
                       className="text-gray-300 hover:text-red-500 px-1 sm:opacity-0 group-hover:opacity-100">×</button>
                   )}
                 </li>
@@ -82,6 +99,7 @@ export function ListeParRayon({ items, aisles, onToggle, onDelete }) {
 }
 
 export default function ListeCourses() {
+  const { t } = useAuth()
   const qc = useQueryClient()
   // null : choisi automatiquement (sélection de recettes si la liste est vide)
   const [choix, setChoix] = useState(null)
@@ -126,47 +144,47 @@ export default function ListeCourses() {
   return (
     <div className="max-w-2xl">
       <div className="flex items-center justify-between gap-2 mb-2 flex-wrap print:hidden">
-        <h1 className="text-2xl font-bold text-gray-900">🛒 Liste de courses</h1>
+        <h1 className="text-2xl font-bold text-gray-900">{t('courses.title')}</h1>
         <div className="flex gap-2 flex-wrap">
-          <button onClick={() => setPartage(p => !p)} className="px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg">👨‍👩‍👧 Foyer</button>
+          <button onClick={() => setPartage(p => !p)} className="px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg">{t('courses.household')}</button>
           <button onClick={() => window.print()} className="px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg">🖨️</button>
-          <button onClick={() => setChoix(true)} className="px-3 py-2 text-sm bg-orange-100 text-orange-700 hover:bg-orange-200 rounded-lg">+ Recettes</button>
+          <button onClick={() => setChoix(true)} className="px-3 py-2 text-sm bg-orange-100 text-orange-700 hover:bg-orange-200 rounded-lg">{t('courses.addRecipes')}</button>
         </div>
       </div>
       <p className="text-sm text-gray-500 mb-4 print:hidden">
-        {restants} article{restants !== 1 ? 's' : ''} restant{restants !== 1 ? 's' : ''}
+        {t(restants !== 1 ? 'courses.remainingMany' : 'courses.remainingOne', { n: restants })}
         {coches > 0 && (
-          <> · <button onClick={() => clear.mutate(true)} className="text-orange-600 hover:underline">retirer les {coches} cochés</button></>
+          <> · <button onClick={() => clear.mutate(true)} className="text-orange-600 hover:underline">{t('courses.removeChecked', { n: coches })}</button></>
         )}
-        {' · '}<button onClick={() => { if (confirm('Vider toute la liste ?')) clear.mutate(false) }} className="text-red-500 hover:underline">tout vider</button>
+        {' · '}<button onClick={() => { if (confirm(t('courses.confirmClear'))) clear.mutate(false) }} className="text-red-500 hover:underline">{t('courses.clearAll')}</button>
       </p>
 
       {partage && (
         <div className="mb-5 p-4 bg-white rounded-xl border border-gray-100 print:hidden">
           <p className="text-sm text-gray-600 mb-3">
-            Envoyez ce lien au reste du foyer : chacun peut cocher les articles en magasin, sans compte.
-            Les cases se synchronisent toutes seules.
+            {t('courses.householdInfo')}
           </p>
           <LienPartage token={data?.share_token} path={`/partage/courses/${data?.share_token}`}
             onShare={() => share.mutate()} onUnshare={() => unshare.mutate()}
-            busy={share.isPending || unshare.isPending} label="Créer le lien du foyer" />
+            busy={share.isPending || unshare.isPending} label={t('courses.householdLink')} />
         </div>
       )}
 
       <form onSubmit={e => { e.preventDefault(); if (nouveau.trim()) add.mutate() }} className="flex gap-2 mb-6 print:hidden">
-        <input value={nouveau} onChange={e => setNouveau(e.target.value)} placeholder="Ajouter un article (lessive, pain…)"
+        <input value={nouveau} onChange={e => setNouveau(e.target.value)} placeholder={t('courses.addPlaceholder')}
           className="flex-1 px-4 py-2 rounded-xl border border-gray-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-orange-400" />
-        <button disabled={!nouveau.trim() || add.isPending} className="px-4 py-2 bg-orange-600 text-white rounded-xl text-sm disabled:opacity-50">Ajouter</button>
+        <button disabled={!nouveau.trim() || add.isPending} className="px-4 py-2 bg-orange-600 text-white rounded-xl text-sm disabled:opacity-50">{t('frigo.add')}</button>
       </form>
 
       {isLoading
-        ? <div className="animate-pulse text-gray-400 py-12 text-center">Chargement…</div>
+        ? <div className="animate-pulse text-gray-400 py-12 text-center">{t('common.loading')}</div>
         : <ListeParRayon items={items} aisles={aisles} onToggle={toggle} onDelete={remove} />}
     </div>
   )
 }
 
 function ChoixRecettes({ hasItems, onDone, onCancel }) {
+  const { t } = useAuth()
   const [selectedIds, setSelectedIds] = useState([])
   const [remplacer, setRemplacer] = useState(false)
   const { data: recipes = [] } = useQuery({ queryKey: ['recipes', { limit: 1000 }], queryFn: () => getRecipes({ limit: 1000 }) })
@@ -179,20 +197,19 @@ function ChoixRecettes({ hasItems, onDone, onCancel }) {
   return (
     <div className="max-w-2xl">
       <div className="flex items-center justify-between mb-2">
-        <h1 className="text-2xl font-bold text-gray-900">🛒 Liste de courses</h1>
+        <h1 className="text-2xl font-bold text-gray-900">{t('courses.title')}</h1>
         <button onClick={onCancel} className="px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg">
-          {hasItems ? '← Ma liste' : 'Ajouter à la main'}
+          {hasItems ? t('courses.myList') : t('courses.addByHand')}
         </button>
       </div>
       <p className="text-gray-500 text-sm mb-6">
-        Sélectionnez les recettes à cuisiner, ou générez la liste de la semaine depuis le <Link to="/planning" className="text-orange-600 hover:underline">planning</Link>.
-        Les ingrédients sont additionnés et rangés par rayon.
+        {t('courses.chooseBefore')}<Link to="/planning" className="text-orange-600 hover:underline">{t('courses.chooseLink')}</Link>{t('courses.chooseAfter')}
       </p>
 
       {recipes.length === 0 ? (
         <div className="text-center py-16 text-gray-400">
           <div className="text-5xl mb-3">🍽️</div>
-          <p className="font-medium text-gray-500">Aucune recette pour l'instant</p>
+          <p className="font-medium text-gray-500">{t('courses.noRecipes')}</p>
         </div>
       ) : (
         <div className="space-y-2 mb-6">
@@ -204,7 +221,7 @@ function ChoixRecettes({ hasItems, onDone, onCancel }) {
               {r.thumbnail_url && <img src={r.thumbnail_url} alt="" className="w-10 h-10 rounded-lg object-cover flex-shrink-0" />}
               <div className="flex-1 min-w-0">
                 <p className="font-medium truncate">{r.title}</p>
-                <p className="text-xs text-gray-400">{r.servings ? `${r.servings} pers.` : ''} {r.category || ''}</p>
+                <p className="text-xs text-gray-400">{r.servings ? t('courses.persons', { n: r.servings }) : ''} {r.category || ''}</p>
               </div>
             </label>
           ))}
@@ -214,13 +231,13 @@ function ChoixRecettes({ hasItems, onDone, onCancel }) {
       {hasItems && (
         <label className="flex items-center gap-2 text-sm text-gray-600 mb-3">
           <input type="checkbox" checked={remplacer} onChange={e => setRemplacer(e.target.checked)} className="accent-orange-600" />
-          Remplacer la liste actuelle (sinon, ajouter à la suite)
+          {t('courses.replace')}
         </label>
       )}
-      {gen.isError && <p className="text-sm text-red-600 mb-3">{gen.error?.response?.data?.detail || 'Génération impossible'}</p>}
+      {gen.isError && <p className="text-sm text-red-600 mb-3">{gen.error?.response?.data?.detail || t('courses.generateError')}</p>}
       <button onClick={() => gen.mutate()} disabled={selectedIds.length === 0 || gen.isPending}
         className="w-full py-3 bg-orange-600 hover:bg-orange-700 disabled:opacity-50 text-white font-semibold rounded-xl">
-        {gen.isPending ? 'Génération…' : `Générer la liste (${selectedIds.length} recette${selectedIds.length > 1 ? 's' : ''})`}
+        {gen.isPending ? t('courses.generating') : t(selectedIds.length > 1 ? 'courses.generateMany' : 'courses.generateOne', { n: selectedIds.length })}
       </button>
     </div>
   )

@@ -7,6 +7,7 @@ from fastapi.staticfiles import StaticFiles
 from .config import settings
 from .database import init_db, AsyncSessionLocal
 from .api.auth import router as auth_router
+from .api.passkeys import router as passkeys_router
 from .api.recipes import (
     router as recipes_router, sweep_stuck_reextractions, sweep_stuck_thumbnails,
 )
@@ -104,6 +105,7 @@ os.makedirs(settings.media_dir, exist_ok=True)
 app.mount("/media", StaticFiles(directory=settings.media_dir), name="media")
 
 app.include_router(auth_router, prefix="/api")
+app.include_router(passkeys_router, prefix="/api")
 app.include_router(recipes_router, prefix="/api")
 app.include_router(extract_router, prefix="/api")
 app.include_router(shopping_router, prefix="/api")

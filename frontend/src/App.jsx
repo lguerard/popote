@@ -79,11 +79,12 @@ export default function App() {
 }
 
 function IntrouvablePage() {
+  const { t } = useAuth()
   return (
     <div className="text-center py-24 text-gray-400">
       <div className="text-6xl mb-4">🍽️</div>
-      <p className="text-xl font-medium text-gray-500">Page introuvable</p>
-      <Link to="/" className="mt-4 inline-block text-orange-600 hover:underline">← Retour aux recettes</Link>
+      <p className="text-xl font-medium text-gray-500">{t('app.notFound')}</p>
+      <Link to="/" className="mt-4 inline-block text-orange-600 hover:underline">{t('app.backToRecipes')}</Link>
     </div>
   )
 }

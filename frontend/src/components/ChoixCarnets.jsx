@@ -2,9 +2,11 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { addToCollection, createCollection, getCollections, removeFromCollection } from '../api'
+import { useAuth } from '../auth'
 
 // Cases à cocher des carnets contenant la recette, + création rapide.
 export default function ChoixCarnets({ recipeId }) {
+  const { t } = useAuth()
   const qc = useQueryClient()
   const key = ['collections', 'for', recipeId]
   const [nom, setNom] = useState('')
@@ -27,10 +29,10 @@ export default function ChoixCarnets({ recipeId }) {
   return (
     <div className="mb-5 p-4 bg-white rounded-xl border border-gray-100">
       <div className="flex items-center justify-between mb-3">
-        <p className="text-sm font-semibold text-gray-700">📚 Carnets</p>
-        <Link to="/carnets" className="text-xs text-orange-600 hover:underline">Gérer les carnets</Link>
+        <p className="text-sm font-semibold text-gray-700">{t('choixCarnets.title')}</p>
+        <Link to="/carnets" className="text-xs text-orange-600 hover:underline">{t('choixCarnets.manage')}</Link>
       </div>
-      {isLoading ? <p className="text-sm text-gray-400">Chargement…</p> : (
+      {isLoading ? <p className="text-sm text-gray-400">{t('common.loading')}</p> : (
         <div className="flex flex-wrap gap-2 mb-3">
           {collections.map(c => (
             <button key={c.id} onClick={() => toggle.mutate(c)}
@@ -40,13 +42,13 @@ export default function ChoixCarnets({ recipeId }) {
               {c.contains_recipe ? '✓ ' : ''}{c.emoji} {c.name}
             </button>
           ))}
-          {collections.length === 0 && <p className="text-sm text-gray-400">Aucun carnet : créez le premier.</p>}
+          {collections.length === 0 && <p className="text-sm text-gray-400">{t('choixCarnets.empty')}</p>}
         </div>
       )}
       <form onSubmit={e => { e.preventDefault(); if (nom.trim()) create.mutate() }} className="flex gap-2">
-        <input value={nom} onChange={e => setNom(e.target.value)} placeholder="Nouveau carnet…"
+        <input value={nom} onChange={e => setNom(e.target.value)} placeholder={t('choixCarnets.newPlaceholder')}
           className="flex-1 px-3 py-1.5 rounded-lg border border-gray-200 text-sm" />
-        <button disabled={!nom.trim() || create.isPending} className="px-3 py-1.5 text-sm bg-orange-100 text-orange-700 rounded-lg disabled:opacity-50">Créer et ajouter</button>
+        <button disabled={!nom.trim() || create.isPending} className="px-3 py-1.5 text-sm bg-orange-100 text-orange-700 rounded-lg disabled:opacity-50">{t('choixCarnets.createAndAdd')}</button>
       </form>
     </div>
   )

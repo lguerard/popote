@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useMutation } from '@tanstack/react-query'
 import { whatToCook } from '../api'
+import { useAuth } from '../auth'
 
 const CLE = 'popote.frigo'
 
@@ -12,6 +13,7 @@ function lireFrigo() {
 // « Qu'est-ce que je cuisine ? » : ce qu'il y a dans le frigo → recettes
 // classées par ce qu'il manque.
 export default function Frigo() {
+  const { t } = useAuth()
   const [items, setItems] = useState(lireFrigo)
   const [saisie, setSaisie] = useState('')
   const [compterBase, setCompterBase] = useState(false)
@@ -33,14 +35,14 @@ export default function Frigo() {
 
   return (
     <div className="max-w-3xl">
-      <h1 className="text-2xl font-bold text-gray-900 mb-1">🧊 Qu'est-ce que je cuisine ?</h1>
-      <p className="text-gray-500 text-sm mb-6">Indiquez ce que vous avez sous la main : vos recettes sont classées selon ce qu'il manque.</p>
+      <h1 className="text-2xl font-bold text-gray-900 mb-1">{t('frigo.title')}</h1>
+      <p className="text-gray-500 text-sm mb-6">{t('frigo.subtitle')}</p>
 
       <form onSubmit={ajouter} className="flex gap-2 mb-3">
         <input value={saisie} onChange={e => setSaisie(e.target.value)} autoFocus
-          placeholder="tomates, œufs, feta…"
+          placeholder={t('frigo.placeholder')}
           className="flex-1 px-4 py-2.5 rounded-xl border border-gray-200 bg-white focus:outline-none focus:ring-2 focus:ring-orange-400" />
-        <button className="px-4 py-2.5 bg-orange-100 text-orange-700 rounded-xl font-medium hover:bg-orange-200">Ajouter</button>
+        <button className="px-4 py-2.5 bg-orange-100 text-orange-700 rounded-xl font-medium hover:bg-orange-200">{t('frigo.add')}</button>
       </form>
 
       <div className="flex flex-wrap gap-2 mb-4">
@@ -51,25 +53,25 @@ export default function Frigo() {
           </span>
         ))}
         {items.length > 0 && (
-          <button onClick={() => enregistrer([])} className="text-xs text-red-500 hover:underline">Tout vider</button>
+          <button onClick={() => enregistrer([])} className="text-xs text-red-500 hover:underline">{t('frigo.clearAll')}</button>
         )}
       </div>
 
       <label className="flex items-center gap-2 text-sm text-gray-500 mb-4">
         <input type="checkbox" checked={compterBase} onChange={e => setCompterBase(e.target.checked)} className="accent-orange-600" />
-        Je n'ai pas forcément sel, poivre et huile
+        {t('frigo.noStaples')}
       </label>
 
       <button onClick={chercher} disabled={!items.length || search.isPending}
         className="w-full py-3 bg-orange-600 hover:bg-orange-700 disabled:opacity-50 text-white font-semibold rounded-xl mb-8">
-        {search.isPending ? 'Recherche…' : 'Trouver des recettes'}
+        {search.isPending ? t('frigo.searching') : t('frigo.find')}
       </button>
 
-      {search.isError && <p className="text-red-600 text-sm">Recherche impossible, réessayez.</p>}
+      {search.isError && <p className="text-red-600 text-sm">{t('frigo.error')}</p>}
       {search.data && (search.data.length === 0 ? (
         <div className="text-center py-12 text-gray-400">
           <div className="text-5xl mb-3">🤷</div>
-          <p>Aucune recette n'utilise ces ingrédients.</p>
+          <p>{t('frigo.noMatch')}</p>
         </div>
       ) : (
         <ul className="space-y-3">
@@ -86,7 +88,7 @@ export default function Frigo() {
                     <span className={`text-xs font-semibold px-2 py-0.5 rounded-full flex-shrink-0 ${
                       missing.length === 0 ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'
                     }`}>
-                      {missing.length === 0 ? 'Tout est là !' : `Il manque ${missing.length}`}
+                      {missing.length === 0 ? t('frigo.allThere') : t('frigo.missing', { n: missing.length })}
                     </span>
                   </div>
                   <div className="h-1.5 bg-gray-100 rounded-full mt-2 mb-2">

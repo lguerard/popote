@@ -6,3 +6,4 @@ from .cook_log import CookLog  # noqa
 from .collection import Collection, CollectionRecipe  # noqa
 from .shopping import ShoppingItem  # noqa
 from .library_share import LibraryShare  # noqa
+from .webauthn import WebAuthnCredential, WebAuthnChallenge  # noqa
