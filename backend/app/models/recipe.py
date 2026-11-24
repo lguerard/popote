@@ -75,5 +75,16 @@ class Recipe(Base):
     )
     shared_by_name: Mapped[str | None] = mapped_column(String(100))
     origin_recipe_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    # Cache des traductions du contenu pour l'affichage d'un compte dans une
+    # autre langue ({"en": {title, description, ingredients, steps, tags,
+    # source_hash, source_updated_at}}). Jamais une donnée de référence :
+    # title/ingredients/… restent la seule version modifiable, sinon
+    # enregistrer le formulaire d'édition écraserait l'original par sa
+    # traduction. source_hash est l'empreinte du contenu traduit : une
+    # recette modifiée depuis ne correspond plus, et la traduction est
+    # refaite à la prochaine lecture, sans invalidation à prévoir ailleurs.
+    # (updated_at ne suffit pas : un favori ou une note le change aussi.)
+    # Voir services/translation_service.py.
+    translations: Mapped[dict | None] = mapped_column(JSONB)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))

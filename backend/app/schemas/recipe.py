@@ -133,8 +133,27 @@ class RecipeOut(RecipeBase):
     shared_by_name: str | None = None
     created_at: datetime
     updated_at: datetime
+    # Contenu traduit dans la langue du compte, pour l'AFFICHAGE seulement
+    # (services/translation_service.py) ; None quand il n'y en a pas (compte
+    # en français, pas encore traduite…). Les champs ci-dessus restent
+    # l'original : c'est lui, et lui seul, que le formulaire d'édition relit
+    # et renvoie.
+    translation: "RecipeTranslation | None" = None
+    # Traduction en cours en arrière-plan : le client relit la fiche.
+    translation_pending: bool = False
 
     model_config = {"from_attributes": True}
+
+
+class RecipeTranslation(BaseModel):
+    title: str
+    description: str | None = None
+    ingredients: list[dict] = []
+    steps: list[dict] = []
+    tags: list[str] = []
+
+
+RecipeOut.model_rebuild()
 
 
 class PublicRecipeOut(BaseModel):

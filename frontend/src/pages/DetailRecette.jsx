@@ -15,6 +15,8 @@ import ExportMfp from '../components/ExportMfp'
 import { BoutonAssistant } from '../assistant/Assistant'
 import { sectionStart, SectionTitle } from '../components/Sections'
 import { useAuth } from '../auth'
+import { libelleCategorie } from '../i18n'
+import { contenuAffiche, DELAI_RELECTURE_TRADUCTION } from '../contenuRecette'
 
 const SOURCE_ICONS = { video: '🎬', web: '🌐', text: '📝', manual: '✏️' }
 const SOURCE_LABELS = { video: 'detail.source.video', web: 'detail.source.web', text: 'detail.source.text', manual: 'detail.source.manual' }
@@ -53,7 +55,7 @@ function scaleQty(q, scale) {
 }
 
 export default function DetailRecette() {
-  const { t } = useAuth()
+  const { t, lang } = useAuth()
   const { id } = useParams()
   const navigate = useNavigate()
   const qc = useQueryClient()
@@ -78,8 +80,12 @@ export default function DetailRecette() {
   const { data: recipe, isLoading, error } = useQuery({
     queryKey: ['recipe', id],
     queryFn: () => getRecipe(id),
-    // Réextraction en cours : on suit sa progression jusqu'à la fin.
-    refetchInterval: (query) => (query.state.data?.reextracting ? 2000 : false),
+    // Réextraction en cours : on suit sa progression jusqu'à la fin. Même
+    // chose pour une traduction lancée en arrière-plan par le serveur.
+    refetchInterval: (query) => (
+      query.state.data?.reextracting ? 2000
+        : query.state.data?.translation_pending ? DELAI_RELECTURE_TRADUCTION : false
+    ),
   })
 
   useEffect(() => {
@@ -109,6 +115,9 @@ export default function DetailRecette() {
   if (isLoading) return <div className="animate-pulse text-gray-400 py-12 text-center">{t('common.loading')}</div>
   if (error) return <div className="text-red-500 py-12 text-center">{t('detail.notFound')}</div>
 
+  // Affichage seulement (traduction du compte) : les enregistrements
+  // ci-dessus n'envoient que des champs précis (notes, avis), jamais `vue`.
+  const vue = contenuAffiche(recipe)
   const totalTime = (recipe.prep_time || 0) + (recipe.cook_time || 0)
   const scaledServings = recipe.servings ? Math.round(recipe.servings * scale) : null
   const currentNotes = notes ?? recipe.notes ?? ''
@@ -128,7 +137,7 @@ export default function DetailRecette() {
         <div>
           <Link to="/" className="text-sm text-orange-600 hover:underline mb-2 inline-block">{t('detail.back')}</Link>
           <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-2">
-            {recipe.title}
+            {vue.title}
             <button onClick={() => favMut.mutate()} title={recipe.is_favorite ? t('detail.removeFavorite') : t('detail.addFavorite')}
               className="text-2xl transition-transform hover:scale-110 flex-shrink-0">
               {recipe.is_favorite ? '❤️' : '🤍'}
@@ -139,7 +148,7 @@ export default function DetailRecette() {
               {t('detail.sharedBy', { name: recipe.shared_by_name })}
             </p>
           )}
-          {recipe.description && <p className="text-gray-500 mt-2">{recipe.description}</p>}
+          {vue.description && <p className="text-gray-500 mt-2">{vue.description}</p>}
           <div className="flex items-center gap-3 mt-3 flex-wrap">
             <Etoiles value={recipe.rating} onChange={(rating) => avisMut.mutate({ rating })} />
             <button onClick={() => avisMut.mutate({ cook_again: !recipe.cook_again })}
@@ -159,7 +168,7 @@ export default function DetailRecette() {
           <Link to={`/recettes/${id}/cuisine`} className="px-3 py-2 text-sm bg-orange-600 text-white hover:bg-orange-700 rounded-lg transition-colors">
             {t('detail.cook')}
           </Link>
-          <BoutonAssistant recipe={recipe} />
+          <BoutonAssistant recipe={vue} />
           <Link to={`/recettes/${id}/modifier`} className="px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors">{t('common.edit')}</Link>
           <button onClick={() => setPanneau(p => p === 'carnets' ? null : 'carnets')} title={t('detail.addToCollection')}
             className={`px-3 py-2 text-sm rounded-lg transition-colors ${panneau === 'carnets' ? 'bg-orange-100 text-orange-700' : 'bg-gray-100 hover:bg-gray-200'}`}>📚</button>
@@ -201,7 +210,7 @@ export default function DetailRecette() {
       {panneau === 'mfp' && (
         <div className="mb-5 p-4 bg-white rounded-xl border border-gray-100">
           <h3 className="font-semibold text-gray-800 mb-3">{t('detail.exportMfp')}</h3>
-          <ExportMfp recipe={recipe} scale={scale} scaleQty={scaleQty} portions={scaledServings}
+          <ExportMfp recipe={vue} scale={scale} scaleQty={scaleQty} portions={scaledServings}
             onShare={() => shareMut.mutate()} busy={shareMut.isPending} />
         </div>
       )}
@@ -267,7 +276,7 @@ export default function DetailRecette() {
 
       {/* Thumbnail */}
       {recipe.thumbnail_url && (
-        <img src={recipe.thumbnail_url} alt={recipe.title} className="w-full aspect-video object-cover rounded-2xl mb-6" />
+        <img src={recipe.thumbnail_url} alt={vue.title} className="w-full aspect-video object-cover rounded-2xl mb-6" />
       )}
 
       {/* Meta */}
@@ -277,9 +286,9 @@ export default function DetailRecette() {
         {totalTime > 0 && <MetaBox label={t('detail.total')} value={`${totalTime} min`} />}
         {recipe.servings && <MetaBox label={t('detail.servings')} value={String(scaledServings ?? recipe.servings)} />}
         {recipe.category && (
-          <span className="self-center px-3 py-1 bg-orange-100 text-orange-700 text-xs font-semibold rounded-full capitalize">{recipe.category}</span>
+          <span className="self-center px-3 py-1 bg-orange-100 text-orange-700 text-xs font-semibold rounded-full capitalize">{libelleCategorie(lang, recipe.category)}</span>
         )}
-        {recipe.tags?.map(tag => (
+        {vue.tags?.map(tag => (
           <span key={tag} className="self-center bg-gray-100 text-gray-600 text-xs px-2 py-1 rounded-full">{tag}</span>
         ))}
       </div>
@@ -316,7 +325,7 @@ export default function DetailRecette() {
       </section>
 
       {/* Ingrédients + scaling */}
-      {recipe.ingredients?.length > 0 && (
+      {vue.ingredients?.length > 0 && (
         <section className="mb-8">
           <div className="flex items-center justify-between mb-4 gap-4 flex-wrap">
             <h2 className="text-xl font-bold text-gray-900">{t('detail.ingredients')}</h2>
@@ -343,10 +352,10 @@ export default function DetailRecette() {
           <p className="text-xs text-gray-400 mb-2">{t('detail.adjustHint')}</p>
           {scale !== 1 && <p className="text-xs text-orange-600 mb-3 font-medium">{t(scaledServings !== 1 ? 'detail.scaledMany' : 'detail.scaledOne', { scale: formatScale(scale), n: scaledServings ?? '?' })}</p>}
           <ul className="bg-white rounded-xl border border-gray-100 divide-y divide-gray-50">
-            {recipe.ingredients.map((ing, i) => {
+            {vue.ingredients.map((ing, i) => {
               const sq = scaleQty(ing.quantity, scale)
               const ajustable = parseFraction(ing.quantity) > 0
-              const section = sectionStart(recipe.ingredients, i)
+              const section = sectionStart(vue.ingredients, i)
               return (
                 <Fragment key={i}>
                 {section && <SectionTitle className="px-4 pt-4 pb-1 bg-orange-50/60">{section}</SectionTitle>}
@@ -377,13 +386,13 @@ export default function DetailRecette() {
       )}
 
       {/* Étapes + timers */}
-      {recipe.steps?.length > 0 && (
+      {vue.steps?.length > 0 && (
         <section className="mb-8">
           <h2 className="text-xl font-bold text-gray-900 mb-4">{t('detail.steps')}</h2>
           <ol className="space-y-5">
-            {recipe.steps.map((step, i) => {
+            {vue.steps.map((step, i) => {
               const timerSec = parseStepTime(step.text)
-              const section = sectionStart(recipe.steps, i)
+              const section = sectionStart(vue.steps, i)
               return (
                 <Fragment key={i}>
                 {section && <SectionTitle className="pt-2">{section}</SectionTitle>}

@@ -1,7 +1,7 @@
 """Assistant culinaire : conversation en streaming avec appels d'outils.
 
 Le modèle (Ollama par défaut, Claude si CLAUDE_API_KEY est définie) répond
-en français et agit sur les données du compte connecté par les outils de
+dans la langue du compte (français par défaut) et agit sur les données du compte connecté par les outils de
 services/assistant_tools.py. La boucle tourne côté serveur : le modèle
 demande un outil, le serveur l'exécute et lui renvoie le résultat, jusqu'à
 une réponse finale (MAX_TOOL_ROUNDS tours d'outils au plus).
@@ -35,6 +35,7 @@ import httpx
 
 from ..config import settings
 from . import assistant_tools as tools
+from . import translation_service
 from .llm_service import CLAUDE_MAX_TOKENS, ollama_chat_request
 
 logger = logging.getLogger(__name__)
@@ -203,11 +204,25 @@ PAGES = {
 }
 
 
-def build_system_prompt(today: date, recipe: dict | None = None, page: str | None = None) -> str:
+# Langue des réponses, d'après la langue de l'interface du compte. Le reste
+# du prompt reste en français : ce sont des consignes au modèle, jamais
+# montrées à l'utilisateur, et il les suit très bien en répondant en anglais.
+REPLY_LANGUAGE = {
+    "fr": "Réponds en français, brièvement, en Markdown simple (listes, gras).",
+    "en": "Reply in English, briefly, in simple Markdown (lists, bold).",
+}
+# Traduction de la recette ouverte : au plus ce délai pris sur l'échéance de
+# la réponse, sinon la conversation se fait sur l'original.
+RECIPE_TRANSLATION_WAIT_SECONDS = 30
+
+
+def build_system_prompt(
+    today: date, recipe: dict | None = None, page: str | None = None, language: str = "fr",
+) -> str:
     lines = [
         "Tu es l'assistant culinaire de Popote, l'appli de recettes de l'utilisateur.",
         f"Nous sommes le {tools.date_fr(today)} ({today.isoformat()}).",
-        "Réponds en français, brièvement, en Markdown simple (listes, gras).",
+        REPLY_LANGUAGE.get(language, REPLY_LANGUAGE["fr"]),
         "Pour ses recettes, son planning et sa liste de courses, utilise les outils : "
         "n'invente jamais une recette de sa bibliothèque ni une action non faite.",
         "Cite une recette de sa bibliothèque par un lien [Titre](/recettes/ID), ID renvoyé par un outil.",
@@ -234,15 +249,84 @@ def build_system_prompt(today: date, recipe: dict | None = None, page: str | Non
     return "\n".join(lines)
 
 
-async def recipe_context(ctx: tools.ToolContext, recipe_id) -> dict | None:
-    """Recette ouverte, si elle appartient bien au compte (sinon ignorée)."""
+# Textes fixes que l'interface affiche pendant la réponse (statut des
+# outils, attente, erreurs connues, pastilles d'action), pour un compte en
+# anglais. Les consignes au modèle restent en français ; ces textes-là, eux,
+# sont montrés tels quels à l'utilisateur. Un texte absent d'ici (message
+# d'erreur d'un fournisseur…) passe inchangé.
+_EVENT_TEXT_EN = {
+    "Recherche dans tes recettes…": "Searching your recipes…",
+    "Je regarde ce que tu peux cuisiner…": "Checking what you can cook…",
+    "Lecture de la recette…": "Reading the recipe…",
+    "Calcul des quantités…": "Working out the quantities…",
+    "Je cherche des recettes proches…": "Looking for similar recipes…",
+    "Je cherche par quoi le remplacer…": "Looking for substitutes…",
+    "J'enregistre la recette…": "Saving the recipe…",
+    "Lecture du planning…": "Reading the meal plan…",
+    "Ajout au planning…": "Adding to the meal plan…",
+    "Lecture de la liste de courses…": "Reading the shopping list…",
+    "Ajout à la liste de courses…": "Adding to the shopping list…",
+    "Claude réfléchit…": "Claude is thinking…",
+    SLOW_MESSAGE: (
+        "The model is busy or loading (a recipe extraction may be running): "
+        "your question is waiting its turn…"
+    ),
+    TIMEOUT_MESSAGE: (
+        f"The assistant did not answer in time ({TIMEOUT_SECONDS} s). The model may be "
+        "busy with a recipe extraction: try again in a moment."
+    ),
+    "L'assistant a rencontré une erreur inattendue.": "The assistant ran into an unexpected error.",
+}
+_ACTION_PREFIX_EN = (
+    ("Recette ajoutée : ", "Recipe added: "),
+    ("Ajouté au planning : ", "Added to the meal plan: "),
+    ("Ajouté à la liste de courses : ", "Added to the shopping list: "),
+)
+
+
+def localize_event(event: dict, language: str) -> dict:
+    """Événement pour l'interface, avec ses textes fixes dans la langue du compte."""
+    if language != "en":
+        return event
+    for key in ("text", "message"):
+        if event.get("type") in ("status", "error") and event.get(key) in _EVENT_TEXT_EN:
+            return {**event, key: _EVENT_TEXT_EN[event[key]]}
+    if event.get("type") == "action" and isinstance(event.get("label"), str):
+        label = event["label"]
+        for fr, en in _ACTION_PREFIX_EN:
+            if label.startswith(fr):
+                rest = label[len(fr):]
+                # « 3 repas », « 4 éléments » : seuls ces compteurs sont en français.
+                rest = rest.replace(" repas", " meals").replace(" éléments", " items").replace(" élément", " item")
+                return {**event, "label": en + rest}
+    return event
+
+
+async def recipe_context(
+    ctx: tools.ToolContext, recipe_id, language: str = "fr", wait: float = RECIPE_TRANSLATION_WAIT_SECONDS,
+) -> dict | None:
+    """Recette ouverte, si elle appartient bien au compte (sinon ignorée).
+
+    Compte dans une autre langue : la recette est donnée au modèle dans la
+    traduction que l'utilisateur a sous les yeux (même cache que la fiche),
+    pour qu'il parle des mêmes ingrédients avec les mêmes mots. Seulement
+    pour cette recette-là : traduire aussi les résultats des outils
+    multiplierait les appels au modèle à chaque message.
+    """
     if not recipe_id:
         return None
     try:
         recipe = await tools.owned_recipe(ctx, str(uuid.UUID(str(recipe_id))))
     except (ValueError, tools.ToolError):
         return None
-    return tools.compact_recipe(recipe)
+    out = tools.compact_recipe(recipe)
+    if language != "fr":
+        translation, _ = await translation_service.translation_for_display(recipe, language, wait=wait)
+        if translation:
+            out["titre"] = translation["title"]
+            out["ingredients"] = [tools.ingredient_line(i) for i in translation["ingredients"]]
+            out["etapes"] = [tools.step_line(s) for s in translation["steps"]]
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -610,7 +694,7 @@ async def run_claude(
 
 async def run_chat(
     user_id: uuid.UUID, messages: list[dict], *, session_factory,
-    recipe_id=None, page: str | None = None, today: date | None = None,
+    recipe_id=None, page: str | None = None, today: date | None = None, language: str = "fr",
 ) -> AsyncIterator[dict]:
     """Répond au dernier message ; produit les événements décrits en tête."""
     loop = asyncio.get_running_loop()
@@ -620,18 +704,25 @@ async def run_chat(
     try:
         async with session_factory() as db:
             ctx = tools.ToolContext(db=db, user_id=user_id, today=today)
-            recipe = await recipe_context(ctx, recipe_id)
-            system = build_system_prompt(today, recipe, (page or "")[:MAX_PAGE_CHARS] or None)
+            recipe = await recipe_context(
+                ctx, recipe_id, language,
+                wait=max(0.0, min(RECIPE_TRANSLATION_WAIT_SECONDS, deadline - loop.time() - 60)),
+            )
+            system = build_system_prompt(
+                today, recipe, (page or "")[:MAX_PAGE_CHARS] or None, language=language,
+            )
             tool_defs = tools.claude_tools() if settings.use_claude else tools.ollama_tools()
             history, trimmed = fit_history(system, messages, tool_defs, prompt_budget())
             runner = run_claude if settings.use_claude else run_ollama
             async for event in runner(ctx, system, history, deadline):
-                yield event
+                yield localize_event(event, language)
     except AssistantTimeout:
-        yield {"type": "error", "message": TIMEOUT_MESSAGE}
+        yield localize_event({"type": "error", "message": TIMEOUT_MESSAGE}, language)
     except ProviderError as exc:
         yield {"type": "error", "message": str(exc)}
     except Exception:
         logger.exception("Assistant en échec")
-        yield {"type": "error", "message": "L'assistant a rencontré une erreur inattendue."}
+        yield localize_event(
+            {"type": "error", "message": "L'assistant a rencontré une erreur inattendue."}, language,
+        )
     yield {"type": "done", "trimmed": trimmed}

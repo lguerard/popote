@@ -13,6 +13,7 @@ from ..models.collection import Collection, CollectionRecipe
 from ..models.recipe import ExtractionStatus, Recipe
 from ..models.user import User
 from ..schemas.recipe import RecipeOut
+from .recipes import recipe_out
 
 router = APIRouter(prefix="/collections", tags=["collections"])
 
@@ -115,7 +116,7 @@ async def get_collection(
     collection = await _owned(db, collection_id, user)
     recipes = await collection_recipes(db, collection)
     return _out(collection, recipes, CollectionDetail,
-                recipes=[RecipeOut.model_validate(r) for r in recipes])
+                recipes=[recipe_out(r, user) for r in recipes])
 
 
 @router.patch("/{collection_id}", response_model=CollectionOut)

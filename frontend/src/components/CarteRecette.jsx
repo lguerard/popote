@@ -1,15 +1,19 @@
 import { Link } from 'react-router-dom'
 import { useAuth } from '../auth'
+import { libelleCategorie } from '../i18n'
+import { contenuAffiche } from '../contenuRecette'
 
 
 const SOURCES = { video: 'carte.source.video', web: 'carte.source.web', text: 'carte.source.text', manual: 'carte.source.manual' }
 
 /** Carte d'une recette : grande photo arrondie avec sa source et le favori, puis titre et durée. */
 export default function CarteRecette({ recipe }) {
-  const { t } = useAuth()
+  const { t, lang } = useAuth()
+  const { title } = contenuAffiche(recipe)
+  const category = recipe.category && libelleCategorie(lang, recipe.category)
   const totalTime = (recipe.prep_time || 0) + (recipe.cook_time || 0)
   const source = SOURCES[recipe.source_type] && t(SOURCES[recipe.source_type])
-  const meta = [totalTime > 0 && `${totalTime} min`, recipe.category && recipe.category[0].toUpperCase() + recipe.category.slice(1)]
+  const meta = [totalTime > 0 && `${totalTime} min`, category && category[0].toUpperCase() + category.slice(1)]
     .filter(Boolean).join(' · ')
 
   return (
@@ -43,7 +47,7 @@ export default function CarteRecette({ recipe }) {
       </div>
       <div className="px-1">
         <h3 className="font-extrabold text-gray-900 leading-snug line-clamp-2 group-hover:text-orange-700 transition-colors">
-          {recipe.title}
+          {title}
         </h3>
         <p className="mt-0.5 flex items-center gap-2 text-sm font-semibold text-gray-500">
           {meta && <span>{totalTime > 0 && '⏱ '}{meta}</span>}

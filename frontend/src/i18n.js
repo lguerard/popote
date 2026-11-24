@@ -220,6 +220,17 @@ const fr = {
     start: 'Démarrer',
     resume: 'Reprendre',
   },
+  categorie: {
+    breakfast: 'petit-déjeuner',
+    starter: 'entrée',
+    main: 'plat',
+    dessert: 'dessert',
+    snack: 'snack',
+    drink: 'boisson',
+    sauce: 'sauce',
+    aperitif: 'apéritif',
+    soup: 'soupe',
+  },
   accueil: {
     cat: {
       favorites: 'Favoris',
@@ -562,9 +573,37 @@ const fr = {
       perfectionniste: '✨ Perfectionniste',
     },
     title: '🏆 Succès',
+    // Succès définis côté serveur (achievement_service.ACHIEVEMENTS), par id :
+    // mêmes textes ici, pour les afficher dans la langue du compte.
+    items: {
+      first_recipe: { name: 'Premier Pas', description: 'Ajoutez votre première recette' },
+      collection_10: { name: 'Collectionneur', description: '10 recettes dans votre collection' },
+      collection_50: { name: 'Bibliothèque', description: '50 recettes dans votre collection' },
+      collection_100: { name: 'Grand Chef', description: '100 recettes dans votre collection' },
+      first_cooking: { name: 'En Cuisine !', description: 'Utilisez Mode Cuisine pour la 1ère fois' },
+      cooking_10: { name: 'Chef Confirmé', description: 'Mode Cuisine utilisé 10 fois' },
+      cooking_50: { name: 'Chef Étoilé', description: 'Mode Cuisine utilisé 50 fois' },
+      first_shopping: { name: 'Organisé', description: 'Générez votre première liste de courses' },
+      first_meal_plan: { name: 'Planificateur', description: 'Planifiez votre première semaine' },
+      full_week: { name: 'Semaine Complète', description: 'Remplissez tous les repas d\'une semaine' },
+      gourmet: { name: 'Gourmet', description: 'Recettes dans 5 catégories différentes' },
+      world_tour: { name: 'Tour du Monde', description: 'Recettes en 3 langues différentes' },
+      video_hunter: { name: 'Chasseur de Vidéos', description: 'Extrayez 10 recettes depuis des vidéos' },
+      first_favorite: { name: 'Coup de Cœur', description: 'Mettez une recette en favori' },
+      nutritionniste: { name: 'Nutritionniste', description: 'Analysez la nutrition de 5 recettes' },
+      photographe: { name: 'Photographe', description: 'Ajoutez une recette par photo/OCR' },
+      noteur: { name: 'Carnet de Notes', description: 'Écrivez des notes sur 3 recettes' },
+    },
   },
   assistant: {
     askTitle: 'Poser une question sur cette recette',
+    erreur: {
+      '401': 'Session expirée : reconnecte-toi.',
+      '409': 'Une réponse est déjà en cours : attends-la ou arrête-la.',
+      '413': 'Message trop long : raccourcis ta question.',
+      injoignable: 'Serveur injoignable : vérifie ta connexion.',
+      statut: 'Erreur {status}',
+    },
     ask: "💬 Demander à l'assistant",
     sugg: {
       cookWithLabel: "Qu'est-ce que je peux cuisiner avec… ?",
@@ -816,6 +855,17 @@ const en = {
     pause: 'Pause',
     start: 'Start',
     resume: 'Resume',
+  },
+  categorie: {
+    breakfast: 'breakfast',
+    starter: 'starter',
+    main: 'main',
+    dessert: 'dessert',
+    snack: 'snack',
+    drink: 'drink',
+    sauce: 'sauce',
+    aperitif: 'appetizer',
+    soup: 'soup',
   },
   accueil: {
     cat: {
@@ -1159,9 +1209,36 @@ const en = {
       perfectionniste: '✨ Perfectionist',
     },
     title: '🏆 Achievements',
+    // Same ids as achievement_service.ACHIEVEMENTS on the server.
+    items: {
+      first_recipe: { name: 'First Steps', description: 'Add your first recipe' },
+      collection_10: { name: 'Collector', description: '10 recipes in your collection' },
+      collection_50: { name: 'Library', description: '50 recipes in your collection' },
+      collection_100: { name: 'Head Chef', description: '100 recipes in your collection' },
+      first_cooking: { name: 'In the Kitchen!', description: 'Use Cooking Mode for the first time' },
+      cooking_10: { name: 'Seasoned Cook', description: 'Cooking Mode used 10 times' },
+      cooking_50: { name: 'Star Chef', description: 'Cooking Mode used 50 times' },
+      first_shopping: { name: 'Organized', description: 'Generate your first shopping list' },
+      first_meal_plan: { name: 'Planner', description: 'Plan your first week' },
+      full_week: { name: 'Full Week', description: 'Fill every meal of a week' },
+      gourmet: { name: 'Gourmet', description: 'Recipes in 5 different categories' },
+      world_tour: { name: 'World Tour', description: 'Recipes in 3 different languages' },
+      video_hunter: { name: 'Video Hunter', description: 'Extract 10 recipes from videos' },
+      first_favorite: { name: 'Love at First Sight', description: 'Mark a recipe as a favorite' },
+      nutritionniste: { name: 'Nutritionist', description: 'Analyze the nutrition of 5 recipes' },
+      photographe: { name: 'Photographer', description: 'Add a recipe from a photo/OCR' },
+      noteur: { name: 'Notebook', description: 'Write notes on 3 recipes' },
+    },
   },
   assistant: {
     askTitle: 'Ask a question about this recipe',
+    erreur: {
+      '401': 'Session expired: log in again.',
+      '409': 'An answer is already in progress: wait for it or stop it.',
+      '413': 'Message too long: shorten your question.',
+      injoignable: 'Server unreachable: check your connection.',
+      statut: 'Error {status}',
+    },
     ask: '💬 Ask the assistant',
     sugg: {
       cookWithLabel: 'What can I cook with…?',
@@ -1214,4 +1291,17 @@ export function translate(lang, key, vars) {
   const texte = chercher(DICTIONNAIRES[lang] || fr, key) ?? chercher(fr, key) ?? key
   if (!vars) return texte
   return texte.replace(/\{(\w+)\}/g, (tout, nom) => (vars[nom] ?? tout))
+}
+
+// Catégorie d'une recette : valeur française fixe enregistrée en base (voir
+// CATEGORIES dans backend/app/services/recipe_parsing.py) → libellé dans la
+// langue du compte. Une valeur inconnue s'affiche telle quelle.
+const CLES_CATEGORIES = {
+  'petit-déjeuner': 'breakfast', entrée: 'starter', plat: 'main', dessert: 'dessert', snack: 'snack',
+  boisson: 'drink', sauce: 'sauce', apéritif: 'aperitif', soupe: 'soup',
+}
+
+export function libelleCategorie(lang, categorie) {
+  const cle = CLES_CATEGORIES[categorie]
+  return cle ? translate(lang, `categorie.${cle}`) : categorie
 }
