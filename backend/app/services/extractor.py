@@ -8,7 +8,7 @@ from .video_service import post_images_text, video_to_text
 from .web_scraper import scrape_url
 from .llm_service import extract_recipe_with_llm, reconstruct_recipe_with_llm, target_language
 from .extraction_steps import error_text
-from . import recipe_finder, recipe_parsing, social
+from . import recipe_finder, recipe_parsing, social, translation_service
 from ..models.recipe import SourceType
 
 logger = logging.getLogger(__name__)
@@ -107,10 +107,10 @@ async def extract(
     Raises on unrecoverable error. Pass db session (and owner_id) for
     duplicate detection. on_progress, if given, is awaited with a short
     human-readable message before each slow step.
-    target_lang : langue de RÉDACTION de ce que l'IA écrit (users.language
-    du compte). Une recette lue telle quelle sur le site (données
-    structurées) garde la langue du site. Le champ "language" reste la
-    langue d'origine de la source.
+    target_lang : langue de RÉDACTION de la recette (users.language du
+    compte). Une recette lue telle quelle sur un site (données structurées)
+    écrite dans l'autre langue est traduite par l'IA (_in_account_language).
+    Le champ "language" reste la langue d'origine de la source.
     """
     progress = on_progress or _noop_progress
     target_lang = target_language(target_lang)
@@ -160,7 +160,7 @@ async def extract(
             # quelle, sans LLM — quelques secondes au lieu d'une ou deux
             # minutes, et rien d'inventé ni de mal recopié.
             await progress("Lecture de la recette publiée par le site…")
-            recipe_data = page.structured_recipe
+            recipe_data = await _in_account_language(page.structured_recipe, target_lang, progress)
     if recipe_data is None and _is_photo_post(source, video_failed) and not recipe_parsing.has_full_recipe(raw_text):
         # Carrousel Instagram, mode photo TikTok : la recette est souvent
         # écrite sur les images elles-mêmes.
@@ -175,6 +175,8 @@ async def extract(
         linked = await recipe_finder.linked_recipe(raw_text, exclude=source)
         if linked:
             recipe_data, link, image = linked
+            # Traduite AVANT d'ajouter la note, déjà dans la langue du compte.
+            recipe_data = await _in_account_language(recipe_data, target_lang, progress)
             _add_note(recipe_data, _linked_note(_domain(link), target_lang))
             thumbnail_url = thumbnail_url or image
     fetched = time.monotonic()
@@ -238,6 +240,37 @@ def _linked_note(domain: str, target_lang: str = "fr") -> str:
     if target_lang == "en":
         return f"Full recipe published on {domain}."
     return f"Recette complète publiée sur {domain}."
+
+
+async def _in_account_language(
+    recipe: dict, target_lang: str, progress: ProgressCallback = _noop_progress,
+) -> dict:
+    """La recette lue telle quelle sur un site, dans la langue du compte.
+
+    Les données structurées sont reprises sans LLM tant qu'elles sont déjà
+    dans la langue du compte (le cas courant : aucun appel en plus). Écrites
+    dans l'autre langue (blog anglais lié par une vidéo française…), elles
+    sont traduites : seuls les textes changent, quantités, ordre et
+    structure restent ceux du site (translation_service.merge_translation).
+    Si la traduction échoue, la recette est gardée telle quelle : juste,
+    mais dans la langue du site, plutôt qu'une extraction en échec.
+    """
+    source_lang = translation_service.scraped_source_language(recipe, target_lang)
+    if source_lang is None:
+        return recipe
+    await progress("Traduction de la recette par l'IA…")
+    content = {field: recipe.get(field) for field in translation_service.CONTENT_FIELDS}
+    try:
+        translated = await translation_service.translate_recipe_content(
+            **content, target_lang=target_lang, source_lang=source_lang,
+        )
+    except Exception as exc:
+        logger.warning(
+            "Traduction %s → %s de la recette « %s » échouée, gardée telle quelle : %s",
+            source_lang, target_lang, recipe.get("title"), error_text(exc),
+        )
+        return recipe
+    return {**recipe, **translated}
 
 
 def _ingredients_only(text: str, target_lang: str = "fr") -> dict | None:

@@ -1,5 +1,10 @@
 """Traduction du contenu des recettes pour l'affichage (comptes en anglais).
 
+Sert aussi, dans l'autre sens, à l'extraction : une recette lue telle quelle
+sur un site (données structurées) dans l'autre langue que celle du compte
+est traduite avant d'être enregistrée (translate_recipe_content avec
+source_lang/target_lang, voir extractor._in_account_language).
+
 Les recettes sont enregistrées en français (l'extraction traduit tout, voir
 SYSTEM_PROMPT dans llm_service.py). Un compte en anglais en voit une
 traduction, faite à la première lecture puis gardée dans
@@ -41,18 +46,74 @@ logger = logging.getLogger(__name__)
 # générique à N langues tant qu'il n'y en a pas d'autre.
 SUPPORTED_LANGUAGES = {"en"}
 
-TRANSLATION_PROMPT = """You are a professional culinary translator. Translate the recipe JSON below from French into natural, idiomatic English as used in English-language cookbooks.
+# Langues entre lesquelles le contenu peut être traduit, dans un sens ou
+# dans l'autre. L'affichage (SUPPORTED_LANGUAGES) ne traduit que vers
+# l'anglais ; l'extraction traduit aussi vers le français une recette lue
+# telle quelle sur un site anglophone (voir extractor._in_account_language).
+TRANSLATION_LANGUAGES = ("fr", "en")
+
+# Ce qui change d'un sens à l'autre : le nom des langues, les unités, les
+# sections et les plats données en exemple. Le reste des consignes est commun.
+_DIRECTIONS = {
+    ("fr", "en"): {
+        "source": "French",
+        "target": "English",
+        "units": (
+            'with standard English cooking abbreviations: "c. à s." / "cuillère à soupe" → "tbsp", '
+            '"c. à c." / "cuillère à café" → "tsp", "pincée" → "pinch", "gousse" → "clove", '
+            '"sachet" → "packet", "verre" → "glass", "botte" → "bunch", "tranche" → "slice". '
+            'Metric units stay metric ("g", "kg", "ml", "cl", "l") — never convert amounts.'
+        ),
+        "sections": '"Pâte" → "Dough", "Garniture" → "Filling", "Glaçage" → "Icing"',
+        "dishes": '"Ratatouille", "Clafoutis"',
+    },
+    ("en", "fr"): {
+        "source": "English",
+        "target": "French",
+        # Seul le MOT de l'unité est traduit, jamais la mesure : « cup »
+        # devient « tasse » (comme le fait déjà recipe_parsing.canonical_unit
+        # à la lecture d'un site), « oz » et « lb » restent tels quels.
+        "units": (
+            'with standard French cooking abbreviations: "tbsp" / "tablespoon" → "c. à s.", '
+            '"tsp" / "teaspoon" → "c. à c.", "cup" → "tasse", "pinch" → "pincée", "clove" → "gousse", '
+            '"packet" → "sachet", "can" → "boîte", "glass" → "verre", "bunch" → "botte", "slice" → "tranche". '
+            'Every unit stays in its own measuring system ("g", "kg", "ml", "l", "oz", "lb", cups…): '
+            "only the unit word is translated — never convert amounts and never switch to metric."
+        ),
+        "sections": '"Dough" → "Pâte", "Filling" → "Garniture", "Frosting" / "Icing" → "Glaçage"',
+        "dishes": '"Brownies", "Cheesecake", "Coleslaw"',
+    },
+}
+
+_PROMPT_TEMPLATE = """You are a professional culinary translator. Translate the recipe JSON below from {source} into natural, idiomatic {target} as used in {target}-language cookbooks.
 Reply ONLY with a valid JSON object, no markdown, no comment, in exactly this format:
-{"title": "...", "description": "...", "ingredients": [{"unit": "...", "name": "...", "notes": "...", "section": "..."}], "steps": [{"text": "...", "section": "..."}], "tags": ["..."]}
+{{"title": "...", "description": "...", "ingredients": [{{"unit": "...", "name": "...", "notes": "...", "section": "..."}}], "steps": [{{"text": "...", "section": "..."}}], "tags": ["..."]}}
 
 Rules:
 - Translate the title, the description, every ingredient's unit, name, notes and section, every step's text and section, and every tag.
-- Units must be translated too, with standard English cooking abbreviations: "c. à s." / "cuillère à soupe" → "tbsp", "c. à c." / "cuillère à café" → "tsp", "pincée" → "pinch", "gousse" → "clove", "sachet" → "packet", "verre" → "glass", "botte" → "bunch", "tranche" → "slice". Metric units stay metric ("g", "kg", "ml", "cl", "l") — never convert amounts.
-- Section titles are translated too ("Pâte" → "Dough", "Garniture" → "Filling", "Glaçage" → "Icing").
+- Units must be translated too, {units}
+- Section titles are translated too ({sections}).
 - Keep EXACTLY the same number of ingredients, steps and tags, in the same order: never add, drop, merge, split or reorder anything. One output item per input item.
 - Preserve meaning, temperatures, durations, numbers and quantities exactly as written inside the text. Quantities themselves are given for context only and are not part of the output.
-- An empty string stays an empty string. Text that is already in English stays as it is.
-- Proper nouns of dishes with no usual English name may stay in French (e.g. "Ratatouille", "Clafoutis")."""
+- An empty string stays an empty string. Text that is already in {target} stays as it is.
+- Proper nouns of dishes with no usual {target} name may stay in {source} (e.g. {dishes})."""
+
+
+def other_language(lang: str) -> str:
+    """L'autre langue de TRANSLATION_LANGUAGES ("fr" ↔ "en")."""
+    return "en" if lang == "fr" else "fr"
+
+
+def translation_prompt(source_lang: str = "fr", target_lang: str = "en") -> str:
+    """Consignes de traduction de source_lang vers target_lang ("fr" ↔ "en")."""
+    try:
+        return _PROMPT_TEMPLATE.format(**_DIRECTIONS[(source_lang, target_lang)])
+    except KeyError:
+        raise ValueError(f"Traduction non prise en charge : {source_lang} → {target_lang}") from None
+
+
+# Sens historique (affichage pour un compte en anglais), inchangé.
+TRANSLATION_PROMPT = translation_prompt("fr", "en")
 
 # Imposé à Ollama (sorties structurées), comme RECIPE_JSON_SCHEMA pour
 # l'extraction : types simples, tous les champs requis.
@@ -150,6 +211,28 @@ def cached_translation(recipe, lang: str | None) -> dict | None:
     return {field: entry.get(field) for field in CONTENT_FIELDS}
 
 
+def _content_text(title, ingredients, steps) -> str:
+    """Titre, noms des ingrédients et texte des étapes : ce sur quoi la
+    langue du contenu est jugée (ni unités, ni quantités, ni tags)."""
+    words = [str(title or "")]
+    words += [str(i.get("name") or "") for i in recipe_parsing.as_list(ingredients) if isinstance(i, dict)]
+    words += [
+        str(s.get("text") if isinstance(s, dict) else s) for s in recipe_parsing.as_list(steps)
+    ]
+    return " ".join(words)
+
+
+def content_language(title, ingredients, steps) -> str | None:
+    """Langue dans laquelle le contenu est ÉCRIT : "fr", "en", ou None si le
+    texte ne permet pas de trancher (trop court, mélangé)."""
+    text = _content_text(title, ingredients, steps)
+    if recipe_parsing.looks_french(text):
+        return "fr"
+    if recipe_parsing.looks_english(text):
+        return "en"
+    return None
+
+
 def already_in(recipe, lang: str) -> bool:
     """Le contenu semble déjà dans la langue voulue (heuristique sur le texte).
 
@@ -160,12 +243,24 @@ def already_in(recipe, lang: str) -> bool:
     """
     if lang != "en":
         return False
-    words = [recipe.title or ""]
-    words += [str(i.get("name") or "") for i in recipe_parsing.as_list(recipe.ingredients) if isinstance(i, dict)]
-    words += [
-        str(s.get("text") if isinstance(s, dict) else s) for s in recipe_parsing.as_list(recipe.steps)
-    ]
-    return recipe_parsing.looks_english(" ".join(words))
+    return recipe_parsing.looks_english(_content_text(recipe.title, recipe.ingredients, recipe.steps))
+
+
+def scraped_source_language(recipe: dict, target_lang: str) -> str | None:
+    """Langue à traduire vers target_lang pour une recette lue telle quelle
+    sur un site (dict pas encore enregistré), ou None si rien à traduire.
+
+    Comme already_in, on juge le texte lui-même, pas le champ "language".
+    Il faut un texte NETTEMENT dans l'autre langue : un contenu ambigu
+    (titre seul, liste très courte) reste tel quel plutôt que de coûter un
+    appel au modèle pour rien.
+    """
+    if target_lang not in TRANSLATION_LANGUAGES:
+        return None
+    written_in = content_language(recipe.get("title"), recipe.get("ingredients"), recipe.get("steps"))
+    if written_in is None or written_in == target_lang:
+        return None
+    return written_in
 
 
 def needs_translation(recipe, lang: str | None) -> bool:
@@ -273,10 +368,12 @@ def merge_translation(title, description, ingredients, steps, tags, data: dict) 
     }
 
 
-def build_translation_request(content: str, *, use_schema: bool = True, temperature: float = 0) -> dict:
+def build_translation_request(
+    content: str, *, use_schema: bool = True, temperature: float = 0, system: str = TRANSLATION_PROMPT,
+) -> dict:
     return llm_service.ollama_chat_request(
         [
-            {"role": "system", "content": TRANSLATION_PROMPT},
+            {"role": "system", "content": system},
             {"role": "user", "content": content},
         ],
         temperature=temperature, num_predict=_NUM_PREDICT,
@@ -286,24 +383,31 @@ def build_translation_request(content: str, *, use_schema: bool = True, temperat
 
 async def translate_recipe_content(
     title, description, ingredients, steps, tags=None, target_lang: str = "en",
+    source_lang: str | None = None,
 ) -> dict:
     """Traduit le contenu d'une recette ; renvoie {title, description,
-    ingredients, steps, tags}, de même forme que l'entrée."""
-    if target_lang not in SUPPORTED_LANGUAGES:
+    ingredients, steps, tags}, de même forme que l'entrée.
+
+    source_lang : langue du contenu, par défaut l'autre langue que
+    target_lang (français → anglais pour l'affichage, anglais → français
+    pour une recette lue sur un site anglophone par un compte français).
+    """
+    if target_lang not in TRANSLATION_LANGUAGES:
         raise ValueError(f"Langue non prise en charge : {target_lang}")
+    system = translation_prompt(source_lang or other_language(target_lang), target_lang)
     content = translation_input(title, description, ingredients, steps, tags)
 
     async def ask(temperature: float) -> dict:
         if settings.use_claude:
             raw = await llm_service.ask_claude(
-                content, system=TRANSLATION_PROMPT, fast=True,
+                content, system=system, fast=True,
                 max_tokens=llm_service.CLAUDE_MAX_TOKENS,
             )
         else:
             async with httpx.AsyncClient(timeout=_TRANSLATION_TIMEOUT_SECONDS) as client:
                 resp = await llm_service.post_ollama_chat(
                     client, lambda use_schema: build_translation_request(
-                        content, use_schema=use_schema, temperature=temperature,
+                        content, use_schema=use_schema, temperature=temperature, system=system,
                     ),
                 )
                 raw = resp.json()["message"]["content"]
