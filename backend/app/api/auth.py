@@ -79,6 +79,7 @@ async def register(data: RegisterIn, db: AsyncSession = Depends(get_db)):
         password_hash=hash_password(data.password),
         status=UserStatus.approved.value if premier else UserStatus.pending.value,
         is_admin=premier,
+        language=data.language,
     )
     db.add(user)
     await db.flush()

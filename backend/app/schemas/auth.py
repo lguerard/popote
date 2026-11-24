@@ -10,6 +10,15 @@ from pydantic import BaseModel, Field, field_validator
 # se connecter.
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
+LANGUES = ("fr", "en")
+
+
+def _valider_langue(value: str) -> str:
+    value = value.strip().lower()
+    if value not in LANGUES:
+        raise ValueError("Langue inconnue (fr ou en)")
+    return value
+
 
 class Credentials(BaseModel):
     email: str
@@ -26,6 +35,9 @@ class Credentials(BaseModel):
 
 class RegisterIn(Credentials):
     display_name: str = Field(min_length=1, max_length=100)
+    # Langue affichee sur l'ecran d'inscription : le compte nait dans la
+    # langue que la personne voyait en le demandant.
+    language: str = "fr"
 
     @field_validator("display_name")
     @classmethod
@@ -34,6 +46,11 @@ class RegisterIn(Credentials):
         if not value:
             raise ValueError("Le nom ne peut pas etre vide")
         return value
+
+    @field_validator("language")
+    @classmethod
+    def _langue_connue(cls, value: str) -> str:
+        return _valider_langue(value)
 
 
 class LoginIn(Credentials):
@@ -52,19 +69,13 @@ class UserOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
-LANGUES = ("fr", "en")
-
-
 class UpdateLanguage(BaseModel):
     language: str
 
     @field_validator("language")
     @classmethod
     def _langue_connue(cls, value: str) -> str:
-        value = value.strip().lower()
-        if value not in LANGUES:
-            raise ValueError("Langue inconnue (fr ou en)")
-        return value
+        return _valider_langue(value)
 
 
 class TokenOut(BaseModel):
