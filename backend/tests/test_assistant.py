@@ -121,9 +121,9 @@ def run(coro_fn):
     return asyncio.run(main())
 
 
-async def call(db: Db, user_id, name, arguments):
+async def call(db: Db, user_id, name, arguments, language: str = "fr"):
     async with db.sessions() as session:
-        ctx = tools.ToolContext(db=session, user_id=user_id, today=TODAY)
+        ctx = tools.ToolContext(db=session, user_id=user_id, today=TODAY, language=language)
         return await tools.run_tool(ctx, name, arguments)
 
 
@@ -860,6 +860,35 @@ def test_create_recipe_saves_a_clean_recipe_once():
         {"order": 2, "text": "Ajouter le beurre de cacahuète."},
         {"order": 3, "text": "Cuire 10 min à 180 °C."},
     ]
+
+
+def test_created_recipe_language_is_the_accounts():
+    """Pas de source : la langue enregistrée est celle du compte (celle dans
+    laquelle l'assistant a rédigé), plus un « fr » figé."""
+    async def scenario(db):
+        await call(db, db.alice, "creer_recette", GENERATED)
+        await call(db, db.bob, "creer_recette", {**GENERATED, "titre": "Vegan peanut butter cookies"},
+                   language="en")
+        return await db.all(Recipe, owner_id=db.alice), await db.all(Recipe, owner_id=db.bob)
+
+    alice, bob = run(scenario)
+    fr = next(r for r in alice if r.title == "Cookies vegan au beurre de cacahuète")
+    en = next(r for r in bob if r.title == "Vegan peanut butter cookies")
+    assert fr.language == "fr" and fr.description.startswith(tools.GENERATED_NOTICES["fr"])
+    assert en.language == "en" and en.description.startswith(tools.GENERATED_NOTICES["en"])
+
+
+def test_run_chat_gives_the_accounts_language_to_the_tools(monkeypatch):
+    async def scenario(db):
+        fake_ollama(monkeypatch, [
+            tool_reply(("creer_recette", {**GENERATED, "titre": "Vegan cookies"})),
+            text_reply("Saved."),
+        ])
+        await chat(db, "Save a vegan cookie recipe", language="en")
+        return await db.all(Recipe, owner_id=db.alice)
+
+    created = next(r for r in run(scenario) if r.title == "Vegan cookies")
+    assert created.language == "en"
 
 
 @pytest.mark.parametrize("arguments, message", [

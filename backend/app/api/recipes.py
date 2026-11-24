@@ -543,11 +543,11 @@ async def reextract_recipe(
     recipe.progress_message = "En attente…"
     await db.commit()
     await db.refresh(recipe)
-    background_tasks.add_task(_run_reextraction, recipe.id, replace_image)
+    background_tasks.add_task(_run_reextraction, recipe.id, replace_image, user.language)
     return recipe_out(recipe, user)
 
 
-async def _run_reextraction(recipe_id: UUID, replace_image: bool = False):
+async def _run_reextraction(recipe_id: UUID, replace_image: bool = False, target_lang: str = "fr"):
     from ..database import AsyncSessionLocal
     from ..services.extractor import extract
     from ..services.extraction_steps import EXTRACTION_TIMEOUT_SECONDS, StepTracker, error_text
@@ -565,7 +565,7 @@ async def _run_reextraction(recipe_id: UUID, replace_image: bool = False):
 
         try:
             data = await asyncio.wait_for(
-                extract(recipe.source_url, on_progress=report_progress),
+                extract(recipe.source_url, on_progress=report_progress, target_lang=target_lang),
                 timeout=EXTRACTION_TIMEOUT_SECONDS,
             )
             steps.record("terminé")

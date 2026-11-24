@@ -41,7 +41,11 @@ MAX_TOOL_RESULT_CHARS = 2500
 MAX_STEP_CHARS = 400
 MAX_SIMILAR_RESULTS = 5
 # En tête de la description d'une recette rédigée par l'assistant.
-GENERATED_NOTICE = "Recette créée par l'assistant : quantités et temps à vérifier."
+GENERATED_NOTICES = {
+    "fr": "Recette créée par l'assistant : quantités et temps à vérifier.",
+    "en": "Recipe created by the assistant: check the quantities and times.",
+}
+GENERATED_NOTICE = GENERATED_NOTICES["fr"]
 
 JOURS = ("lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche")
 MOIS = (
@@ -73,6 +77,9 @@ class ToolContext:
     db: AsyncSession
     user_id: uuid.UUID
     today: date
+    # users.language du compte : langue dans laquelle l'assistant rédige,
+    # donc celle d'une recette qu'il crée.
+    language: str = "fr"
 
 
 @dataclass
@@ -545,13 +552,16 @@ async def create_recipe(ctx: ToolContext, args: CreateArgs) -> ToolOutcome:
             )
 
     description = " ".join((args.description or "").split())
+    # Pas de document source : la recette est rédigée dans la langue de
+    # réponse de l'assistant, celle du compte.
+    language = ctx.language if ctx.language in GENERATED_NOTICES else "fr"
     recipe = Recipe(
         owner_id=ctx.user_id,
         status=ExtractionStatus.done,
         source_type=SourceType.manual,
         title=title,
-        description=f"{GENERATED_NOTICE} {description}".strip(),
-        language="fr",
+        description=f"{GENERATED_NOTICES[language]} {description}".strip(),
+        language=language,
         category=recipe_parsing.normalize_category(args.categorie, title),
         servings=args.portions,
         prep_time=args.preparation_min or None,

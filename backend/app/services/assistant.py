@@ -703,7 +703,7 @@ async def run_chat(
     trimmed = 0
     try:
         async with session_factory() as db:
-            ctx = tools.ToolContext(db=db, user_id=user_id, today=today)
+            ctx = tools.ToolContext(db=db, user_id=user_id, today=today, language=language)
             recipe = await recipe_context(
                 ctx, recipe_id, language,
                 wait=max(0.0, min(RECIPE_TRANSLATION_WAIT_SECONDS, deadline - loop.time() - 60)),

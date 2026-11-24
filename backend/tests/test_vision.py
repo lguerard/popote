@@ -140,7 +140,8 @@ class _FakeSession:
         pass
 
 
-def _run_photo_import(monkeypatch, *, vision, ocr_text="", text_llm=None, dish=None):
+def _run_photo_import(monkeypatch, *, vision, ocr_text="", text_llm=None, dish=None, target_lang=None, langs=None):
+    """langs, si fourni, reçoit (étape, langue de rédaction) de chaque appel à l'IA."""
     pytest.importorskip("fastapi")  # absent de la CI : routes non testées là-bas
     from app import database
     from app.api import extract as extract_api
@@ -150,8 +151,10 @@ def _run_photo_import(monkeypatch, *, vision, ocr_text="", text_llm=None, dish=N
     recipe = _FakeRecipe()
     monkeypatch.setattr(database, "AsyncSessionLocal", lambda: _FakeSession(recipe), raising=False)
 
-    async def fake_vision(data, mime):
+    async def fake_vision(data, mime, target_lang="fr"):
         calls.append("vision")
+        if langs is not None:
+            langs.append(("vision", target_lang))
         if isinstance(vision, Exception):
             raise vision
         return vision
@@ -160,12 +163,16 @@ def _run_photo_import(monkeypatch, *, vision, ocr_text="", text_llm=None, dish=N
         calls.append("ocr")
         return ocr_text
 
-    async def fake_text_llm(text):
+    async def fake_text_llm(text, target_lang="fr"):
         calls.append("text-llm")
+        if langs is not None:
+            langs.append(("text-llm", target_lang))
         return text_llm
 
-    async def fake_dish(text, progress):
+    async def fake_dish(text, progress, target_lang="fr"):
         calls.append("dish")
+        if langs is not None:
+            langs.append(("dish", target_lang))
         return dish, None
 
     async def nothing(*args, **kwargs):
@@ -177,7 +184,8 @@ def _run_photo_import(monkeypatch, *, vision, ocr_text="", text_llm=None, dish=N
     monkeypatch.setattr(extractor, "recipe_for_dish", fake_dish)
     monkeypatch.setattr(extract_api, "_record_achievement", nothing)
     monkeypatch.setattr(extract_api.sharing, "auto_share", nothing)
-    asyncio.run(extract_api._run_image_extraction("id", b"img", "image/jpeg"))
+    args = () if target_lang is None else (target_lang,)
+    asyncio.run(extract_api._run_image_extraction("id", b"img", "image/jpeg", *args))
     return recipe, calls
 
 
